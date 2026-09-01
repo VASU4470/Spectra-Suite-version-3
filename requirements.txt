@@ -1,0 +1,12 @@
+# Core dependencies for Analytical Spectroscopy Suite
+scipy
+pandas
+matplotlib
+openpyxl
+
+# GUI Framework
+PySide6
+
+# Packaging and icon processing
+pyinstaller
+Pillow
