@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
@@ -36,6 +37,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -102,6 +104,224 @@ def _unique_stem(path: Path, existing: list[str]) -> str:
     while f"{stem}_{index}" in existing:
         index += 1
     return f"{stem}_{index}"
+
+
+class TextAnnotationDialog(QDialog):
+    """Qt rich-text composer using Matplotlib mathtext syntax."""
+
+    GREEK = (
+        ("α", r"\alpha"), ("β", r"\beta"), ("γ", r"\gamma"),
+        ("δ", r"\delta"), ("ε", r"\epsilon"), ("ζ", r"\zeta"),
+        ("η", r"\eta"), ("θ", r"\theta"), ("ι", r"\iota"),
+        ("κ", r"\kappa"), ("λ", r"\lambda"), ("μ", r"\mu"),
+        ("ν", r"\nu"), ("ξ", r"\xi"), ("π", r"\pi"),
+        ("ρ", r"\rho"), ("σ", r"\sigma"), ("τ", r"\tau"),
+        ("υ", r"\upsilon"), ("φ", r"\phi"), ("χ", r"\chi"),
+        ("ψ", r"\psi"), ("ω", r"\omega"), ("Γ", r"\Gamma"),
+        ("Δ", r"\Delta"), ("Θ", r"\Theta"), ("Λ", r"\Lambda"),
+        ("Ξ", r"\Xi"), ("Π", r"\Pi"), ("Σ", r"\Sigma"),
+        ("Υ", r"\Upsilon"), ("Φ", r"\Phi"), ("Ψ", r"\Psi"),
+        ("Ω", r"\Omega"),
+    )
+    SYMBOLS = (
+        ("±", r"\pm"), ("×", r"\times"), ("÷", r"\div"),
+        ("≈", r"\approx"), ("≠", r"\neq"), ("≤", r"\leq"),
+        ("≥", r"\geq"), ("∞", r"\infty"), ("√", r"\sqrt{}"),
+        ("∑", r"\sum"), ("∫", r"\int"), ("°", r"^{\circ}"),
+        ("→", r"\rightarrow"), ("∂", r"\partial"), ("Å", r"\AA"),
+    )
+
+    def __init__(
+        self,
+        parent=None,
+        *,
+        text="",
+        color="black",
+        fontsize=12.0,
+        bold=False,
+        italic=False,
+        family="sans-serif",
+        underline=False,
+    ):
+        super().__init__(parent)
+        self.result = None
+        self.setWindowTitle("Text Annotation")
+        self.resize(680, 720)
+        self.setMinimumSize(580, 620)
+        self.setStyleSheet(STYLE)
+        self._build_ui(text, color, fontsize, bold, italic, family, underline)
+
+    def _build_ui(self, text, color, fontsize, bold, italic, family, underline):
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Text and Matplotlib math notation"))
+        self.text_edit = QTextEdit()
+        self.text_edit.setPlainText(text)
+        layout.addWidget(self.text_edit, 1)
+
+        style_group = QGroupBox("Style")
+        style_form = QFormLayout(style_group)
+        flags = QWidget()
+        flags_layout = QHBoxLayout(flags)
+        flags_layout.setContentsMargins(0, 0, 0, 0)
+        self.bold_check = QCheckBox("Bold")
+        self.bold_check.setChecked(bold)
+        self.italic_check = QCheckBox("Italic")
+        self.italic_check.setChecked(italic)
+        self.underline_check = QCheckBox("Underline")
+        self.underline_check.setChecked(underline)
+        flags_layout.addWidget(self.bold_check)
+        flags_layout.addWidget(self.italic_check)
+        flags_layout.addWidget(self.underline_check)
+        style_form.addRow(flags)
+        self.size_spin = QDoubleSpinBox()
+        self.size_spin.setRange(4, 100)
+        self.size_spin.setValue(float(fontsize))
+        style_form.addRow("Font size", self.size_spin)
+        self.family_combo = QComboBox()
+        self.family_combo.addItems(["sans-serif", "serif", "monospace", "cursive", "fantasy"])
+        self.family_combo.setCurrentText(family if family in {
+            "sans-serif", "serif", "monospace", "cursive", "fantasy"
+        } else "sans-serif")
+        style_form.addRow("Font family", self.family_combo)
+        color_widget = QWidget()
+        color_layout = QHBoxLayout(color_widget)
+        color_layout.setContentsMargins(0, 0, 0, 0)
+        self.color_edit = QLineEdit(str(color))
+        color_button = QPushButton("Pick")
+        color_button.clicked.connect(self._choose_color)
+        color_layout.addWidget(self.color_edit)
+        color_layout.addWidget(color_button)
+        style_form.addRow("Color", color_widget)
+        layout.addWidget(style_group)
+
+        insert_group = QGroupBox("Insert at Cursor")
+        insert_layout = QHBoxLayout(insert_group)
+        superscript = QPushButton("x² Superscript")
+        superscript.clicked.connect(lambda: self._insert_math(r"^{}", -1))
+        subscript = QPushButton("x₂ Subscript")
+        subscript.clicked.connect(lambda: self._insert_math(r"_{}", -1))
+        insert_layout.addWidget(superscript)
+        insert_layout.addWidget(subscript)
+        layout.addWidget(insert_group)
+
+        greek_group = QGroupBox("Greek Letters")
+        greek_layout = QGridLayout(greek_group)
+        self._symbol_buttons(greek_layout, self.GREEK, 12)
+        layout.addWidget(greek_group)
+        symbol_group = QGroupBox("Math Symbols")
+        symbol_layout = QGridLayout(symbol_group)
+        self._symbol_buttons(symbol_layout, self.SYMBOLS, 8)
+        layout.addWidget(symbol_group)
+
+        help_text = QLabel(
+            "Symbols use Matplotlib mathtext ($…$), so no LaTeX installation is required."
+        )
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._confirm)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _symbol_buttons(self, layout, values, columns):
+        for index, (label, command) in enumerate(values):
+            button = QPushButton(label)
+            button.setMaximumWidth(42)
+            button.clicked.connect(lambda _checked=False, value=command: self._insert_math(value + " "))
+            layout.addWidget(button, index // columns, index % columns)
+
+    def _insert_math(self, snippet, cursor_offset=0):
+        text = self.text_edit.toPlainText()
+        cursor = self.text_edit.textCursor()
+        position = cursor.position()
+        if not (text.startswith("$") and text.endswith("$") and len(text) >= 2):
+            text = f"${text}$"
+            position = min(position + 1, len(text) - 1)
+            self.text_edit.setPlainText(text)
+            cursor = self.text_edit.textCursor()
+        position = min(max(1, position), len(self.text_edit.toPlainText()) - 1)
+        cursor.setPosition(position)
+        cursor.insertText(snippet)
+        cursor.setPosition(max(1, cursor.position() + cursor_offset))
+        self.text_edit.setTextCursor(cursor)
+        self.text_edit.setFocus()
+
+    def _choose_color(self):
+        color = QColorDialog.getColor(QColor(self.color_edit.text()), self, "Text Color")
+        if color.isValid():
+            self.color_edit.setText(color.name())
+
+    def _confirm(self):
+        text = self.text_edit.toPlainText().strip()
+        if not text:
+            QMessageBox.warning(self, "Text Required", "Enter annotation text first.")
+            return
+        self.result = {
+            "text": text,
+            "color": self.color_edit.text().strip() or "black",
+            "fontsize": self.size_spin.value(),
+            "bold": self.bold_check.isChecked(),
+            "italic": self.italic_check.isChecked(),
+            "family": self.family_combo.currentText(),
+            "underline": self.underline_check.isChecked(),
+        }
+        self.accept()
+
+
+class ExportOptionsDialog(QDialog):
+    """Select export products plus graph format and resolution."""
+
+    def __init__(self, has_deconvolution=False, parent=None):
+        super().__init__(parent)
+        self.result = None
+        self.setWindowTitle("Export Options")
+        self.setStyleSheet(STYLE)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Select items to export:"))
+        self.data_check = QCheckBox("Processed data (.csv)")
+        self.report_check = QCheckBox("Peaks and areas report (.txt)")
+        self.image_check = QCheckBox("Graph image")
+        for widget in (self.data_check, self.report_check, self.image_check):
+            widget.setChecked(True)
+            layout.addWidget(widget)
+        self.deconv_check = QCheckBox("Deconvolution component data (.csv)")
+        self.deconv_check.setChecked(has_deconvolution)
+        self.deconv_check.setEnabled(has_deconvolution)
+        layout.addWidget(self.deconv_check)
+        form = QFormLayout()
+        self.format_combo = QComboBox()
+        self.format_combo.addItems([".png", ".jpg", ".svg", ".pdf", ".tiff"])
+        self.dpi_combo = QComboBox()
+        self.dpi_combo.addItems(["150", "300", "600", "1200"])
+        self.dpi_combo.setCurrentText("300")
+        form.addRow("Image format", self.format_combo)
+        form.addRow("Image DPI", self.dpi_combo)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._confirm)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _confirm(self):
+        if not any((
+            self.data_check.isChecked(), self.report_check.isChecked(),
+            self.image_check.isChecked(), self.deconv_check.isChecked(),
+        )):
+            QMessageBox.warning(self, "Selection Required", "Select at least one export item.")
+            return
+        self.result = {
+            "data": self.data_check.isChecked(),
+            "report": self.report_check.isChecked(),
+            "image": self.image_check.isChecked(),
+            "deconvolution": self.deconv_check.isChecked(),
+            "format": self.format_combo.currentText(),
+            "dpi": int(self.dpi_combo.currentText()),
+        }
+        self.accept()
 
 
 class PlotViewer(QDialog):
@@ -186,12 +406,11 @@ class PlotViewer(QDialog):
         self._build_annotation_tab()
         self._build_analysis_tab()
 
-        self.finish_button = QPushButton(
-            "Next Spectrum" if state.settings.get("mode") == "individual" else "Close Viewer"
-        )
+        self.finish_button = QPushButton()
         self.finish_button.setObjectName("primary")
         self.finish_button.clicked.connect(self.finish_current)
         self.controls_layout.addWidget(self.finish_button)
+        self._refresh_finish_button()
 
     @staticmethod
     def _scroll_tab():
@@ -350,8 +569,22 @@ class PlotViewer(QDialog):
 
         props = QGroupBox("Selected Object")
         form = QFormLayout(props)
+        text_widget = QWidget()
+        text_layout = QHBoxLayout(text_widget)
+        text_layout.setContentsMargins(0, 0, 0, 0)
         self.ann_text_edit = QLineEdit()
+        rich_edit = QPushButton("Rich Edit")
+        rich_edit.clicked.connect(self._edit_rich_annotation)
+        text_layout.addWidget(self.ann_text_edit)
+        text_layout.addWidget(rich_edit)
+        color_widget = QWidget()
+        color_layout = QHBoxLayout(color_widget)
+        color_layout.setContentsMargins(0, 0, 0, 0)
         self.ann_color_edit = QLineEdit("black")
+        color_button = QPushButton("Pick")
+        color_button.clicked.connect(self._choose_annotation_color)
+        color_layout.addWidget(self.ann_color_edit)
+        color_layout.addWidget(color_button)
         self.ann_width_spin = QDoubleSpinBox()
         self.ann_width_spin.setRange(0.1, 20)
         self.ann_width_spin.setValue(2.0)
@@ -360,12 +593,22 @@ class PlotViewer(QDialog):
         self.ann_size_spin.setValue(12)
         self.ann_bold_check = QCheckBox("Bold")
         self.ann_italic_check = QCheckBox("Italic")
-        form.addRow("Text", self.ann_text_edit)
-        form.addRow("Color", self.ann_color_edit)
+        self.ann_underline_check = QCheckBox("Underline")
+        self.ann_family_combo = QComboBox()
+        self.ann_family_combo.addItems(["sans-serif", "serif", "monospace", "cursive", "fantasy"])
+        self.ann_alpha_spin = QDoubleSpinBox()
+        self.ann_alpha_spin.setRange(0.0, 1.0)
+        self.ann_alpha_spin.setSingleStep(0.1)
+        self.ann_alpha_spin.setValue(1.0)
+        form.addRow("Text", text_widget)
+        form.addRow("Color", color_widget)
         form.addRow("Line width", self.ann_width_spin)
         form.addRow("Font size", self.ann_size_spin)
+        form.addRow("Font family", self.ann_family_combo)
+        form.addRow("Opacity", self.ann_alpha_spin)
         form.addRow(self.ann_bold_check)
         form.addRow(self.ann_italic_check)
+        form.addRow(self.ann_underline_check)
         apply_props = QPushButton("Apply properties")
         apply_props.clicked.connect(self._apply_annotation_properties)
         delete = QPushButton("Delete selected")
@@ -424,6 +667,10 @@ class PlotViewer(QDialog):
         clear_baseline = QPushButton("Clear manual baseline")
         clear_baseline.clicked.connect(self.clear_manual_baseline)
         layout.addWidget(clear_baseline)
+        if state.technique == "FTIR":
+            clear_fit = QPushButton("Clear deconvolution fit")
+            clear_fit.clicked.connect(self.clear_deconvolution)
+            layout.addWidget(clear_fit)
 
         self.peak_list = QListWidget()
         layout.addWidget(self.peak_list)
@@ -635,7 +882,7 @@ class PlotViewer(QDialog):
                 return
             state.settings["mode"] = "stack" if choice.clickedButton() == stack else "overlay"
             state.mode_switched_mid_session = True
-            self.finish_button.setText("Close Viewer")
+            self._refresh_finish_button()
         failed = []
         for value in paths:
             path = Path(value)
@@ -951,6 +1198,11 @@ class PlotViewer(QDialog):
         self.baseline_pts = []
         self.update_plot()
 
+    def clear_deconvolution(self):
+        state.file_set[self.current_stem]["deconvs"] = []
+        self.deconv_start = None
+        self.update_plot()
+
     def auto_find_peaks(self):
         if state.technique == "XRD":
             self.auto_find_xrd_peaks()
@@ -1083,8 +1335,40 @@ class PlotViewer(QDialog):
         self.annotation_mgr.set_tool(self.annotation_tool.currentData())
 
     def _request_annotation_text(self):
-        text_value, accepted = QInputDialog.getText(self, "Text Box", "Annotation text:")
-        return text_value if accepted and text_value else None
+        dialog = TextAnnotationDialog(self)
+        return dialog.result if dialog.exec() == QDialog.DialogCode.Accepted else None
+
+    def _choose_annotation_color(self):
+        color = QColorDialog.getColor(
+            QColor(self.ann_color_edit.text()), self, "Annotation Color"
+        )
+        if color.isValid():
+            self.ann_color_edit.setText(color.name())
+
+    def _edit_rich_annotation(self):
+        if not self.annotation_mgr.selected_artist:
+            QMessageBox.information(self, "No Selection", "Select a text annotation first.")
+            return
+        artist, kind = self.annotation_mgr.selected_artist
+        if kind != "text":
+            QMessageBox.information(self, "Not Text", "The selected annotation is not text.")
+            return
+        family = artist.get_fontfamily()[0] if artist.get_fontfamily() else "sans-serif"
+        dialog = TextAnnotationDialog(
+            self,
+            text=artist.get_text(),
+            color=artist.get_color(),
+            fontsize=artist.get_fontsize(),
+            bold=artist.get_fontweight() == "bold",
+            italic=artist.get_fontstyle() == "italic",
+            family=family,
+            underline=bool(getattr(artist, "_spectra_underline", False)),
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.annotation_mgr.update_selected_properties(dialog.result)
+        self._annotation_selected(artist, kind)
+        self._sync_annotation_list()
 
     def _sync_annotation_list(self):
         self.annotation_list.blockSignals(True)
@@ -1107,6 +1391,13 @@ class PlotViewer(QDialog):
             self.ann_size_spin.setValue(float(artist.get_fontsize()))
             self.ann_bold_check.setChecked(artist.get_fontweight() == "bold")
             self.ann_italic_check.setChecked(artist.get_fontstyle() == "italic")
+            self.ann_underline_check.setChecked(
+                bool(getattr(artist, "_spectra_underline", False))
+            )
+            family = artist.get_fontfamily()[0] if artist.get_fontfamily() else "sans-serif"
+            self.ann_family_combo.setCurrentText(family)
+            alpha = artist.get_alpha()
+            self.ann_alpha_spin.setValue(1.0 if alpha is None else float(alpha))
         else:
             color = artist.get_color() if kind == "line" else artist.get_edgecolor()
             try:
@@ -1115,12 +1406,17 @@ class PlotViewer(QDialog):
                 color = str(color)
             self.ann_color_edit.setText(color)
             self.ann_width_spin.setValue(float(artist.get_linewidth()))
+            alpha = artist.get_alpha()
+            self.ann_alpha_spin.setValue(1.0 if alpha is None else float(alpha))
 
     def _apply_annotation_properties(self):
         self.annotation_mgr.update_selected_properties({
             "text": self.ann_text_edit.text(), "color": self.ann_color_edit.text() or "black",
             "fontsize": self.ann_size_spin.value(), "linewidth": self.ann_width_spin.value(),
             "bold": self.ann_bold_check.isChecked(), "italic": self.ann_italic_check.isChecked(),
+            "underline": self.ann_underline_check.isChecked(),
+            "family": self.ann_family_combo.currentText(),
+            "alpha": self.ann_alpha_spin.value(), "text_alpha": self.ann_alpha_spin.value(),
         })
         self._sync_annotation_list()
 
@@ -1161,25 +1457,36 @@ class PlotViewer(QDialog):
         return True
 
     def export_data(self):
+        fs = state.file_set[self.current_stem]
+        options_dialog = ExportOptionsDialog(bool(fs.get("deconvs")), self)
+        if options_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        options = options_dialog.result
         folder = QFileDialog.getExistingDirectory(self, "Select export folder")
         if not folder:
             return
         destination = Path(folder)
-        fs = state.file_set[self.current_stem]
         x, y = self.get_processed_data_for_stem(self.current_stem)
         try:
             header = {
                 "FTIR": "Wavenumber,Intensity", "XRD": "2-Theta,Intensity",
                 "GENERAL": "X,Y",
             }.get(state.technique, "X,Y")
-            np.savetxt(
-                destination / f"{self.current_stem}_processed.csv",
-                np.column_stack((x, y)), delimiter=",", header=header, comments="",
-            )
-            self._write_report(destination / f"{self.current_stem}_analysis_report.txt", fs)
-            self.figure.savefig(destination / f"{self.current_stem}_plot.png", dpi=300, bbox_inches="tight")
-            self._export_deconvolutions(destination, fs)
-        except (OSError, ValueError) as error:
+            if options["data"]:
+                np.savetxt(
+                    destination / f"{self.current_stem}_processed.csv",
+                    np.column_stack((x, y)), delimiter=",", header=header, comments="",
+                )
+            if options["report"]:
+                self._write_report(destination / f"{self.current_stem}_analysis_report.txt", fs)
+            if options["image"]:
+                self.figure.savefig(
+                    destination / f"{self.current_stem}_plot{options['format']}",
+                    dpi=options["dpi"], bbox_inches="tight",
+                )
+            if options["deconvolution"]:
+                self._export_deconvolutions(destination, fs)
+        except Exception as error:
             QMessageBox.critical(self, "Export Error", str(error))
             return
         QMessageBox.information(self, "Export Complete", f"Files saved to:\n{destination}")
@@ -1191,6 +1498,14 @@ class PlotViewer(QDialog):
                 stream.write("2-Theta\tIntensity\tFWHM\tCrystallite size (nm)\n")
                 for row in fs.get("xrd_peaks", []):
                     stream.write("\t".join(f"{value:.5g}" for value in row) + "\n")
+                sizes = [row[3] for row in fs.get("xrd_peaks", []) if row[3] > 0]
+                if sizes:
+                    average = float(np.mean(sizes))
+                    deviation = float(np.std(sizes)) if len(sizes) > 1 else 0.0
+                    stream.write(
+                        f"\nAverage crystallite size: {average:.4g} nm\n"
+                        f"Standard deviation: {deviation:.4g} nm\n"
+                    )
             elif state.technique == "FTIR":
                 stream.write("Wavenumber\tIntensity\tLabel\n")
                 for px, py, label in fs.get("labels", []):
@@ -1231,12 +1546,16 @@ class PlotViewer(QDialog):
     # ---------------------------- extra dialogs --------------------------
     def show_cheat_sheet(self):
         rows = [
-            ("3200–3600", "O–H stretch", "Broad, strong"),
-            ("3300–3500", "N–H stretch", "Medium"),
-            ("2850–3000", "C–H stretch", "Medium/strong"),
-            ("2100–2260", "C≡C / C≡N", "Weak/medium"),
-            ("1650–1750", "C=O stretch", "Strong"),
-            ("1000–1300", "C–O stretch", "Strong"),
+            ("3200–3600", "O–H stretch (alcohols)", "Broad, strong"),
+            ("3300–3500", "N–H stretch (amines)", "Medium"),
+            ("2850–3000", "C–H stretch (alkanes)", "Medium/strong"),
+            ("3000–3100", "=C–H stretch (alkenes)", "Medium"),
+            ("2100–2260", "C≡C / C≡N stretch", "Weak/medium"),
+            ("1650–1750", "C=O stretch (carbonyl)", "Strong"),
+            ("1600–1680", "C=C stretch (alkenes)", "Weak/medium"),
+            ("1500–1600", "N–H bend (amines)", "Medium"),
+            ("1000–1300", "C–O stretch (ethers/esters)", "Strong"),
+            ("600–900", "C–H bend (aromatics)", "Strong"),
         ]
         dialog = QDialog(self)
         dialog.setWindowTitle("FT-IR Functional Groups")
@@ -1269,15 +1588,51 @@ class PlotViewer(QDialog):
         canvas = FigureCanvasQTAgg(figure)
         first, second = figure.subplots(1, 2)
         average = float(np.mean(sizes))
-        first.bar(labels, sizes, color="#89b4fa", edgecolor="black")
-        first.axhline(average, color="red", linestyle="--", label=f"Average {average:.1f} nm")
+        deviation = float(np.std(sizes)) if len(sizes) > 1 else 0.0
+        first.bar(labels, sizes, color="#89b4fa", edgecolor="black", zorder=3)
+        first.axhline(
+            average, color="red", linestyle="--", linewidth=2,
+            label=f"Average: {average:.1f} nm", zorder=4,
+        )
+        if deviation > 0:
+            first.fill_between(
+                [-0.5, len(labels) - 0.5], average - deviation, average + deviation,
+                color="red", alpha=0.12, label=f"±1σ ({deviation:.1f} nm)", zorder=1,
+            )
         first.set_ylabel("Crystallite size (nm)")
+        first.set_xlabel("Peak position (2θ)")
+        first.set_title("Size per Diffraction Peak")
+        first.grid(axis="y", linestyle="--", alpha=0.5, zorder=0)
         first.legend()
-        if len(sizes) > 1:
-            second.hist(sizes, bins=max(3, len(sizes)), color="#a6adc8", edgecolor="black")
+        if len(sizes) > 1 and deviation > 0:
+            second.hist(
+                sizes, bins=max(3, len(sizes)), density=True,
+                color="#a6adc8", edgecolor="black", alpha=0.65, label="Data histogram",
+            )
+            x_curve = np.linspace(
+                float(np.min(sizes) - 3 * deviation),
+                float(np.max(sizes) + 3 * deviation),
+                200,
+            )
+            y_curve = (
+                1 / (deviation * np.sqrt(2 * np.pi))
+                * np.exp(-0.5 * ((x_curve - average) / deviation) ** 2)
+            )
+            second.plot(x_curve, y_curve, color="#89b4fa", linewidth=2.5, label="Gaussian fit")
+            second.axvline(
+                average, color="red", linestyle="--", linewidth=2,
+                label=f"Mean: {average:.1f} nm",
+            )
         else:
-            second.text(0.5, 0.5, "At least two peaks are needed", ha="center", va="center")
+            second.text(
+                0.5, 0.5, "At least two distinct sizes are needed\nfor a Gaussian fit.",
+                ha="center", va="center", transform=second.transAxes,
+            )
         second.set_xlabel("Crystallite size (nm)")
+        second.set_ylabel("Probability density")
+        second.set_title("Gaussian Size Distribution")
+        if len(sizes) > 1 and deviation > 0:
+            second.legend()
         figure.tight_layout()
         layout.addWidget(canvas)
         save = QPushButton("Save chart")
@@ -1294,7 +1649,23 @@ class PlotViewer(QDialog):
             figure.savefig(filename, dpi=300, bbox_inches="tight")
 
     # ------------------------------ closing ------------------------------
+    def _has_next_individual_spectrum(self):
+        if state.settings.get("mode") != "individual" or not self.stems:
+            return False
+        all_stems = [item[0] for item in state.all_data]
+        try:
+            return all_stems.index(self.stems[0]) < len(all_stems) - 1
+        except ValueError:
+            return False
+
+    def _refresh_finish_button(self):
+        label = "Next Spectrum" if self._has_next_individual_spectrum() else "Finish & Close"
+        self.finish_button.setText(label)
+
     def finish_current(self):
+        if not self._has_next_individual_spectrum():
+            self.close()
+            return
         self.sync_annotations_to_state()
         self._skip_close_prompt = True
         self.accept()

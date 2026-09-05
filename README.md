@@ -1,9 +1,17 @@
 **SpectraSuite Version 3 - PySide6 Migration**
 
-> **Migration status:** The Version 3 application is now fully on PySide6.
-> FT-IR, XRD, and General Plotter use the shared Qt setup and Matplotlib canvas.
-> General Plotter remains labeled experimental until its broader format and
-> usability testing is complete.
+> **Migration status:** The Version 3 source migration is complete. FT-IR,
+> XRD, and General Plotter now use PySide6, the shared Qt setup window, and
+> Matplotlib's Qt canvas. The former Tkinter `gui.py` functionality has been
+> moved into `qt_plot_viewer.py` and `qt_setup.py`; no active Python module
+> imports Tkinter. General Plotter remains labeled experimental until its
+> broader format and usability testing is complete.
+
+Version 3 retains the Version 2 analysis workflow, including file management,
+individual/overlay/stacked plots, processing and reference subtraction,
+session save/load, annotations, FT-IR peak/area/deconvolution tools, XRD FWHM
+and crystallite-size analysis, configurable data/report/graph export, and the
+end-of-workflow save prompt.
 
 **SpectraSuite - FT-IR and XRD Analysis (Pilot Study)**
 

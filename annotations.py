@@ -1,6 +1,7 @@
 import matplotlib.patches as patches
 from matplotlib.patches import Ellipse
 from matplotlib.lines import Line2D
+from matplotlib.transforms import IdentityTransform
 import numpy as np
 
 class AnnotationManager:
@@ -30,6 +31,58 @@ class AnnotationManager:
         self.cid_release = self.canvas.mpl_connect('button_release_event', self.on_release)
         self.clipboard = None # Stores the copied object's properties
         self.cid_key = self.canvas.mpl_connect('key_press_event', self.on_key_press)
+        self.cid_draw = self.canvas.mpl_connect('draw_event', self._on_draw)
+
+    def _on_draw(self, _event):
+        """Keep text underlines aligned after zooming, resizing, or panning."""
+        changed = False
+        for artist, kind in self.annotations:
+            if kind == 'text' and getattr(artist, '_spectra_underline', False):
+                changed = self._update_text_underline(artist) or changed
+        if changed:
+            self.canvas.draw_idle()
+
+    def _update_text_underline(self, artist):
+        line = getattr(artist, '_spectra_underline_line', None)
+        if line is None:
+            return False
+        try:
+            renderer = self.canvas.get_renderer()
+            bounds = artist.get_window_extent(renderer=renderer)
+        except (AttributeError, RuntimeError, ValueError):
+            return False
+        x_values = np.asarray([bounds.x0, bounds.x1], dtype=float)
+        y_values = np.asarray([bounds.y0 - 1.5, bounds.y0 - 1.5], dtype=float)
+        old_x = np.asarray(line.get_xdata(), dtype=float)
+        old_y = np.asarray(line.get_ydata(), dtype=float)
+        changed = (
+            old_x.shape != x_values.shape or old_y.shape != y_values.shape
+            or not np.allclose(old_x, x_values) or not np.allclose(old_y, y_values)
+        )
+        line.set_data(x_values, y_values)
+        line.set_color(artist.get_color())
+        line.set_alpha(artist.get_alpha())
+        line.set_linewidth(max(0.8, float(artist.get_fontsize()) / 12.0))
+        return changed
+
+    def _set_text_underline(self, artist, enabled):
+        line = getattr(artist, '_spectra_underline_line', None)
+        if not enabled:
+            if line is not None:
+                line.remove()
+            artist._spectra_underline = False
+            artist._spectra_underline_line = None
+            return
+        if line is None:
+            line = Line2D(
+                [], [], transform=IdentityTransform(), color=artist.get_color(),
+                linewidth=max(0.8, float(artist.get_fontsize()) / 12.0),
+                zorder=artist.get_zorder() + 0.1, clip_on=True,
+            )
+            artist.axes.add_line(line)
+            artist._spectra_underline_line = line
+        artist._spectra_underline = True
+        self._update_text_underline(artist)
 
     def select_by_index(self, idx):
         """Allows the GUI listbox to select an object without clicking the graph."""
@@ -105,13 +158,16 @@ class AnnotationManager:
                 text_weight = "bold" if text_value.get("bold") else "normal"
                 text_style = "italic" if text_value.get("italic") else "normal"
                 text_family = text_value.get("family", "sans-serif")
+                text_underline = bool(text_value.get("underline", False))
             else:
                 text_str = text_value
                 text_color, text_size = "black", 12
                 text_weight, text_style, text_family = "normal", "normal", "sans-serif"
+                text_underline = False
             if text_str:
                 artist = self.active_ax.text(self.start_x, self.start_y, text_str, color=text_color, fontsize=text_size, fontweight=text_weight, fontstyle=text_style, fontfamily=text_family,
                              bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', linewidth=1), zorder=10, picker=15)
+                self._set_text_underline(artist, text_underline)
             self.start_x = None
 
         if artist:
@@ -127,7 +183,9 @@ class AnnotationManager:
 
         if self.active_tool == "none" and self.selected_artist and self.drag_start_pos:
             artist, kind = self.selected_artist
-            if kind == 'text': artist.set_position((self.drag_start_pos[0] + dx, self.drag_start_pos[1] + dy))
+            if kind == 'text':
+                artist.set_position((self.drag_start_pos[0] + dx, self.drag_start_pos[1] + dy))
+                self._update_text_underline(artist)
             elif kind == 'rect':
                 artist.set_x(self.drag_start_pos[0] + dx)
                 artist.set_y(self.drag_start_pos[1] + dy)
@@ -167,6 +225,8 @@ class AnnotationManager:
     def delete_selected(self):
         if self.selected_artist:
             artist, kind = self.selected_artist
+            if kind == 'text':
+                self._set_text_underline(artist, False)
             artist.remove()
             self.annotations.remove(self.selected_artist)
             self.clear_selection()
@@ -181,9 +241,12 @@ class AnnotationManager:
             if 'text' in props: artist.set_text(props['text'])
             if 'color' in props: artist.set_color(props['color'])
             if 'fontsize' in props: artist.set_fontsize(props['fontsize'])
+            if 'family' in props: artist.set_fontfamily(props['family'])
             if 'bold' in props: artist.set_fontweight('bold' if props['bold'] else 'normal')
             if 'italic' in props: artist.set_fontstyle('italic' if props['italic'] else 'normal')
             if 'text_alpha' in props: artist.set_alpha(props['text_alpha'])
+            if 'underline' in props: self._set_text_underline(artist, props['underline'])
+            self._update_text_underline(artist)
 
             bbox = artist.get_bbox_patch()
             if bbox:
@@ -206,6 +269,8 @@ class AnnotationManager:
             self.copy_selected()
         elif event.key in ['ctrl+v', 'cmd+v'] and self.clipboard:
             self.paste_clipboard()
+        elif event.key in ['delete', 'backspace'] and self.selected_artist:
+            self.delete_selected()
         elif event.key in ['up', 'down', 'left', 'right'] and self.selected_artist:
             self.nudge_selected(event.key)
 
@@ -224,6 +289,8 @@ class AnnotationManager:
         elif kind == 'text':
             clip['pos'] = artist.get_position(); clip['text'] = artist.get_text(); clip['c'] = artist.get_color()
             clip['fs'] = artist.get_fontsize(); clip['fw'] = artist.get_fontweight(); clip['fsy'] = artist.get_fontstyle()
+            clip['family'] = artist.get_fontfamily()[0] if artist.get_fontfamily() else 'sans-serif'
+            clip['underline'] = bool(getattr(artist, '_spectra_underline', False))
             clip['alpha'] = artist.get_alpha()
             bbox = artist.get_bbox_patch()
             clip['box_alpha'] = bbox.get_alpha() if bbox else 1.0
@@ -255,8 +322,9 @@ class AnnotationManager:
             artist = Ellipse((clip['center'][0]+dx, clip['center'][1]+dy), width=clip['w'], height=clip['h'], linewidth=clip['lw'], edgecolor=clip['ec'], facecolor='none', zorder=10, picker=15, alpha=clip['alpha'])
             self.active_ax.add_patch(artist)
         elif kind == 'text':
-            artist = self.active_ax.text(clip['pos'][0]+dx, clip['pos'][1]+dy, clip['text'], color=clip['c'], fontsize=clip['fs'], fontweight=clip['fw'], fontstyle=clip['fsy'], alpha=clip['alpha'],
+            artist = self.active_ax.text(clip['pos'][0]+dx, clip['pos'][1]+dy, clip['text'], color=clip['c'], fontsize=clip['fs'], fontweight=clip['fw'], fontstyle=clip['fsy'], fontfamily=clip.get('family', 'sans-serif'), alpha=clip['alpha'],
                                          bbox=dict(facecolor='white', alpha=clip['box_alpha'], edgecolor=clip['box_ec'], linewidth=1 if clip['box_ec']!='none' else 0), zorder=10, picker=15)
+            self._set_text_underline(artist, clip.get('underline', False))
         elif kind == 'arrow':
             artist = patches.FancyArrowPatch((clip['posA'][0]+dx, clip['posA'][1]+dy), (clip['posB'][0]+dx, clip['posB'][1]+dy), arrowstyle='->', color=clip['c'], mutation_scale=20, linewidth=clip['lw'], zorder=10, picker=15)
             self.active_ax.add_patch(artist)
@@ -290,6 +358,7 @@ class AnnotationManager:
         if kind == 'text':
             pos = artist.get_position()
             artist.set_position((pos[0] + dx, pos[1] + dy))
+            self._update_text_underline(artist)
         elif kind == 'rect':
             artist.set_x(artist.get_x() + dx)
             artist.set_y(artist.get_y() + dy)
@@ -318,6 +387,8 @@ class AnnotationManager:
             elif kind == 'text':
                 clip['pos'] = artist.get_position(); clip['text'] = artist.get_text(); clip['c'] = artist.get_color()
                 clip['fs'] = artist.get_fontsize(); clip['fw'] = artist.get_fontweight(); clip['fsy'] = artist.get_fontstyle()
+                clip['family'] = artist.get_fontfamily()[0] if artist.get_fontfamily() else 'sans-serif'
+                clip['underline'] = bool(getattr(artist, '_spectra_underline', False))
                 clip['alpha'] = artist.get_alpha()
                 bbox = artist.get_bbox_patch()
                 clip['box_alpha'] = bbox.get_alpha() if bbox else 1.0
@@ -348,8 +419,9 @@ class AnnotationManager:
                 artist = Ellipse(clip['center'], width=clip['w'], height=clip['h'], linewidth=clip['lw'], edgecolor=clip['ec'], facecolor='none', zorder=10, picker=15, alpha=clip.get('alpha', 1.0))
                 ax.add_patch(artist)
             elif kind == 'text':
-                artist = ax.text(clip['pos'][0], clip['pos'][1], clip['text'], color=clip['c'], fontsize=clip['fs'], fontweight=clip['fw'], fontstyle=clip['fsy'], alpha=clip.get('alpha', 1.0),
+                artist = ax.text(clip['pos'][0], clip['pos'][1], clip['text'], color=clip['c'], fontsize=clip['fs'], fontweight=clip['fw'], fontstyle=clip['fsy'], fontfamily=clip.get('family', 'sans-serif'), alpha=clip.get('alpha', 1.0),
                                  bbox=dict(facecolor='white', alpha=clip.get('box_alpha', 1.0), edgecolor=clip.get('box_ec', 'none'), linewidth=1 if clip.get('box_ec', 'none')!='none' else 0), zorder=10, picker=15)
+                self._set_text_underline(artist, clip.get('underline', False))
             elif kind == 'arrow':
                 artist = patches.FancyArrowPatch(clip['posA'], clip['posB'], arrowstyle='->', color=clip['c'], mutation_scale=20, linewidth=clip['lw'], zorder=10, picker=15)
                 ax.add_patch(artist)
