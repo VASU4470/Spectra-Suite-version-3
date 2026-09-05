@@ -148,6 +148,7 @@ try:
                     f.write(traceback.format_exc())
             except Exception:
                 pass
+            raise
 
     if __name__ == "__main__":
         run()

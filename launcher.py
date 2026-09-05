@@ -26,14 +26,13 @@ class Workspace:
     key: str
     title: str
     icon: str
-    script: str
     experimental: bool = False
 
 
 WORKSPACES = (
-    Workspace("ir", "FT-IR\nSpectroscopy", "📈", "ir.py"),
-    Workspace("xrd", "XRD\nAnalysis", "📊", "xrd.py"),
-    Workspace("general", "General\nPlotter", "📉", "general.py", experimental=True),
+    Workspace("ir", "FT-IR\nSpectroscopy", "📈"),
+    Workspace("xrd", "XRD\nAnalysis", "📊"),
+    Workspace("general", "General\nPlotter", "📉", experimental=True),
 )
 
 
@@ -116,11 +115,6 @@ class WelcomeDashboard(QWidget):
             )
             return
 
-        script_path = Path(__file__).resolve().parent / workspace.script
-        if not script_path.exists():
-            QMessageBox.critical(self, "Launch Error", f"Missing workspace: {workspace.script}")
-            return
-
         button = self._buttons[workspace.key]
         original_text = button.text()
         button.setText("⏳\n\nStarting…")
@@ -128,12 +122,23 @@ class WelcomeDashboard(QWidget):
 
         process = QProcess(self)
         process.setProgram(sys.executable)
-        process.setArguments([str(script_path)])
-        process.setWorkingDirectory(str(script_path.parent))
+        if getattr(sys, "frozen", False):
+            # In a PyInstaller build sys.executable is the SpectraSuite app,
+            # not a Python interpreter. Relaunch it with an explicit dispatch
+            # argument instead of passing a .py path that may not exist.
+            process.setArguments(["--workspace", workspace.key])
+        else:
+            process.setArguments([
+                str(Path(__file__).resolve()), "--workspace", workspace.key,
+            ])
+        process.setWorkingDirectory(str(Path(__file__).resolve().parent))
         process.errorOccurred.connect(
             lambda _error, item=workspace, proc=process: self._show_process_error(item, proc)
         )
-        process.finished.connect(lambda: self._processes.pop(workspace.key, None))
+        process.finished.connect(
+            lambda exit_code, _status, item=workspace, proc=process:
+                self._process_finished(item, proc, exit_code)
+        )
         self._processes[workspace.key] = process
         process.start()
         QTimer.singleShot(3000, lambda: self._reset_button(button, original_text))
@@ -144,14 +149,43 @@ class WelcomeDashboard(QWidget):
             f"Could not start {workspace.title.replace(chr(10), ' ')}.\n{process.errorString()}",
         )
 
+    def _process_finished(
+        self, workspace: Workspace, process: QProcess, exit_code: int
+    ) -> None:
+        if self._processes.get(workspace.key) is process:
+            self._processes.pop(workspace.key, None)
+        if exit_code:
+            QMessageBox.critical(
+                self,
+                "Workspace Error",
+                f"{workspace.title.replace(chr(10), ' ')} stopped during startup.\n\n"
+                "A crash report was written to your Desktop when possible.",
+            )
+
     @staticmethod
     def _reset_button(button: QPushButton, original_text: str) -> None:
         button.setText(original_text)
         button.setEnabled(True)
 
 
+def run_workspace(key: str) -> int:
+    """Dispatch a workspace in a fresh source or frozen application process."""
+    if key == "ir":
+        from ir import run
+    elif key == "xrd":
+        from xrd import run
+    elif key == "general":
+        from general import run
+    else:
+        raise ValueError(f"Unknown workspace: {key}")
+    run()
+    return 0
+
+
 def main() -> int:
     multiprocessing.freeze_support()
+    if len(sys.argv) == 3 and sys.argv[1] == "--workspace":
+        return run_workspace(sys.argv[2])
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
             "analytical.spectroscopy.suite.3"

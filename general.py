@@ -110,6 +110,7 @@ def run():
             desktop_path.write_text(traceback.format_exc(), encoding="utf-8")
         except OSError:
             pass
+        raise
 
 
 if __name__ == "__main__":
