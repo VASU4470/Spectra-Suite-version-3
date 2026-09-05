@@ -97,16 +97,7 @@ class AnnotationManager:
             artist = patches.FancyArrowPatch((self.start_x, self.start_y), (self.start_x, self.start_y), arrowstyle='->', color='red', mutation_scale=20, linewidth=2, zorder=10, picker=15)
             self.active_ax.add_patch(artist)
         elif kind == "text":
-            if self.text_input_provider is not None:
-                text_value = self.text_input_provider()
-            else:
-                # Compatibility fallback for the legacy Tk viewer.  The Qt
-                # viewer supplies text_input_provider and never imports Tk.
-                from tkinter import simpledialog
-                parent_window = self.canvas.get_tk_widget().winfo_toplevel()
-                text_value = simpledialog.askstring(
-                    "Text Box", "Enter your annotation:", parent=parent_window
-                )
+            text_value = self.text_input_provider() if self.text_input_provider else None
             if isinstance(text_value, dict):
                 text_str = text_value.get("text")
                 text_color = text_value.get("color", "black")

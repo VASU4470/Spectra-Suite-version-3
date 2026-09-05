@@ -1,163 +1,115 @@
-import sys
+"""PySide6 General Plotter workspace."""
+
+from __future__ import annotations
+
 import os
+import sys
 import traceback
-import tkinter as tk
-from tkinter import messagebox
+from pathlib import Path
+
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from config import state
-from gui import SetupGUI, PlotViewer, ColumnPickerDialog
-from theme import apply_theme
+from qt_plot_viewer import run_plot_viewer
+from qt_setup import run_setup_dialog
+from readers import read_generic_configured
 
 
-def load_data_files(root_window, fmt):
-    """Reads every selected file using the column configuration the user
-    confirmed in ColumnPickerDialog (same config applied to all files in
-    this session -- see readers.read_generic_configured)."""
-    from pathlib import Path
-    from readers import read_generic_configured
+def _unique_stem(path: Path, used: set[str]) -> str:
+    stem = path.stem
+    if stem not in used:
+        return stem
+    index = 2
+    while f"{stem}_{index}" in used:
+        index += 1
+    return f"{stem}_{index}"
 
-    file_list = [Path(f) for f in state.settings.get('files', [])]
+
+def load_data_files(fmt, parent=None):
+    """Read selected files using the confirmed General Plotter configuration."""
+    file_list = [Path(value) for value in state.settings.get("files", [])]
     if not file_list:
-        messagebox.showerror("Error", "No files selected or found.", parent=root_window)
+        QMessageBox.critical(parent, "Error", "No files selected or found.")
         return False
 
     bad_files = []
-    for p in file_list:
+    used = set()
+    for path in file_list:
         try:
-            x, y = read_generic_configured(p, **fmt)
-            if len(x) > 2:
-                state.all_data.append((p.stem, x, y))
-            else:
-                bad_files.append(p)
+            x, y = read_generic_configured(path, **fmt)
+            if len(x) <= 2:
+                raise ValueError("not enough numeric rows")
         except Exception:
-            bad_files.append(p)
+            bad_files.append(path)
+            continue
+        stem = _unique_stem(path, used)
+        used.add(stem)
+        state.all_data.append((stem, x, y))
 
     if bad_files:
-        names = "\n".join(f"  - {p.name}" for p in bad_files[:10])
-        more = f"\n  ...and {len(bad_files) - 10} more" if len(bad_files) > 10 else ""
-        msg = (f"The following file(s) produced no usable numeric data with the "
-               f"current column configuration:\n\n{names}{more}\n\n"
-               f"Try adjusting the delimiter, header rows, or column indices.")
-        messagebox.showerror("Parsing Error", msg, parent=root_window)
-
-        if not state.all_data:
-            return False
-
-    state.technique = 'GENERAL'
-    return True
+        names = "\n".join(f"• {path.name}" for path in bad_files[:10])
+        more = f"\n…and {len(bad_files) - 10} more" if len(bad_files) > 10 else ""
+        QMessageBox.warning(
+            parent,
+            "Parsing Error",
+            "These files produced no usable numeric data with the selected "
+            f"configuration:\n\n{names}{more}\n\nAdjust the delimiter, header rows, or columns.",
+        )
+    return bool(state.all_data)
 
 
 def main():
-    state.technique = 'GENERAL'
-    state.global_set['xlabel'] = 'X'
-    state.global_set['ylabel'] = 'Y'
+    state.technique = "GENERAL"
+    state.global_set["xlabel"] = "X"
+    state.global_set["ylabel"] = "Y"
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("SpectraSuite General Plotter")
 
-    # ==========================================
-    # OUTER LOOP: mirrors ir.py/xrd.py's main() -- see ir.py for the detailed
-    # explanation of why this replaced os.execl() for the "Return to Menu" flow.
-    # ==========================================
     while True:
         state.restart_to_menu = False
         state.mode_switched_mid_session = False
 
-        # ==========================================
-        # RETRY LOOP: Keeps app open if files fail or the user cancels the
-        # column-picker instead of committing to a configuration.
-        # ==========================================
         while True:
             state.all_data.clear()
+            setup = run_setup_dialog()
+            if not setup.ready:
+                return
+            if setup.loaded_from_session:
+                break
+            fmt = state.general_format or state.settings.get("general_format")
+            if fmt and load_data_files(fmt):
+                state.init_file_settings()
+                break
 
-            root = tk.Tk()
-            apply_theme(root)
-            setup_app = SetupGUI(root)
-            root.mainloop()
-
-            if not setup_app.ready:
-                sys.exit()
-
-            dummy_root = tk.Tk()
-            apply_theme(dummy_root)
-            dummy_root.withdraw()
-
-            if getattr(setup_app, 'loaded_from_session', False):
-                break  # Success! Go straight to the plotter.
-            else:
-                files = state.settings.get('files', [])
-                if not files:
-                    messagebox.showerror("Error", "No files selected.", parent=dummy_root)
-                    dummy_root.destroy()
-                    continue
-
-                # Unlike FTIR/XRD, general data doesn't follow a known
-                # convention -- ask once how to parse it (using the first
-                # selected file as a live preview), then apply that
-                # configuration to every selected file.
-                picker = ColumnPickerDialog(dummy_root, files[0])
-                dummy_root.wait_window(picker)
-
-                if picker.result is None:
-                    # Cancelled -- back to setup rather than guessing a config.
-                    dummy_root.destroy()
-                    continue
-
-                state.general_format = picker.result
-                if load_data_files(dummy_root, picker.result):
-                    state.init_file_settings()
-                    break
-                else:
-                    dummy_root.destroy()
-                    continue
-        # ==========================================
-
-        mode = state.settings.get('mode', 'individual')
-
-        if mode in ['overlay', 'stack']:
-            title = "Overlay Mode" if mode == 'overlay' else "Stacked Grid Mode"
-            viewer = PlotViewer(dummy_root, state.all_data, title, out_dir=None)
-            dummy_root.wait_window(viewer)
-
-        elif mode == 'individual':
-            for i, data_tuple in enumerate(state.all_data):
+        mode = state.settings.get("mode", "individual")
+        if mode in {"overlay", "stack"}:
+            title = "General Data Overlay" if mode == "overlay" else "General Data Stacked Grid"
+            run_plot_viewer(state.all_data, title)
+        else:
+            for index, data_tuple in enumerate(state.all_data):
                 stem = data_tuple[0]
-                viewer = PlotViewer(dummy_root, [data_tuple], f"File {i+1}/{len(state.all_data)}: {stem}", out_dir=None)
-                dummy_root.wait_window(viewer)
-
-                if state.restart_to_menu:
+                result = run_plot_viewer(
+                    [data_tuple],
+                    f"General Data {index + 1}/{len(state.all_data)}: {stem}",
+                )
+                if result != QDialog.DialogCode.Accepted:
                     break
-                if state.mode_switched_mid_session:
-                    # See ir.py's identical comment.
+                if state.restart_to_menu or state.mode_switched_mid_session:
                     break
-
-        dummy_root.destroy()
 
         if not state.restart_to_menu:
             break
-    # ==========================================
 
 
 def run():
-    """Entry point for launcher.py's multiprocessing.Process(target=...).
-
-    IMPORTANT: this exists because the old 'if __name__ == "__main__":
-    main()' crash handler below NEVER actually runs when main() is invoked
-    this way -- multiprocessing.Process(target=general.main) calls the main
-    function object directly; it doesn't re-trigger this module's
-    __main__ guard. That meant any exception inside main() (a bug in a
-    dialog, a bad file read, anything) silently killed the child process
-    with zero error message -- which looks exactly like 'the window just
-    never opened'. Wrapping main() in its own try/except here means errors
-    get written to CRASH_REPORT_GENERAL.txt regardless of entry path.
-    """
     try:
         main()
     except Exception:
-        desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", "CRASH_REPORT_GENERAL.txt")
+        desktop_path = Path(os.path.expanduser("~")) / "Desktop" / "CRASH_REPORT_GENERAL.txt"
         try:
-            with open(desktop_path, "w") as f:
-                f.write("THE APP CRASHED. HERE IS THE EXACT ERROR:\n\n")
-                f.write(traceback.format_exc())
-        except Exception:
-            pass  # last resort -- don't let the crash-reporter itself crash silently
+            desktop_path.write_text(traceback.format_exc(), encoding="utf-8")
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ from scipy.signal import find_peaks
 from annotations import AnnotationManager
 from config import state
 from processing import process_spectrum
-from readers import robust_read_spectrum
+from readers import read_generic_configured, robust_read_spectrum
 
 
 STYLE = """
@@ -114,7 +114,9 @@ class PlotViewer(QDialog):
         self.setMinimumSize(1000, 650)
         self.setStyleSheet(STYLE)
 
-        icon_name = "xrd_icon.png" if state.technique == "XRD" else "ir_icon.png"
+        icon_name = {
+            "XRD": "xrd_icon.png", "FTIR": "ir_icon.png", "GENERAL": "icon.png"
+        }.get(state.technique, "icon.png")
         icon_path = Path(__file__).resolve().parent / icon_name
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -384,6 +386,8 @@ class PlotViewer(QDialog):
         self.click_mode.addItem("Navigation", "none")
         if state.technique == "XRD":
             self.click_mode.addItem("Pick XRD peak", "xrd_peak")
+        elif state.technique == "GENERAL":
+            self.click_mode.addItem("Pick point", "peak")
         else:
             self.click_mode.addItem("Pick FT-IR peak", "peak")
         self.click_mode.addItem("Calculate area", "area")
@@ -436,7 +440,7 @@ class PlotViewer(QDialog):
             chart = QPushButton("Grain-size chart")
             chart.clicked.connect(self.show_grain_size_chart)
             layout.addWidget(chart)
-        else:
+        elif state.technique == "FTIR":
             cheat = QPushButton("FT-IR functional-group cheat sheet")
             cheat.clicked.connect(self.show_cheat_sheet)
             layout.addWidget(cheat)
@@ -613,9 +617,11 @@ class PlotViewer(QDialog):
 
     def add_files(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Add data files", "", "Data files (*.dpt *.csv *.txt *.xy *.dat *.xlsx);;All files (*)"
+            self, "Add data files", "", "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.xlsx *.xls);;All files (*)"
         )
         if not paths:
+            return
+        if state.technique == "GENERAL" and not self._ensure_general_format(Path(paths[0])):
             return
         if state.settings.get("mode") == "individual" and self.stems:
             choice = QMessageBox(self)
@@ -634,7 +640,7 @@ class PlotViewer(QDialog):
         for value in paths:
             path = Path(value)
             try:
-                x, y = robust_read_spectrum(path)
+                x, y = self._read_data_file(path)
                 if len(x) <= 10:
                     raise ValueError("not enough numeric rows")
             except Exception:
@@ -652,12 +658,14 @@ class PlotViewer(QDialog):
 
     def replace_current(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Replace current data", "", "Data files (*.dpt *.csv *.txt *.xy *.dat *.xlsx);;All files (*)"
+            self, "Replace current data", "", "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.xlsx *.xls);;All files (*)"
         )
         if not path:
             return
+        if state.technique == "GENERAL" and not self._ensure_general_format(Path(path)):
+            return
         try:
-            x, y = robust_read_spectrum(path)
+            x, y = self._read_data_file(Path(path))
             if len(x) <= 10:
                 raise ValueError("The file did not contain enough numeric data")
         except Exception as error:
@@ -672,6 +680,25 @@ class PlotViewer(QDialog):
         for key in ("labels", "areas", "deconvs", "xrd_peaks", "manual_baseline_pts"):
             fs[key] = []
         self.update_plot()
+
+    def _read_data_file(self, path):
+        if state.technique != "GENERAL":
+            return robust_read_spectrum(path)
+        configuration = state.general_format or state.settings.get("general_format")
+        if not configuration:
+            raise ValueError("General Plotter column configuration is missing")
+        return read_generic_configured(path, **configuration)
+
+    def _ensure_general_format(self, sample_path):
+        if state.general_format or state.settings.get("general_format"):
+            return True
+        from qt_setup import ColumnPickerDialog
+        picker = ColumnPickerDialog(sample_path, self)
+        if picker.exec() != QDialog.DialogCode.Accepted:
+            return False
+        state.general_format = picker.result
+        state.settings["general_format"] = picker.result
+        return True
 
     def remove_current(self):
         if len(self.stems) <= 1:
@@ -930,7 +957,7 @@ class PlotViewer(QDialog):
             return
         x, y = self.get_processed_data_for_stem(self.current_stem)
         fs = state.file_set[self.current_stem]
-        search_y = y if fs.get("t2a", False) else -y
+        search_y = y if state.technique == "GENERAL" or fs.get("t2a", False) else -y
         peaks, _ = find_peaks(search_y, prominence=self.prominence_spin.value())
         existing = fs.setdefault("labels", [])
         for index in peaks:
@@ -1017,9 +1044,12 @@ class PlotViewer(QDialog):
         if state.technique == "XRD":
             for px, _py, fwhm, size in fs.get("xrd_peaks", []):
                 self.peak_list.addItem(f"2θ {px:.2f}° | FWHM {fwhm:.2f}° | {size:.1f} nm")
-        else:
+        elif state.technique == "FTIR":
             for px, _py, text_value in fs.get("labels", []):
                 self.peak_list.addItem(f"Peak {px:.1f} cm⁻¹ ({text_value})")
+        else:
+            for px, py, _text_value in fs.get("labels", []):
+                self.peak_list.addItem(f"Point ({px:.5g}, {py:.5g})")
         for x1, x2, area in fs.get("areas", []):
             self.peak_list.addItem(f"Area {area:.3g} ({x1:.2f}–{x2:.2f})")
 
@@ -1138,7 +1168,10 @@ class PlotViewer(QDialog):
         fs = state.file_set[self.current_stem]
         x, y = self.get_processed_data_for_stem(self.current_stem)
         try:
-            header = "Wavenumber,Intensity" if state.technique == "FTIR" else "2-Theta,Intensity"
+            header = {
+                "FTIR": "Wavenumber,Intensity", "XRD": "2-Theta,Intensity",
+                "GENERAL": "X,Y",
+            }.get(state.technique, "X,Y")
             np.savetxt(
                 destination / f"{self.current_stem}_processed.csv",
                 np.column_stack((x, y)), delimiter=",", header=header, comments="",
@@ -1158,8 +1191,12 @@ class PlotViewer(QDialog):
                 stream.write("2-Theta\tIntensity\tFWHM\tCrystallite size (nm)\n")
                 for row in fs.get("xrd_peaks", []):
                     stream.write("\t".join(f"{value:.5g}" for value in row) + "\n")
-            else:
+            elif state.technique == "FTIR":
                 stream.write("Wavenumber\tIntensity\tLabel\n")
+                for px, py, label in fs.get("labels", []):
+                    stream.write(f"{px:.5g}\t{py:.5g}\t{label}\n")
+            else:
+                stream.write("X\tY\tLabel\n")
                 for px, py, label in fs.get("labels", []):
                     stream.write(f"{px:.5g}\t{py:.5g}\t{label}\n")
             if fs.get("areas"):

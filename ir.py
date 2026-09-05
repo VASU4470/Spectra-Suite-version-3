@@ -18,7 +18,7 @@ try:
     # parsing behavior for comma/tab/space/semicolon-delimited input).
 
     def load_data_files(parent=None):
-        # We unified the files logic in gui.py, so we just read from state.settings['files']
+        # The shared Qt setup dialog stores the ordered selection here.
         file_list = [Path(f) for f in state.settings.get('files', [])]
             
         if not file_list:
@@ -61,10 +61,8 @@ try:
 
         # ==========================================
         # OUTER LOOP: each pass is one full "setup -> view -> exit/menu" cycle.
-        # A pass ends either by exiting (handled directly via os._exit in
-        # PlotViewer.on_close, which never returns here) or by the user picking
-        # "Return to Menu", which sets state.restart_to_menu and loops back to
-        # SetupGUI below instead of the old, broken os.execl re-exec.
+        # A pass ends when the viewer closes or loops back when the user picks
+        # "Return to file-selection screen" in the Qt close dialog.
         # ==========================================
         while True:
             state.restart_to_menu = False
@@ -96,7 +94,6 @@ try:
             if mode in ['overlay', 'stack']:
                 title = "Overlay Mode" if mode == 'overlay' else "Stacked Grid Mode"
 
-                # Note: We removed the 'out_dir=' argument from PlotViewer here
                 run_plot_viewer(state.all_data, title, out_dir=None)
 
             elif mode == 'individual':
@@ -126,7 +123,7 @@ try:
 
             if not state.restart_to_menu:
                 break # Normal end of this pass (the "exit" path already terminated the process directly)
-            # else: loop back around to the top and show SetupGUI again
+            # else: loop back around to the shared Qt setup dialog
         # ==========================================
 
     def run():

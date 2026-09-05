@@ -1,4 +1,4 @@
-"""PySide6 setup dialog shared by the FT-IR and XRD workspaces."""
+"""PySide6 setup dialog shared by every SpectraSuite workspace."""
 
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QSpinBox,
@@ -26,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from config import state
+from readers import read_generic_configured
 
 
 STYLE = """
@@ -36,7 +40,7 @@ QGroupBox {
     padding-top: 10px; font-weight: 700;
 }
 QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 5px; }
-QListWidget, QSpinBox {
+QListWidget, QSpinBox, QComboBox, QPlainTextEdit {
     background: #181825; border: 1px solid #45475a; border-radius: 5px;
     color: #cdd6f4; padding: 4px;
 }
@@ -60,7 +64,9 @@ class SetupDialog(QDialog):
         self.setMinimumSize(520, 620)
         self.setStyleSheet(STYLE)
 
-        icon_name = "xrd_icon.png" if state.technique == "XRD" else "ir_icon.png"
+        icon_name = {
+            "XRD": "xrd_icon.png", "FTIR": "ir_icon.png", "GENERAL": "icon.png"
+        }.get(state.technique, "icon.png")
         icon_path = Path(__file__).resolve().parent / icon_name
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -148,6 +154,8 @@ class SetupDialog(QDialog):
         info_layout = QVBoxLayout(info)
         if state.technique == "XRD":
             text = "X-Ray Diffraction: .csv, .txt, .xy, .dat, .xlsx"
+        elif state.technique == "GENERAL":
+            text = "General Plotter: delimited text or Excel files with numeric X/Y columns"
         else:
             text = "FT-IR Spectroscopy: .dpt, .csv, .txt, .xy, .xlsx"
         info_layout.addWidget(QLabel(text))
@@ -165,6 +173,8 @@ class SetupDialog(QDialog):
     def _allowed_extensions(self):
         if state.technique == "XRD":
             return {".csv", ".txt", ".xy", ".dat", ".asr", ".raw", ".xlsx"}
+        if state.technique == "GENERAL":
+            return {".csv", ".tsv", ".txt", ".xy", ".dat", ".xlsx", ".xls"}
         return {".dpt", ".csv", ".txt", ".xy", ".xlsx"}
 
     def _refresh_files(self) -> None:
@@ -209,7 +219,7 @@ class SetupDialog(QDialog):
     def add_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Select Data Files", self.last_open_dir,
-            "Data files (*.dpt *.csv *.txt *.xy *.dat *.asr *.raw *.xlsx);;All files (*)",
+            "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.asr *.raw *.xlsx *.xls);;All files (*)",
         )
         if paths:
             self.last_open_dir = str(Path(paths[0]).parent)
@@ -252,6 +262,12 @@ class SetupDialog(QDialog):
         state.settings["mode"] = next(
             value for value, button in self.mode_buttons.items() if button.isChecked()
         )
+        if state.technique == "GENERAL":
+            picker = ColumnPickerDialog(state.settings["files"][0], self)
+            if picker.exec() != QDialog.DialogCode.Accepted:
+                return
+            state.general_format = picker.result
+            state.settings["general_format"] = picker.result
         self.ready = True
         self.accept()
 
@@ -273,6 +289,7 @@ class SetupDialog(QDialog):
             state.file_set = data["file_set"]
             state.global_set = data["global_set"]
             state.current_session_file = filename
+            state.general_format = state.settings.get("general_format")
         except (OSError, ValueError, KeyError, TypeError) as error:
             QMessageBox.critical(self, "Session Error", f"Failed to load session:\n{error}")
             return
@@ -292,3 +309,126 @@ def run_setup_dialog():
     if owns_application:
         app.quit()
     return dialog
+
+
+class ColumnPickerDialog(QDialog):
+    """Configure delimiter, skipped rows, and X/Y columns with a live preview."""
+
+    DELIMITERS = {
+        "Comma (,)": ",",
+        "Tab": "\t",
+        "Whitespace": " ",
+        "Semicolon (;)": ";",
+    }
+
+    def __init__(self, sample_filepath, parent=None):
+        super().__init__(parent)
+        self.sample_filepath = Path(sample_filepath)
+        self.result = None
+        self.setWindowTitle("Configure General Plotter Columns")
+        self.resize(680, 650)
+        self.setMinimumSize(580, 560)
+        self.setStyleSheet(STYLE)
+        self._build_ui()
+        self.refresh_preview()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        heading = QLabel(f"Sample file: {self.sample_filepath.name}")
+        heading.setObjectName("heading")
+        layout.addWidget(heading)
+
+        layout.addWidget(QLabel("Raw preview"))
+        self.raw_preview = QPlainTextEdit()
+        self.raw_preview.setReadOnly(True)
+        self.raw_preview.setMaximumBlockCount(12)
+        layout.addWidget(self.raw_preview, 1)
+
+        group = QGroupBox("Parsing Options")
+        form = QFormLayout(group)
+        self.delimiter = QComboBox()
+        self.delimiter.addItems(self.DELIMITERS)
+        suffix = self.sample_filepath.suffix.lower()
+        if suffix == ".tsv":
+            self.delimiter.setCurrentText("Tab")
+        self.skip_rows = QSpinBox()
+        self.skip_rows.setRange(0, 500)
+        self.x_column = QSpinBox()
+        self.x_column.setRange(0, 100)
+        self.y_column = QSpinBox()
+        self.y_column.setRange(0, 100)
+        self.y_column.setValue(1)
+        form.addRow("Delimiter", self.delimiter)
+        form.addRow("Header rows to skip", self.skip_rows)
+        form.addRow("X column (0 = first)", self.x_column)
+        form.addRow("Y column", self.y_column)
+        layout.addWidget(group)
+
+        refresh = QPushButton("Refresh Preview")
+        refresh.clicked.connect(self.refresh_preview)
+        layout.addWidget(refresh)
+        for widget in (self.delimiter, self.skip_rows, self.x_column, self.y_column):
+            if isinstance(widget, QComboBox):
+                widget.currentIndexChanged.connect(self.refresh_preview)
+            else:
+                widget.valueChanged.connect(self.refresh_preview)
+
+        layout.addWidget(QLabel("Parsed numeric X/Y preview"))
+        self.parsed_preview = QPlainTextEdit()
+        self.parsed_preview.setReadOnly(True)
+        self.parsed_preview.setMaximumBlockCount(10)
+        layout.addWidget(self.parsed_preview, 1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.confirm)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _configuration(self):
+        return {
+            "delimiter": self.DELIMITERS[self.delimiter.currentText()],
+            "skip_rows": self.skip_rows.value(),
+            "x_col": self.x_column.value(),
+            "y_col": self.y_column.value(),
+        }
+
+    def refresh_preview(self, *_args):
+        try:
+            if self.sample_filepath.suffix.lower() in {".xlsx", ".xls"}:
+                import pandas as pd
+                frame = pd.read_excel(self.sample_filepath, header=None, nrows=8)
+                raw = frame.to_string(index=False, header=False)
+            else:
+                with self.sample_filepath.open("r", encoding="utf-8", errors="ignore") as stream:
+                    raw = "".join(stream.readline() for _ in range(8))
+        except Exception as error:
+            raw = f"Could not read file: {error}"
+        self.raw_preview.setPlainText(raw)
+
+        try:
+            x, y = read_generic_configured(self.sample_filepath, **self._configuration())
+            rows = list(zip(x, y))[:8]
+            preview = "\n".join(f"{x_value:.6g}\t{y_value:.6g}" for x_value, y_value in rows)
+            if not preview:
+                preview = "No numeric rows found with these settings."
+        except Exception as error:
+            preview = f"Parsing error: {error}"
+        self.parsed_preview.setPlainText(preview)
+
+    def confirm(self):
+        try:
+            x, _y = read_generic_configured(self.sample_filepath, **self._configuration())
+        except Exception as error:
+            QMessageBox.critical(self, "Parsing Error", str(error))
+            return
+        if len(x) < 3:
+            QMessageBox.warning(
+                self,
+                "No Numeric Data",
+                "Choose settings that produce at least three numeric X/Y rows.",
+            )
+            return
+        self.result = self._configuration()
+        self.accept()

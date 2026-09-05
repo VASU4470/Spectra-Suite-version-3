@@ -117,7 +117,7 @@ def main():
 
         if not state.restart_to_menu:
             break  # Normal end of this pass (the "exit" path already terminated the process directly)
-        # else: loop back around to the top and show SetupGUI again
+        # else: loop back around to the shared Qt setup dialog
     # ==========================================
 
 
