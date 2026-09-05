@@ -44,7 +44,7 @@ jobs:
       - name: Compile and lint
         run: |
           python -m compileall -q .
-          python -m pyflakes *.py tests/*.py
+          python -m pyflakes .
 
       - name: Run PySide6 GUI smoke tests
         env:
