@@ -1227,10 +1227,11 @@ class PlotViewer(tk.Toplevel):
     def delete_selected_annotation(self):
         self.annotation_mgr.delete_selected()
 
-    def show_text_annotation_dialog(self, parent_window):
+    def show_text_annotation_dialog(self, parent_window=None):
         """The rich text-composition dialog, passed to AnnotationManager as
         its text_input_provider -- called when the user draws a new text box.
         Returns a dict (text/color/fontsize/bold/italic) or None if cancelled."""
+        parent_window = parent_window or self
         dialog = TextAnnotationDialog(parent_window)
         parent_window.wait_window(dialog)
         return dialog.result
@@ -1539,13 +1540,6 @@ class PlotViewer(tk.Toplevel):
             
         tree.pack(fill="both", expand=True, padx=10, pady=10)
         ttk.Button(win, text="Close", command=win.destroy).pack(pady=5)
-
-    def clear_peaks(self):
-        state.file_set[self.current_stem]['labels'] = []
-        state.file_set[self.current_stem]['areas'] = []
-        state.file_set[self.current_stem]['deconvs'] = []
-        if hasattr(self, 'update_plot'):
-            self.update_plot()
 
     def save_session_cmd(self):
         try:

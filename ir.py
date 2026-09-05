@@ -4,13 +4,10 @@ import traceback
 
 try:
     # --- YOUR ACTUAL IR.PY CODE STARTS HERE ---
-    import numpy as np
     from pathlib import Path
-    from datetime import datetime
-    import tkinter as tk
-    from tkinter import messagebox
+    from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
     from config import state
-    from gui import PlotViewer
+    from qt_plot_viewer import run_plot_viewer
     from qt_setup import run_setup_dialog
     from readers import robust_read_spectrum as robust_read_ftir
 
@@ -20,12 +17,12 @@ try:
     # and in xrd.py -- unified after confirming byte-for-byte equivalent
     # parsing behavior for comma/tab/space/semicolon-delimited input).
 
-    def load_data_files(root_window):
+    def load_data_files(parent=None):
         # We unified the files logic in gui.py, so we just read from state.settings['files']
         file_list = [Path(f) for f in state.settings.get('files', [])]
             
         if not file_list:
-            messagebox.showerror("Error", "No files selected or found.", parent=root_window)
+            QMessageBox.critical(parent, "Error", "No files selected or found.")
             return False # <--- Changed from sys.exit()
 
         accepted_formats = ".dpt, .csv, .txt, .xy, .xlsx"
@@ -46,7 +43,7 @@ try:
             ext = bad_files[0].suffix.lower() if bad_files[0].suffix else "Unknown"
             msg = (f"You uploaded a file format '{ext}' which is not processed by the program.\n\n"
                    f"Please upload the list of these formats: {accepted_formats}, or try a different format file.")
-            messagebox.showerror("File Format Error", msg, parent=root_window)
+            QMessageBox.critical(parent, "File Format Error", msg)
             
             # If no files worked at all, we must return to setup
             if not state.all_data:
@@ -59,6 +56,8 @@ try:
                
         from config import state
         state.technique = 'FTIR'
+        app = QApplication.instance() or QApplication(sys.argv)
+        app.setApplicationName("SpectraSuite FT-IR")
 
         # ==========================================
         # OUTER LOOP: each pass is one full "setup -> view -> exit/menu" cycle.
@@ -82,19 +81,13 @@ try:
                 if not setup_app.ready:
                     sys.exit() # If they clicked the red X to close the window, actually close.
 
-                dummy_root = tk.Tk()
-                apply_theme(dummy_root)  # PlotViewer/CloseDialog/etc. are Toplevels of this root, so they inherit it
-                dummy_root.withdraw()
-
                 if getattr(setup_app, 'loaded_from_session', False):
                     break # Success! Break the loop and go to plotter.
                 else:
-                    if load_data_files(dummy_root):
+                    if load_data_files():
                         state.init_file_settings()
                         break # Success! Break the loop and go to plotter.
                     else:
-                        # FAILED! Destroy hidden window, 'continue' restarts the loop to show SetupGUI
-                        dummy_root.destroy()
                         continue
             # ==========================================
 
@@ -104,15 +97,18 @@ try:
                 title = "Overlay Mode" if mode == 'overlay' else "Stacked Grid Mode"
 
                 # Note: We removed the 'out_dir=' argument from PlotViewer here
-                viewer = PlotViewer(dummy_root, state.all_data, title, out_dir=None)
-                dummy_root.wait_window(viewer)
+                run_plot_viewer(state.all_data, title, out_dir=None)
 
             elif mode == 'individual':
                 for i, data_tuple in enumerate(state.all_data):
                     stem = data_tuple[0]
 
-                    viewer = PlotViewer(dummy_root, [data_tuple], f"File {i+1}/{len(state.all_data)}: {stem}", out_dir=None)
-                    dummy_root.wait_window(viewer)
+                    result = run_plot_viewer(
+                        [data_tuple], f"File {i+1}/{len(state.all_data)}: {stem}", out_dir=None
+                    )
+
+                    if result != QDialog.DialogCode.Accepted:
+                        break
 
                     if state.restart_to_menu:
                         # User asked to return to the main menu mid-way through
@@ -127,8 +123,6 @@ try:
                         # window for them. Stop; the session is effectively
                         # already finished.
                         break
-
-            dummy_root.destroy()
 
             if not state.restart_to_menu:
                 break # Normal end of this pass (the "exit" path already terminated the process directly)
@@ -162,7 +156,7 @@ try:
         run()
 
 # --- THE FAILSAFE ---
-except Exception as e:
+except Exception:
     # Get the cross-platform path to the user's Desktop
     desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", "CRASH_REPORT.txt")
     

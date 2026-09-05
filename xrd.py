@@ -1,13 +1,11 @@
 import sys
 import os
 import traceback
-import numpy as np
 from pathlib import Path
-import tkinter as tk
-from tkinter import messagebox
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from config import state
-from gui import PlotViewer
+from qt_plot_viewer import run_plot_viewer
 from qt_setup import run_setup_dialog
 from readers import robust_read_spectrum as robust_read_xrd
 # robust_read_xrd is now imported from readers.py (was duplicated here and
@@ -15,10 +13,10 @@ from readers import robust_read_spectrum as robust_read_xrd
 # behavior for comma/tab/space/semicolon-delimited input).
 
 
-def load_data_files(root_window):
+def load_data_files(parent=None):
     file_list = [Path(f) for f in state.settings.get('files', [])]
     if not file_list:
-        messagebox.showerror("Error", "No files selected or found.", parent=root_window)
+        QMessageBox.critical(parent, "Error", "No files selected or found.")
         return False
 
     accepted_formats = ".csv, .txt, .xy, .dat, .xlsx"
@@ -39,7 +37,7 @@ def load_data_files(root_window):
         ext = bad_files[0].suffix.lower() if bad_files[0].suffix else "Unknown"
         msg = (f"You uploaded a file format '{ext}' which is not processed by the program.\n\n"
                f"Please upload the list of these formats: {accepted_formats}, or try a different format file.")
-        messagebox.showerror("File Format Error", msg, parent=root_window)
+        QMessageBox.critical(parent, "File Format Error", msg)
 
         if not state.all_data:
             return False
@@ -51,6 +49,8 @@ def load_data_files(root_window):
 
 def main():
     state.technique = 'XRD'
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("SpectraSuite XRD")
 
     # Set default global axes labels for XRD
     state.global_set['xlabel'] = '2θ (°)'
@@ -78,19 +78,13 @@ def main():
             if not setup_app.ready:
                 sys.exit()  # If they clicked the red X to close the window, actually close.
 
-            dummy_root = tk.Tk()
-            apply_theme(dummy_root)  # PlotViewer/CloseDialog/etc. are Toplevels of this root, so they inherit it
-            dummy_root.withdraw()
-
             if getattr(setup_app, 'loaded_from_session', False):
                 break  # Success! Break the loop and go to plotter.
             else:
-                if load_data_files(dummy_root):
+                if load_data_files():
                     state.init_file_settings()
                     break  # Success! Break the loop and go to plotter.
                 else:
-                    # FAILED! Destroy hidden window, 'continue' restarts the loop to show SetupGUI
-                    dummy_root.destroy()
                     continue
         # ==========================================
 
@@ -98,14 +92,17 @@ def main():
 
         if mode in ['overlay', 'stack']:
             title = "XRD Overlay Mode" if mode == 'overlay' else "XRD Stacked Grid Mode"
-            viewer = PlotViewer(dummy_root, state.all_data, title, out_dir=None)
-            dummy_root.wait_window(viewer)
+            run_plot_viewer(state.all_data, title, out_dir=None)
 
         elif mode == 'individual':
             for i, data_tuple in enumerate(state.all_data):
                 stem = data_tuple[0]
-                viewer = PlotViewer(dummy_root, [data_tuple], f"XRD File {i+1}/{len(state.all_data)}: {stem}", out_dir=None)
-                dummy_root.wait_window(viewer)
+                result = run_plot_viewer(
+                    [data_tuple], f"XRD File {i+1}/{len(state.all_data)}: {stem}", out_dir=None
+                )
+
+                if result != QDialog.DialogCode.Accepted:
+                    break
 
                 if state.restart_to_menu:
                     # User asked to return to the main menu mid-way through
@@ -117,8 +114,6 @@ def main():
                     # means state.all_data now has file(s) this loop never
                     # expected, already shown together -- stop here.
                     break
-
-        dummy_root.destroy()
 
         if not state.restart_to_menu:
             break  # Normal end of this pass (the "exit" path already terminated the process directly)

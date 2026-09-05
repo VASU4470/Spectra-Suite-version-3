@@ -4,10 +4,17 @@ from matplotlib.lines import Line2D
 import numpy as np
 
 class AnnotationManager:
-    def __init__(self, canvas, on_select_callback=None, on_list_update_callback=None):
+    def __init__(
+        self,
+        canvas,
+        on_select_callback=None,
+        on_list_update_callback=None,
+        text_input_provider=None,
+    ):
         self.canvas = canvas
         self.on_select_callback = on_select_callback
         self.on_list_update_callback = on_list_update_callback # NEW: Tells GUI when list changes
+        self.text_input_provider = text_input_provider
         self.active_tool = "none"
         
         self.annotations = []
@@ -90,12 +97,29 @@ class AnnotationManager:
             artist = patches.FancyArrowPatch((self.start_x, self.start_y), (self.start_x, self.start_y), arrowstyle='->', color='red', mutation_scale=20, linewidth=2, zorder=10, picker=15)
             self.active_ax.add_patch(artist)
         elif kind == "text":
-            from tkinter import simpledialog
-            # Force the dialog to appear on top of the current canvas window
-            parent_window = self.canvas.get_tk_widget().winfo_toplevel()
-            text_str = simpledialog.askstring("Text Box", "Enter your annotation:", parent=parent_window)
+            if self.text_input_provider is not None:
+                text_value = self.text_input_provider()
+            else:
+                # Compatibility fallback for the legacy Tk viewer.  The Qt
+                # viewer supplies text_input_provider and never imports Tk.
+                from tkinter import simpledialog
+                parent_window = self.canvas.get_tk_widget().winfo_toplevel()
+                text_value = simpledialog.askstring(
+                    "Text Box", "Enter your annotation:", parent=parent_window
+                )
+            if isinstance(text_value, dict):
+                text_str = text_value.get("text")
+                text_color = text_value.get("color", "black")
+                text_size = text_value.get("fontsize", 12)
+                text_weight = "bold" if text_value.get("bold") else "normal"
+                text_style = "italic" if text_value.get("italic") else "normal"
+                text_family = text_value.get("family", "sans-serif")
+            else:
+                text_str = text_value
+                text_color, text_size = "black", 12
+                text_weight, text_style, text_family = "normal", "normal", "sans-serif"
             if text_str:
-                artist = self.active_ax.text(self.start_x, self.start_y, text_str, color='black', fontsize=12, fontweight='normal', fontstyle='normal',
+                artist = self.active_ax.text(self.start_x, self.start_y, text_str, color=text_color, fontsize=text_size, fontweight=text_weight, fontstyle=text_style, fontfamily=text_family,
                              bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray', linewidth=1), zorder=10, picker=15)
             self.start_x = None
 
@@ -284,8 +308,8 @@ class AnnotationManager:
             pA, pB = artist._posA_posB
             artist.set_positions((pA[0] + dx, pA[1] + dy), (pB[0] + dx, pB[1] + dy))
         elif kind == 'line':
-            artist.set_xdata(artist.get_xdata() + dx)
-            artist.set_ydata(artist.get_ydata() + dy)
+            artist.set_xdata(np.asarray(artist.get_xdata()) + dx)
+            artist.set_ydata(np.asarray(artist.get_ydata()) + dy)
             
         self.canvas.draw_idle()
     

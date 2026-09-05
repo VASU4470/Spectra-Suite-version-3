@@ -1,10 +1,9 @@
 **SpectraSuite Version 3 - PySide6 Migration**
 
-> **Migration status:** Version 3 is under active development. The launcher
-> and FT-IR/XRD setup workflow are being migrated to PySide6. The existing
-> plotting workspace remains temporarily on the legacy interface while its
-> Matplotlib Qt canvas is completed. General Plotter is experimental and has
-> not yet completed the same testing cycle as FT-IR and XRD.
+> **Migration status:** Version 3 is under active development. The launcher,
+> FT-IR/XRD setup workflow, and FT-IR/XRD plotting workspace now use PySide6
+> with Matplotlib's Qt canvas. General Plotter remains experimental on the
+> legacy interface until its parsing workflow and feature set are stabilized.
 
 **SpectraSuite - FT-IR and XRD Analysis (Pilot Study)**
 

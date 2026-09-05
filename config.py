@@ -106,7 +106,7 @@ class SessionState:
                 'labels': [], 
                 'areas': [], 
                 'do_baseline': False, 
-                'als_lam': 100000, 
+                'als_lam': 8.0,
                 'als_p': 0.05
             }
 state = SessionState()

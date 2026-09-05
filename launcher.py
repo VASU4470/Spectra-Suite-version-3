@@ -1,8 +1,4 @@
-"""PySide6 entry point for SpectraSuite.
-
-Workspaces remain isolated processes while their Tkinter interfaces are
-migrated incrementally.
-"""
+"""PySide6 entry point for SpectraSuite Version 3."""
 
 from __future__ import annotations
 
@@ -95,7 +91,7 @@ class WelcomeDashboard(QWidget):
             self._buttons[workspace.key] = button
         layout.addLayout(grid, 1)
 
-        footer = QLabel("Version 2 · PySide6 migration")
+        footer = QLabel("Version 3 · PySide6 migration")
         footer.setObjectName("footer")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(footer)
@@ -158,7 +154,7 @@ def main() -> int:
     multiprocessing.freeze_support()
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "analytical.spectroscopy.suite.2"
+            "analytical.spectroscopy.suite.3"
         )
     except (AttributeError, OSError):
         pass
