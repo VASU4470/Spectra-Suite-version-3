@@ -36,6 +36,13 @@ WORKSPACES = (
 )
 
 
+def workspace_command(key: str) -> tuple[str, list[str]]:
+    """Return the correct child-process command for source and frozen runs."""
+    if getattr(sys, "frozen", False):
+        return sys.executable, ["--workspace", key]
+    return sys.executable, [str(Path(__file__).resolve()), "--workspace", key]
+
+
 APP_STYLE = """
 QWidget { background-color: #1e1e2e; color: #cdd6f4; }
 QLabel#title { color: #89b4fa; font-size: 26px; font-weight: 700; }
@@ -121,16 +128,9 @@ class WelcomeDashboard(QWidget):
         button.setEnabled(False)
 
         process = QProcess(self)
-        process.setProgram(sys.executable)
-        if getattr(sys, "frozen", False):
-            # In a PyInstaller build sys.executable is the SpectraSuite app,
-            # not a Python interpreter. Relaunch it with an explicit dispatch
-            # argument instead of passing a .py path that may not exist.
-            process.setArguments(["--workspace", workspace.key])
-        else:
-            process.setArguments([
-                str(Path(__file__).resolve()), "--workspace", workspace.key,
-            ])
+        program, arguments = workspace_command(workspace.key)
+        process.setProgram(program)
+        process.setArguments(arguments)
         process.setWorkingDirectory(str(Path(__file__).resolve().parent))
         process.errorOccurred.connect(
             lambda _error, item=workspace, proc=process: self._show_process_error(item, proc)
@@ -182,8 +182,35 @@ def run_workspace(key: str) -> int:
     return 0
 
 
+def startup_smoke_test() -> int:
+    """Exercise imports and the dashboard without entering the Qt event loop."""
+    from general import main as _general_main
+    from ir import main as _ir_main
+    from qt_plot_viewer import PlotViewer as _PlotViewer
+    from qt_setup import SetupDialog as _SetupDialog
+    from xrd import main as _xrd_main
+
+    # Keep references alive through the check and make import failures fatal.
+    required = (_general_main, _ir_main, _PlotViewer, _SetupDialog, _xrd_main)
+    if not all(required):
+        raise RuntimeError("A required workspace entry point is unavailable")
+
+    app = QApplication.instance() or QApplication([])
+    window = WelcomeDashboard()
+    window.show()
+    app.processEvents()
+    if set(window._buttons) != {"ir", "xrd", "general"}:
+        raise RuntimeError("The dashboard did not create every workspace button")
+    window.close()
+    app.processEvents()
+    print("SpectraSuite startup smoke test passed")
+    return 0
+
+
 def main() -> int:
     multiprocessing.freeze_support()
+    if len(sys.argv) == 2 and sys.argv[1] == "--smoke-test":
+        return startup_smoke_test()
     if len(sys.argv) == 3 and sys.argv[1] == "--workspace":
         return run_workspace(sys.argv[2])
     try:
