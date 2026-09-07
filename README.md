@@ -27,6 +27,15 @@ band detection, Gaussian deconvolution, FWHM and local-area measurements, and
 user-selected intensity ratios. It deliberately does not infer a material or
 apply material-specific crystallite-size equations without the required model.
 
+The redesigned General 2D Plotter opens as an editable spreadsheet and live
+graph workspace. It imports complete CSV, TSV, delimited-text, and Excel
+tables; supports manual typing and Excel-style copy/paste; allows rows and
+columns to be added, removed, renamed, and edited; maps one X/category column
+to one or more Y columns; and switches between line, scatter, grouped bar,
+area, step, pie, histogram, and box plots. Series colors, lines, markers,
+widths, titles, axis labels, legends, grids, and value labels are editable.
+Edited tables, reusable JSON projects, and PNG/PDF/SVG figures can be saved.
+
 **SpectraSuite - FT-IR and XRD Analysis (Pilot Study)**
 
 Welcome to the SpectraSuite beta testing program! This software is being developed at UNAM/ICAT to simplify and enhance the pedagogical experience of analyzing FT-IR and XRD spectral data.

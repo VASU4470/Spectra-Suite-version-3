@@ -191,6 +191,7 @@ def run_workspace(key: str) -> int:
 def startup_smoke_test() -> int:
     """Exercise imports and the dashboard without entering the Qt event loop."""
     from general import main as _general_main
+    from qt_general_plotter import GeneralPlotter as _GeneralPlotter
     from ir import main as _ir_main
     from qt_plot_viewer import PlotViewer as _PlotViewer
     from qt_setup import SetupDialog as _SetupDialog
@@ -200,7 +201,7 @@ def startup_smoke_test() -> int:
 
     # Keep references alive through the check and make import failures fatal.
     required = (
-        _general_main, _ir_main, _PlotViewer, _SetupDialog, _xrd_main,
+        _general_main, _GeneralPlotter, _ir_main, _PlotViewer, _SetupDialog, _xrd_main,
         _uvvis_main, _raman_main,
     )
     if not all(required):

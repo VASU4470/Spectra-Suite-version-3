@@ -11,10 +11,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MPLBACKEND", "QtAgg")
 
 import numpy as np
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTableWidgetItem
 
 from config import SessionState, state
 from launcher import WelcomeDashboard, startup_smoke_test, workspace_command
+from qt_general_plotter import GeneralPlotter
 from qt_plot_viewer import PlotViewer
 from qt_setup import SetupDialog
 
@@ -98,6 +99,23 @@ class StartupTests(unittest.TestCase):
                 self.assertEqual(viewer.finish_button.text(), "Finish & Close")
                 viewer._skip_close_prompt = True
                 viewer.close()
+
+    def test_general_spreadsheet_plotter_constructs_and_plots(self):
+        plotter = GeneralPlotter()
+        plotter.table.setItem(0, 0, QTableWidgetItem("1"))
+        plotter.table.setItem(0, 1, QTableWidgetItem("2"))
+        plotter.table.setItem(1, 0, QTableWidgetItem("2"))
+        plotter.table.setItem(1, 1, QTableWidgetItem("4"))
+        plotter.plot_data()
+        self.assertEqual(plotter.table.columnCount(), 2)
+        self.assertEqual(plotter.x_column.currentText(), "X")
+        self.assertEqual([item.text() for item in plotter.y_columns.selectedItems()], ["Y"])
+        for chart in plotter.CHARTS:
+            with self.subTest(chart=chart):
+                plotter.chart_type.setCurrentText(chart)
+                plotter.plot_data()
+                self.assertEqual(len(plotter.figure.axes), 1)
+        plotter.close()
 
 
 if __name__ == "__main__":
