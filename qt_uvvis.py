@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from uvvis_analysis import fit_tauc, fit_urbach, signal_to_absorption, spectral_axis_to_energy
+from qt_theme import LIGHT_STYLE, apply_window_icon
 
 
 class UVVisAnalysisDialog(QDialog):
@@ -27,6 +28,8 @@ class UVVisAnalysisDialog(QDialog):
         self.last_results = None
         self.setWindowTitle(f"UV-Vis advanced analysis — {sample_name}")
         self.resize(1050, 760)
+        self.setStyleSheet(LIGHT_STYLE)
+        apply_window_icon(self, "UVVIS")
         self._build_ui()
         self._set_default_ranges()
         self.result_label.setText(

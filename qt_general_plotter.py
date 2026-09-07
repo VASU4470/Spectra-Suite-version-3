@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -14,24 +15,13 @@ from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QMessageBox, QPushButton, QSplitter, QTableWidget,
+    QListWidget, QMessageBox, QPushButton, QScrollArea, QSplitter, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
+from qt_theme import LIGHT_STYLE, apply_window_icon
 
 
-STYLE = """
-QWidget { background: #1e1e2e; color: #cdd6f4; }
-QGroupBox { border: 1px solid #45475a; border-radius: 7px; margin-top: 8px;
-            padding-top: 8px; font-weight: 700; }
-QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-QLineEdit, QComboBox, QDoubleSpinBox, QListWidget, QTableWidget {
-    background: #181825; color: #cdd6f4; border: 1px solid #45475a;
-    border-radius: 4px; padding: 3px; }
-QPushButton { background: #313244; color: #cdd6f4; border: 1px solid #45475a;
-              border-radius: 5px; padding: 6px; }
-QPushButton:hover { background: #45475a; border-color: #89b4fa; }
-QPushButton#primary { background: #89b4fa; color: #11111b; font-weight: 700; }
-"""
+STYLE = LIGHT_STYLE
 
 
 class DataTable(QTableWidget):
@@ -92,9 +82,10 @@ def read_table(path: Path):
         if all(_looks_numeric(value) for value in frame.columns):
             frame = pd.read_excel(path, header=None)
     else:
-        frame = pd.read_csv(path, sep=None, engine="python")
+        separator = detect_delimiter(path)
+        frame = pd.read_csv(path, sep=separator, engine="python")
         if all(_looks_numeric(value) for value in frame.columns):
-            frame = pd.read_csv(path, sep=None, engine="python", header=None)
+            frame = pd.read_csv(path, sep=separator, engine="python", header=None)
     frame = frame.dropna(axis=0, how="all").dropna(axis=1, how="all")
     if frame.empty or frame.shape[1] == 0:
         raise ValueError("The file contains no tabular data.")
@@ -103,6 +94,18 @@ def read_table(path: Path):
         for index, value in enumerate(frame.columns)
     ])
     return frame
+
+
+def detect_delimiter(path: Path):
+    """Detect comma, tab, semicolon, or arbitrary whitespace separation."""
+    sample = path.read_text(encoding="utf-8", errors="ignore")[:8192]
+    if not sample.strip():
+        raise ValueError("The file is empty.")
+    try:
+        delimiter = csv.Sniffer().sniff(sample, delimiters=",\t; ").delimiter
+    except csv.Error:
+        delimiter = " "
+    return r"\s+" if delimiter == " " else delimiter
 
 
 class GeneralPlotter(QWidget):
@@ -114,6 +117,7 @@ class GeneralPlotter(QWidget):
         self.resize(1500, 900)
         self.setMinimumSize(1050, 680)
         self.setStyleSheet(STYLE)
+        apply_window_icon(self, "GENERAL")
         self.loaded_files, self.series_styles = [], {}
         self._loading_table = False
         self._build_ui()
@@ -154,9 +158,10 @@ class GeneralPlotter(QWidget):
         plot_layout.addWidget(NavigationToolbar2QT(self.canvas, plot_panel)); plot_layout.addWidget(self.canvas, 1)
         splitter.addWidget(plot_panel)
 
-        controls = QWidget(); controls.setMinimumWidth(300); controls.setMaximumWidth(390)
+        controls = QWidget(); controls.setMinimumWidth(400)
         controls_layout = QVBoxLayout(controls); controls_layout.setContentsMargins(4, 0, 0, 0)
         mapping = QGroupBox("Data mapping"); mapping_form = QFormLayout(mapping)
+        mapping_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.x_column = QComboBox()
         self.y_columns = QListWidget(); self.y_columns.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.y_columns.setMinimumHeight(115)
@@ -165,6 +170,7 @@ class GeneralPlotter(QWidget):
         mapping_form.addRow("Chart type", self.chart_type); controls_layout.addWidget(mapping)
 
         labels = QGroupBox("Titles and labels"); label_form = QFormLayout(labels)
+        label_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.title_edit, self.xlabel_edit, self.ylabel_edit = QLineEdit(), QLineEdit(), QLineEdit()
         self.legend_check = QCheckBox("Show legend"); self.legend_check.setChecked(True)
         self.grid_check, self.data_labels_check = QCheckBox("Show grid"), QCheckBox("Show data labels")
@@ -174,20 +180,27 @@ class GeneralPlotter(QWidget):
         controls_layout.addWidget(labels)
 
         style = QGroupBox("Selected series style"); style_form = QFormLayout(style)
+        style_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.style_series = QComboBox(); self.color_edit = QLineEdit("#1f77b4")
         color_button = QPushButton("Choose color"); color_button.clicked.connect(self.choose_color)
         self.line_style = QComboBox(); self.line_style.addItems(["Solid", "Dashed", "Dotted", "Dash-dot", "None"])
         self.marker = QComboBox(); self.marker.addItems(["None", "Circle", "Square", "Triangle", "Diamond", "Plus", "Cross"])
         self.line_width = QDoubleSpinBox(); self.line_width.setRange(0.1, 20); self.line_width.setValue(1.8)
         self.bar_width = QDoubleSpinBox(); self.bar_width.setRange(0.05, 1.0); self.bar_width.setSingleStep(0.05); self.bar_width.setValue(0.8)
+        for field in (self.style_series, self.color_edit, self.line_style, self.marker,
+                      self.line_width, self.bar_width):
+            field.setMinimumWidth(210)
         style_form.addRow("Series", self.style_series); style_form.addRow("Color", self.color_edit)
         style_form.addRow("", color_button); style_form.addRow("Line", self.line_style)
         style_form.addRow("Marker", self.marker); style_form.addRow("Line width", self.line_width)
         style_form.addRow("Bar width", self.bar_width); controls_layout.addWidget(style)
         self.auto_plot = QCheckBox("Update graph while editing"); controls_layout.addWidget(self.auto_plot)
         plot_button = QPushButton("Plot / refresh"); plot_button.setObjectName("primary"); plot_button.clicked.connect(self.plot_data)
-        controls_layout.addWidget(plot_button); controls_layout.addStretch(); splitter.addWidget(controls)
-        splitter.setSizes([520, 680, 320])
+        controls_layout.addWidget(plot_button); controls_layout.addStretch()
+        controls_scroll = QScrollArea(); controls_scroll.setWidgetResizable(True)
+        controls_scroll.setWidget(controls); controls_scroll.setMinimumWidth(430)
+        controls_scroll.setMaximumWidth(560); splitter.addWidget(controls_scroll)
+        splitter.setSizes([480, 620, 450])
 
         self.x_column.currentTextChanged.connect(self._mapping_changed)
         self.y_columns.itemSelectionChanged.connect(self._mapping_changed)

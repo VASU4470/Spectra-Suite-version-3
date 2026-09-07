@@ -11,7 +11,7 @@ from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -50,26 +50,11 @@ from processing import process_spectrum
 from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
+from qt_theme import LIGHT_STYLE, apply_window_icon
 
 
-STYLE = """
-QDialog, QWidget { background: #1e1e2e; color: #cdd6f4; }
-QTabWidget::pane, QGroupBox {
-    border: 1px solid #45475a; border-radius: 7px; margin-top: 7px;
-}
-QGroupBox { font-weight: 700; padding-top: 8px; }
-QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QListWidget, QTableWidget {
-    background: #181825; color: #cdd6f4; border: 1px solid #45475a;
-    border-radius: 4px; padding: 4px;
-}
-QPushButton {
-    background: #313244; color: #cdd6f4; border: 1px solid #45475a;
-    border-radius: 5px; padding: 6px;
-}
-QPushButton:hover { background: #45475a; border-color: #89b4fa; }
-QPushButton#primary { background: #89b4fa; color: #11111b; font-weight: 700; }
-QLabel#cursor { color: #89b4fa; font-weight: 700; }
+STYLE = LIGHT_STYLE + """
+QLabel#cursor { color: #1d4ed8; font-weight: 700; }
 """
 
 
@@ -336,13 +321,7 @@ class PlotViewer(QDialog):
         self.setMinimumSize(1000, 650)
         self.setStyleSheet(STYLE)
 
-        icon_name = {
-            "XRD": "xrd_icon.png", "FTIR": "ir_icon.png",
-            "UVVIS": "icon.png", "RAMAN": "icon.png", "GENERAL": "icon.png"
-        }.get(state.technique, "icon.png")
-        icon_path = Path(__file__).resolve().parent / icon_name
-        if icon_path.exists():
-            self.setWindowIcon(QIcon(str(icon_path)))
+        apply_window_icon(self, state.technique)
 
         self.data_dict = {item[0]: (np.asarray(item[1]), np.asarray(item[2])) for item in data_tuples}
         self.stems = list(self.data_dict)
@@ -651,7 +630,9 @@ class PlotViewer(QDialog):
         self.xrd_height_spin.setRange(-1e9, 1e9)
         self.xrd_height_spin.setValue(5.0)
         self.xrd_height_spin.setVisible(state.technique == "XRD")
-        form.addRow("XRD minimum height", self.xrd_height_spin)
+        self.xrd_height_label = QLabel("XRD minimum height")
+        self.xrd_height_label.setVisible(state.technique == "XRD")
+        form.addRow(self.xrd_height_label, self.xrd_height_spin)
         self.show_fwhm_check = QCheckBox("Show FWHM and grain size")
         self.show_fwhm_check.setChecked(True)
         self.show_fwhm_check.setVisible(state.technique == "XRD")

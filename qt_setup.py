@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -30,26 +29,11 @@ from PySide6.QtWidgets import (
 
 from config import state
 from readers import read_generic_configured
+from qt_theme import LIGHT_STYLE, apply_window_icon
 
 
-STYLE = """
-QDialog { background: #1e1e2e; color: #cdd6f4; }
-QLabel#heading { color: #89b4fa; font-size: 22px; font-weight: 700; }
-QGroupBox {
-    border: 1px solid #45475a; border-radius: 8px; margin-top: 12px;
-    padding-top: 10px; font-weight: 700;
-}
-QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 5px; }
-QListWidget, QSpinBox, QComboBox, QPlainTextEdit {
-    background: #181825; border: 1px solid #45475a; border-radius: 5px;
-    color: #cdd6f4; padding: 4px;
-}
-QPushButton {
-    background: #313244; border: 1px solid #45475a; border-radius: 6px;
-    color: #cdd6f4; padding: 7px 10px;
-}
-QPushButton:hover { border-color: #89b4fa; background: #45475a; }
-QPushButton#launch { background: #89b4fa; color: #11111b; font-weight: 700; }
+STYLE = LIGHT_STYLE + """
+QLabel#heading { color: #1d4ed8; font-size: 22px; font-weight: 700; }
 """
 
 
@@ -64,13 +48,7 @@ class SetupDialog(QDialog):
         self.setMinimumSize(520, 620)
         self.setStyleSheet(STYLE)
 
-        icon_name = {
-            "XRD": "xrd_icon.png", "FTIR": "ir_icon.png",
-            "UVVIS": "icon.png", "RAMAN": "icon.png", "GENERAL": "icon.png"
-        }.get(state.technique, "icon.png")
-        icon_path = Path(__file__).resolve().parent / icon_name
-        if icon_path.exists():
-            self.setWindowIcon(QIcon(str(icon_path)))
+        apply_window_icon(self, state.technique)
 
         if not isinstance(state.settings.get("files"), list):
             state.settings["files"] = []

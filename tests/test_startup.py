@@ -97,6 +97,12 @@ class StartupTests(unittest.TestCase):
                 self.assertIsNotNone(viewer.ax)
                 self.assertEqual(viewer.current_stem, stem)
                 self.assertEqual(viewer.finish_button.text(), "Finish & Close")
+                self.assertEqual(
+                    viewer.xrd_height_label.isHidden(), technique != "XRD"
+                )
+                self.assertEqual(
+                    viewer.xrd_height_spin.isHidden(), technique != "XRD"
+                )
                 viewer._skip_close_prompt = True
                 viewer.close()
 
@@ -110,6 +116,8 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(plotter.table.columnCount(), 2)
         self.assertEqual(plotter.x_column.currentText(), "X")
         self.assertEqual([item.text() for item in plotter.y_columns.selectedItems()], ["Y"])
+        self.assertGreaterEqual(plotter.style_series.minimumWidth(), 210)
+        self.assertFalse(plotter.windowIcon().isNull())
         for chart in plotter.CHARTS:
             with self.subTest(chart=chart):
                 plotter.chart_type.setCurrentText(chart)

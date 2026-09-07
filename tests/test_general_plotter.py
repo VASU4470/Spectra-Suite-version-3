@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from qt_general_plotter import read_table
+from qt_general_plotter import detect_delimiter, read_table
 
 
 class GeneralPlotterImportTests(unittest.TestCase):
@@ -23,6 +23,20 @@ class GeneralPlotterImportTests(unittest.TestCase):
             frame = read_table(path)
         self.assertEqual(frame.shape, (3, 2))
         self.assertEqual(float(frame.iloc[0, 0]), 0.0)
+
+    def test_common_delimiters_are_detected(self):
+        cases = {
+            "comma.csv": ("x,y\n1,2\n3,4\n", ","),
+            "tab.tsv": ("x\ty\n1\t2\n3\t4\n", "\t"),
+            "space.txt": ("x   y\n1   2\n3   4\n", r"\s+"),
+        }
+        with TemporaryDirectory() as folder:
+            for name, (content, expected) in cases.items():
+                with self.subTest(name=name):
+                    path = Path(folder) / name
+                    path.write_text(content, encoding="utf-8")
+                    self.assertEqual(detect_delimiter(path), expected)
+                    self.assertEqual(read_table(path).shape, (2, 2))
 
 
 if __name__ == "__main__":

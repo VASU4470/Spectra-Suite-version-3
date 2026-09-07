@@ -13,6 +13,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QGridLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
+from qt_theme import LIGHT_STYLE, apply_window_icon
 
 
 def resource_path(relative_path: str) -> Path:
@@ -45,18 +46,17 @@ def workspace_command(key: str) -> tuple[str, list[str]]:
     return sys.executable, [str(Path(__file__).resolve()), "--workspace", key]
 
 
-APP_STYLE = """
-QWidget { background-color: #1e1e2e; color: #cdd6f4; }
-QLabel#title { color: #89b4fa; font-size: 26px; font-weight: 700; }
-QLabel#subtitle, QLabel#footer { color: #a6adc8; font-size: 14px; }
+APP_STYLE = LIGHT_STYLE + """
+QLabel#title { color: #1d4ed8; font-size: 26px; font-weight: 700; }
+QLabel#subtitle, QLabel#footer { color: #526175; font-size: 14px; }
 QPushButton {
-    background-color: #313244; border: 2px solid #45475a;
+    background-color: #ffffff; border: 2px solid #c5cfdd;
     border-radius: 15px; font-size: 16px; font-weight: 700; padding: 15px;
 }
-QPushButton:hover { background-color: #45475a; border-color: #89b4fa; }
-QPushButton:pressed { background-color: #585b70; }
-QPushButton:disabled { color: #7f849c; }
-QPushButton[experimental="true"] { border-color: #f9e2af; }
+QPushButton:hover { background-color: #eff6ff; border-color: #2563eb; }
+QPushButton:pressed { background-color: #dbeafe; }
+QPushButton:disabled { color: #8290a3; }
+QPushButton[experimental="true"] { border-color: #d97706; }
 """
 
 
@@ -68,9 +68,7 @@ class WelcomeDashboard(QWidget):
         self.setMinimumSize(680, 460)
         self.setStyleSheet(APP_STYLE)
 
-        icon_path = resource_path("icon.png")
-        if icon_path.exists():
-            self.setWindowIcon(QIcon(str(icon_path)))
+        apply_window_icon(self)
 
         self._processes: dict[str, QProcess] = {}
         self._buttons: dict[str, QPushButton] = {}

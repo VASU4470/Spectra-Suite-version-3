@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from raman_analysis import measure_raman_peaks, nearest_peak_ratio
+from qt_theme import LIGHT_STYLE, apply_window_icon
 
 
 class RamanAnalysisDialog(QDialog):
@@ -22,6 +23,8 @@ class RamanAnalysisDialog(QDialog):
         self.peaks = []
         self.setWindowTitle(f"Raman peak analysis — {sample_name}")
         self.resize(760, 620)
+        self.setStyleSheet(LIGHT_STYLE)
+        apply_window_icon(self, "RAMAN")
         root = QVBoxLayout(self)
         form = QFormLayout()
         self.prominence = QDoubleSpinBox()
