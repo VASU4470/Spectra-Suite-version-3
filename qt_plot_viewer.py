@@ -1,4 +1,4 @@
-"""PySide6 plotting workspace for the FT-IR and XRD applications."""
+"""Shared PySide6 plotting workspace for SpectraSuite applications."""
 
 from __future__ import annotations
 
@@ -48,6 +48,8 @@ from annotations import AnnotationManager
 from config import state
 from processing import process_spectrum
 from readers import read_generic_configured, robust_read_spectrum
+from qt_uvvis import UVVisAnalysisDialog
+from qt_raman import RamanAnalysisDialog
 
 
 STYLE = """
@@ -335,7 +337,8 @@ class PlotViewer(QDialog):
         self.setStyleSheet(STYLE)
 
         icon_name = {
-            "XRD": "xrd_icon.png", "FTIR": "ir_icon.png", "GENERAL": "icon.png"
+            "XRD": "xrd_icon.png", "FTIR": "ir_icon.png",
+            "UVVIS": "icon.png", "RAMAN": "icon.png", "GENERAL": "icon.png"
         }.get(state.technique, "icon.png")
         icon_path = Path(__file__).resolve().parent / icon_name
         if icon_path.exists():
@@ -629,13 +632,13 @@ class PlotViewer(QDialog):
         self.click_mode.addItem("Navigation", "none")
         if state.technique == "XRD":
             self.click_mode.addItem("Pick XRD peak", "xrd_peak")
-        elif state.technique == "GENERAL":
+        elif state.technique in {"GENERAL", "UVVIS", "RAMAN"}:
             self.click_mode.addItem("Pick point", "peak")
         else:
             self.click_mode.addItem("Pick FT-IR peak", "peak")
         self.click_mode.addItem("Calculate area", "area")
         self.click_mode.addItem("Draw manual baseline", "baseline")
-        if state.technique == "FTIR":
+        if state.technique in {"FTIR", "UVVIS", "RAMAN"}:
             self.click_mode.addItem("Peak deconvolution", "deconv")
         self.click_mode.currentIndexChanged.connect(self._click_mode_changed)
         form.addRow("Canvas mode", self.click_mode)
@@ -667,7 +670,7 @@ class PlotViewer(QDialog):
         clear_baseline = QPushButton("Clear manual baseline")
         clear_baseline.clicked.connect(self.clear_manual_baseline)
         layout.addWidget(clear_baseline)
-        if state.technique == "FTIR":
+        if state.technique in {"FTIR", "UVVIS", "RAMAN"}:
             clear_fit = QPushButton("Clear deconvolution fit")
             clear_fit.clicked.connect(self.clear_deconvolution)
             layout.addWidget(clear_fit)
@@ -691,6 +694,14 @@ class PlotViewer(QDialog):
             cheat = QPushButton("FT-IR functional-group cheat sheet")
             cheat.clicked.connect(self.show_cheat_sheet)
             layout.addWidget(cheat)
+        elif state.technique == "UVVIS":
+            advanced = QPushButton("UV-Vis band-gap and Urbach analysis")
+            advanced.clicked.connect(self.show_uvvis_analysis)
+            layout.addWidget(advanced)
+        elif state.technique == "RAMAN":
+            advanced = QPushButton("Raman peak measurements and ratios")
+            advanced.clicked.connect(self.show_raman_analysis)
+            layout.addWidget(advanced)
 
         export = QPushButton("Export data, report and graph")
         export.clicked.connect(self.export_data)
@@ -1209,7 +1220,7 @@ class PlotViewer(QDialog):
             return
         x, y = self.get_processed_data_for_stem(self.current_stem)
         fs = state.file_set[self.current_stem]
-        search_y = y if state.technique == "GENERAL" or fs.get("t2a", False) else -y
+        search_y = y if state.technique in {"GENERAL", "UVVIS", "RAMAN"} or fs.get("t2a", False) else -y
         peaks, _ = find_peaks(search_y, prominence=self.prominence_spin.value())
         existing = fs.setdefault("labels", [])
         for index in peaks:
@@ -1289,6 +1300,16 @@ class PlotViewer(QDialog):
         )
         self.click_mode.setCurrentIndex(0)
         self.update_plot()
+
+    def show_uvvis_analysis(self):
+        x, y = self.get_processed_data_for_stem(self.current_stem)
+        dialog = UVVisAnalysisDialog(x, y, self.current_stem, self)
+        dialog.exec()
+
+    def show_raman_analysis(self):
+        x, y = self.get_processed_data_for_stem(self.current_stem)
+        dialog = RamanAnalysisDialog(x, y, self.current_stem, self)
+        dialog.exec()
 
     def sync_peak_list(self):
         self.peak_list.clear()
@@ -1470,6 +1491,7 @@ class PlotViewer(QDialog):
         try:
             header = {
                 "FTIR": "Wavenumber,Intensity", "XRD": "2-Theta,Intensity",
+                "UVVIS": "Wavelength,Signal", "RAMAN": "Raman Shift,Intensity",
                 "GENERAL": "X,Y",
             }.get(state.technique, "X,Y")
             if options["data"]:

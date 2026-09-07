@@ -30,6 +30,12 @@ def reset_state(technique: str) -> None:
     elif technique == "GENERAL":
         state.global_set["xlabel"] = "X"
         state.global_set["ylabel"] = "Y"
+    elif technique == "UVVIS":
+        state.global_set["xlabel"] = "Wavelength (nm)"
+        state.global_set["ylabel"] = "Absorbance"
+    elif technique == "RAMAN":
+        state.global_set["xlabel"] = "Raman shift (cm⁻¹)"
+        state.global_set["ylabel"] = "Intensity (a.u.)"
 
 
 class StartupTests(unittest.TestCase):
@@ -62,11 +68,11 @@ class StartupTests(unittest.TestCase):
         dashboard = WelcomeDashboard()
         dashboard.show()
         self.app.processEvents()
-        self.assertEqual(set(dashboard._buttons), {"ir", "xrd", "general"})
+        self.assertEqual(set(dashboard._buttons), {"ir", "xrd", "uvvis", "raman", "general"})
         dashboard.close()
 
     def test_setup_dialog_constructs_for_every_technique(self):
-        for technique in ("FTIR", "XRD", "GENERAL"):
+        for technique in ("FTIR", "XRD", "UVVIS", "RAMAN", "GENERAL"):
             with self.subTest(technique=technique):
                 reset_state(technique)
                 dialog = SetupDialog()
@@ -78,7 +84,7 @@ class StartupTests(unittest.TestCase):
     def test_plot_viewer_constructs_for_every_technique(self):
         x = np.linspace(400.0, 4000.0, 101)
         y = np.sin(x / 180.0) + 2.0
-        for technique in ("FTIR", "XRD", "GENERAL"):
+        for technique in ("FTIR", "XRD", "UVVIS", "RAMAN", "GENERAL"):
             with self.subTest(technique=technique):
                 reset_state(technique)
                 stem = f"synthetic_{technique.lower()}"

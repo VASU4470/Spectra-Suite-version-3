@@ -32,6 +32,8 @@ class Workspace:
 WORKSPACES = (
     Workspace("ir", "FT-IR\nSpectroscopy", "📈"),
     Workspace("xrd", "XRD\nAnalysis", "📊"),
+    Workspace("uvvis", "UV-Vis\nAnalysis", "🌈"),
+    Workspace("raman", "Raman\nAnalysis", "🔬"),
     Workspace("general", "General\nPlotter", "📉", experimental=True),
 )
 
@@ -176,6 +178,10 @@ def run_workspace(key: str) -> int:
         from xrd import run
     elif key == "general":
         from general import run
+    elif key == "uvvis":
+        from uvvis import run
+    elif key == "raman":
+        from raman import run
     else:
         raise ValueError(f"Unknown workspace: {key}")
     run()
@@ -189,9 +195,14 @@ def startup_smoke_test() -> int:
     from qt_plot_viewer import PlotViewer as _PlotViewer
     from qt_setup import SetupDialog as _SetupDialog
     from xrd import main as _xrd_main
+    from uvvis import main as _uvvis_main
+    from raman import main as _raman_main
 
     # Keep references alive through the check and make import failures fatal.
-    required = (_general_main, _ir_main, _PlotViewer, _SetupDialog, _xrd_main)
+    required = (
+        _general_main, _ir_main, _PlotViewer, _SetupDialog, _xrd_main,
+        _uvvis_main, _raman_main,
+    )
     if not all(required):
         raise RuntimeError("A required workspace entry point is unavailable")
 
@@ -199,7 +210,7 @@ def startup_smoke_test() -> int:
     window = WelcomeDashboard()
     window.show()
     app.processEvents()
-    if set(window._buttons) != {"ir", "xrd", "general"}:
+    if set(window._buttons) != {"ir", "xrd", "uvvis", "raman", "general"}:
         raise RuntimeError("The dashboard did not create every workspace button")
     window.close()
     app.processEvents()

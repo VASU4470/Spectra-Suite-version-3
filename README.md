@@ -1,7 +1,7 @@
 **SpectraSuite Version 3 - PySide6 Migration**
 
 > **Migration status:** The Version 3 source migration is complete. FT-IR,
-> XRD, and General Plotter now use PySide6, the shared Qt setup window, and
+> XRD, UV-Vis, Raman, and General Plotter now use PySide6, the shared Qt setup window, and
 > Matplotlib's Qt canvas. The former Tkinter `gui.py` functionality has been
 > moved into `qt_plot_viewer.py` and `qt_setup.py`; no active Python module
 > imports Tkinter. General Plotter remains labeled experimental until its
@@ -12,6 +12,20 @@ individual/overlay/stacked plots, processing and reference subtraction,
 session save/load, annotations, FT-IR peak/area/deconvolution tools, XRD FWHM
 and crystallite-size analysis, configurable data/report/graph export, and the
 end-of-workflow save prompt.
+
+The UV-Vis workspace adds absorbance/transmittance/reflectance conversion,
+wavelength-energy conversion, peak finding, areas, derivatives, baselines,
+reference subtraction, Gaussian peak deconvolution, Tauc plots for four
+transition models, fitted band-gap estimates, Urbach-energy fitting, and
+Kubelka-Munk analysis for diffuse-reflectance data. Tauc and Urbach results are
+reported with their selected fit ranges and R² values because they depend on
+material assumptions and should be reviewed by the researcher.
+
+The Raman workspace provides fluorescence/background correction through the
+shared ALS baseline, smoothing, derivatives, reference subtraction, upward
+band detection, Gaussian deconvolution, FWHM and local-area measurements, and
+user-selected intensity ratios. It deliberately does not infer a material or
+apply material-specific crystallite-size equations without the required model.
 
 **SpectraSuite - FT-IR and XRD Analysis (Pilot Study)**
 

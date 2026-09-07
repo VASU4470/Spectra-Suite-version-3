@@ -65,7 +65,8 @@ class SetupDialog(QDialog):
         self.setStyleSheet(STYLE)
 
         icon_name = {
-            "XRD": "xrd_icon.png", "FTIR": "ir_icon.png", "GENERAL": "icon.png"
+            "XRD": "xrd_icon.png", "FTIR": "ir_icon.png",
+            "UVVIS": "icon.png", "RAMAN": "icon.png", "GENERAL": "icon.png"
         }.get(state.technique, "icon.png")
         icon_path = Path(__file__).resolve().parent / icon_name
         if icon_path.exists():
@@ -156,6 +157,10 @@ class SetupDialog(QDialog):
             text = "X-Ray Diffraction: .csv, .txt, .xy, .dat, .xlsx"
         elif state.technique == "GENERAL":
             text = "General Plotter: delimited text or Excel files with numeric X/Y columns"
+        elif state.technique == "UVVIS":
+            text = "UV-Vis: two-column .csv, .tsv, .txt, .xy, .dat, .xlsx or .xls"
+        elif state.technique == "RAMAN":
+            text = "Raman: two-column Raman shift/intensity text or Excel data"
         else:
             text = "FT-IR Spectroscopy: .dpt, .csv, .txt, .xy, .xlsx"
         info_layout.addWidget(QLabel(text))
@@ -174,6 +179,8 @@ class SetupDialog(QDialog):
         if state.technique == "XRD":
             return {".csv", ".txt", ".xy", ".dat", ".asr", ".raw", ".xlsx"}
         if state.technique == "GENERAL":
+            return {".csv", ".tsv", ".txt", ".xy", ".dat", ".xlsx", ".xls"}
+        if state.technique in {"UVVIS", "RAMAN"}:
             return {".csv", ".tsv", ".txt", ".xy", ".dat", ".xlsx", ".xls"}
         return {".dpt", ".csv", ".txt", ".xy", ".xlsx"}
 
