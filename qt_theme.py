@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
 
 
 LIGHT_STYLE = """
@@ -105,4 +106,10 @@ def resource_path(filename: str) -> Path:
 def apply_window_icon(window, technique: str = "APP") -> None:
     path = resource_path(ICON_FILES.get(technique, "icon.png"))
     if path.exists():
-        window.setWindowIcon(QIcon(str(path)))
+        icon = QIcon(str(path))
+        window.setWindowIcon(icon)
+        # Child workspaces run in separate processes. Setting the QApplication
+        # icon as well as the window icon makes the taskbar/Dock icon visible.
+        app = QApplication.instance()
+        if app is not None:
+            app.setWindowIcon(icon)

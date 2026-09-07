@@ -70,6 +70,7 @@ class StartupTests(unittest.TestCase):
         dashboard.show()
         self.app.processEvents()
         self.assertEqual(set(dashboard._buttons), {"ir", "xrd", "uvvis", "raman", "general"})
+        self.assertTrue(all(not button.icon().isNull() for button in dashboard._buttons.values()))
         dashboard.close()
 
     def test_setup_dialog_constructs_for_every_technique(self):
@@ -103,6 +104,11 @@ class StartupTests(unittest.TestCase):
                 self.assertEqual(
                     viewer.xrd_height_spin.isHidden(), technique != "XRD"
                 )
+                self.assertLessEqual(viewer.toolbar.maximumHeight(), 32)
+                viewer.controls_toggle.click()
+                self.assertTrue(viewer.controls.isHidden())
+                viewer.controls_toggle.click()
+                self.assertFalse(viewer.controls.isHidden())
                 viewer._skip_close_prompt = True
                 viewer.close()
 
@@ -118,6 +124,8 @@ class StartupTests(unittest.TestCase):
         self.assertEqual([item.text() for item in plotter.y_columns.selectedItems()], ["Y"])
         self.assertGreaterEqual(plotter.style_series.minimumWidth(), 210)
         self.assertFalse(plotter.windowIcon().isNull())
+        self.assertLessEqual(plotter.toolbar.maximumHeight(), 32)
+        self.assertEqual(plotter.y_columns.selectionMode().name, "ExtendedSelection")
         for chart in plotter.CHARTS:
             with self.subTest(chart=chart):
                 plotter.chart_type.setCurrentText(chart)

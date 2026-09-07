@@ -18,6 +18,10 @@ try:
     # parsing behavior for comma/tab/space/semicolon-delimited input).
 
     def load_data_files(parent=None):
+        if state.pending_data:
+            state.all_data.extend(state.pending_data)
+            state.pending_data = []
+            return True
         # The shared Qt setup dialog stores the ordered selection here.
         file_list = [Path(f) for f in state.settings.get('files', [])]
             
@@ -91,8 +95,11 @@ try:
 
             mode = state.settings.get('mode', 'individual')
 
-            if mode in ['overlay', 'stack']:
-                title = "Overlay Mode" if mode == 'overlay' else "Stacked Grid Mode"
+            if mode in ['overlay', 'stack', 'grid']:
+                title = {
+                    "overlay": "FT-IR Overlay Mode", "stack": "FT-IR Vertical Stack",
+                    "grid": "FT-IR Grid Mode",
+                }[mode]
 
                 run_plot_viewer(state.all_data, title, out_dir=None)
 

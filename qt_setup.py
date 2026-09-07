@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from config import state
+from dataset_reader import discover_many
 from readers import read_generic_configured
 from qt_theme import LIGHT_STYLE, apply_window_icon
 
@@ -43,7 +44,12 @@ class SetupDialog(QDialog):
         self.ready = False
         self.loaded_from_session = False
         self.last_open_dir = ""
-        self.setWindowTitle("Processing Suite Launcher")
+        technique_titles = {
+            "FTIR": "FT-IR Data Setup", "XRD": "XRD Data Setup",
+            "UVVIS": "UV-Vis Data Setup", "RAMAN": "Raman Data Setup",
+            "GENERAL": "General 2D Plotter Setup",
+        }
+        self.setWindowTitle(technique_titles.get(state.technique, "SpectraSuite Data Setup"))
         self.resize(600, 680)
         self.setMinimumSize(520, 620)
         self.setStyleSheet(STYLE)
@@ -60,7 +66,12 @@ class SetupDialog(QDialog):
         layout.setContentsMargins(22, 20, 22, 20)
         layout.setSpacing(12)
 
-        heading = QLabel("Data Processing Suite")
+        heading_names = {
+            "FTIR": "FT-IR Spectroscopy", "XRD": "X-Ray Diffraction",
+            "UVVIS": "UV-Vis Spectroscopy", "RAMAN": "Raman Spectroscopy",
+            "GENERAL": "General 2D Plotter",
+        }
+        heading = QLabel(heading_names.get(state.technique, "Data Processing Suite"))
         heading.setObjectName("heading")
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(heading)
@@ -112,7 +123,8 @@ class SetupDialog(QDialog):
         self.mode_buttons = {}
         for label, value in (
             ("Individual Plots", "individual"),
-            ("Stacked Grid", "stack"),
+            ("Vertical Stack", "stack"),
+            ("Grid Subplots", "grid"),
             ("Overlay", "overlay"),
         ):
             button = QRadioButton(label)
@@ -136,9 +148,9 @@ class SetupDialog(QDialog):
         elif state.technique == "GENERAL":
             text = "General Plotter: delimited text or Excel files with numeric X/Y columns"
         elif state.technique == "UVVIS":
-            text = "UV-Vis: two-column .csv, .tsv, .txt, .xy, .dat, .xlsx or .xls"
+            text = "UV-Vis: multi-sheet or multi-column .csv, .tsv, text, .xlsx or .xls"
         elif state.technique == "RAMAN":
-            text = "Raman: two-column Raman shift/intensity text or Excel data"
+            text = "Raman: multi-sheet or multi-column text, CSV, and Excel data"
         else:
             text = "FT-IR Spectroscopy: .dpt, .csv, .txt, .xy, .xlsx"
         info_layout.addWidget(QLabel(text))
@@ -253,6 +265,19 @@ class SetupDialog(QDialog):
                 return
             state.general_format = picker.result
             state.settings["general_format"] = picker.result
+        else:
+            datasets, failures = discover_many(state.settings["files"], minimum_points=11)
+            if failures:
+                details = "\n".join(f"• {name}: {reason}" for name, reason in failures)
+                QMessageBox.warning(self, "Some files could not be read", details)
+            if not datasets:
+                QMessageBox.critical(self, "No Data", "No plottable X/Y datasets were found.")
+                return
+            picker = DatasetSelectionDialog(datasets, self)
+            if picker.exec() != QDialog.DialogCode.Accepted:
+                return
+            state.pending_data = [(item.name, item.x, item.y) for item in picker.selected]
+            state.settings["mode"] = picker.mode
         self.ready = True
         self.accept()
 
@@ -416,4 +441,99 @@ class ColumnPickerDialog(QDialog):
             )
             return
         self.result = self._configuration()
+        self.accept()
+
+
+class DatasetSelectionDialog(QDialog):
+    """Choose datasets discovered across files, sheets, or repeated X/Y pairs."""
+
+    def __init__(self, datasets, parent=None, *, existing_count=0):
+        super().__init__(parent)
+        self.datasets = list(datasets)
+        self.existing_count = int(existing_count)
+        self.selected = []
+        self.mode = "individual"
+        self.setWindowTitle(f"Select {state.technique} datasets to plot")
+        self.resize(720, 560)
+        self.setStyleSheet(STYLE)
+        apply_window_icon(self, state.technique)
+        layout = QVBoxLayout(self)
+        heading = QLabel(f"Found {len(self.datasets)} plottable dataset(s)")
+        heading.setObjectName("heading")
+        layout.addWidget(heading)
+        note = QLabel(
+            "Select one or more datasets. Use Ctrl on Windows/Linux or Cmd on macOS "
+            "to select multiple entries."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        self.list_widget = QListWidget()
+        self.list_widget.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        for dataset in self.datasets:
+            source = Path(dataset.source).name
+            sheet = f" · sheet: {dataset.sheet}" if dataset.sheet else ""
+            self.list_widget.addItem(
+                f"{dataset.name}  ({len(dataset.x):,} points · {source}{sheet})"
+            )
+        if self.datasets:
+            self.list_widget.item(0).setSelected(True)
+        layout.addWidget(self.list_widget, 1)
+        row = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        selected = QPushButton("Plot Selected")
+        selected.setObjectName("primary")
+        selected.clicked.connect(lambda: self._choose(False))
+        all_button = QPushButton("Plot All")
+        all_button.setObjectName("primary")
+        all_button.clicked.connect(lambda: self._choose(True))
+        row.addWidget(cancel)
+        row.addStretch()
+        row.addWidget(selected)
+        row.addWidget(all_button)
+        layout.addLayout(row)
+
+    def _choose(self, use_all):
+        rows = list(range(len(self.datasets))) if use_all else sorted({
+            self.list_widget.row(item) for item in self.list_widget.selectedItems()
+        })
+        if not rows:
+            QMessageBox.warning(self, "Selection Required", "Select at least one dataset.")
+            return
+        self.selected = [self.datasets[row] for row in rows]
+        total_count = len(self.selected) + self.existing_count
+        if total_count == 1:
+            self.mode = "individual"
+            self.accept()
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Choose multi-dataset layout")
+        dialog.setStyleSheet(STYLE)
+        mode_layout = QVBoxLayout(dialog)
+        mode_layout.addWidget(QLabel(f"How should {total_count} datasets be plotted?"))
+        buttons = []
+        current = state.settings.get("mode", "overlay")
+        choices = [
+            ("Overlay on one axis", "overlay"), ("Vertical stack", "stack"),
+            ("Grid subplots", "grid"),
+        ]
+        if not self.existing_count:
+            choices.insert(0, ("Individual windows", "individual"))
+        for label, value in choices:
+            radio = QRadioButton(label)
+            radio.setProperty("mode", value)
+            radio.setChecked(value == current)
+            buttons.append(radio)
+            mode_layout.addWidget(radio)
+        if not any(button.isChecked() for button in buttons):
+            buttons[0].setChecked(True)
+        box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        box.accepted.connect(dialog.accept)
+        box.rejected.connect(dialog.reject)
+        mode_layout.addWidget(box)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.mode = next(button.property("mode") for button in buttons if button.isChecked())
         self.accept()

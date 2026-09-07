@@ -3,6 +3,7 @@ from matplotlib.patches import Ellipse
 from matplotlib.lines import Line2D
 from matplotlib.transforms import IdentityTransform
 import numpy as np
+from copy import deepcopy
 
 class AnnotationManager:
     def __init__(
@@ -30,6 +31,9 @@ class AnnotationManager:
         self.cid_drag = self.canvas.mpl_connect('motion_notify_event', self.on_drag)
         self.cid_release = self.canvas.mpl_connect('button_release_event', self.on_release)
         self.clipboard = None # Stores the copied object's properties
+        self.undo_stack = []
+        self.redo_stack = []
+        self.history_limit = 100
         self.cid_key = self.canvas.mpl_connect('key_press_event', self.on_key_press)
         self.cid_draw = self.canvas.mpl_connect('draw_event', self._on_draw)
 
@@ -120,6 +124,7 @@ class AnnotationManager:
             for artist, kind in reversed(self.annotations):
                 contains, _ = artist.contains(event)
                 if contains:
+                    self._checkpoint()
                     self.selected_artist = (artist, kind)
                     if kind == 'text': self.drag_start_pos = artist.get_position()
                     elif kind == 'rect': self.drag_start_pos = artist.get_xy()
@@ -135,6 +140,7 @@ class AnnotationManager:
         # --- DRAWING MODE (Added picker=15 for easy clicking) ---
         artist = None
         kind = self.active_tool
+        self._checkpoint()
         
         if kind == "rect":
             artist = patches.Rectangle((self.start_x, self.start_y), 0, 0, linewidth=2, edgecolor='blue', facecolor='none', zorder=10, picker=15)
@@ -224,6 +230,7 @@ class AnnotationManager:
         
     def delete_selected(self):
         if self.selected_artist:
+            self._checkpoint()
             artist, kind = self.selected_artist
             if kind == 'text':
                 self._set_text_underline(artist, False)
@@ -235,6 +242,7 @@ class AnnotationManager:
 
     def update_selected_properties(self, props):
         if not self.selected_artist: return
+        self._checkpoint()
         artist, kind = self.selected_artist
         
         if kind == 'text':
@@ -265,7 +273,11 @@ class AnnotationManager:
     def on_key_press(self, event):
         """Listens for keyboard commands on the graph canvas."""
         # Check for both Windows (ctrl) and Mac (cmd) keybindings
-        if event.key in ['ctrl+c', 'cmd+c'] and self.selected_artist:
+        if event.key in ['ctrl+z', 'cmd+z']:
+            self.undo()
+        elif event.key in ['ctrl+shift+z', 'cmd+shift+z', 'ctrl+y', 'cmd+y']:
+            self.redo()
+        elif event.key in ['ctrl+c', 'cmd+c'] and self.selected_artist:
             self.copy_selected()
         elif event.key in ['ctrl+v', 'cmd+v'] and self.clipboard:
             self.paste_clipboard()
@@ -307,6 +319,7 @@ class AnnotationManager:
     def paste_clipboard(self):
         """Creates a new object from the clipboard, offset slightly so it doesn't overlap perfectly."""
         if not self.clipboard or not self.active_ax: return
+        self._checkpoint()
         clip = self.clipboard
         kind = clip['kind']
         
@@ -342,6 +355,7 @@ class AnnotationManager:
     def nudge_selected(self, key):
         """Moves the selected object slightly based on arrow keys."""
         if not self.selected_artist: return
+        self._checkpoint()
         artist, kind = self.selected_artist
         xlim, ylim = self.active_ax.get_xlim(), self.active_ax.get_ylim()
         
@@ -372,6 +386,59 @@ class AnnotationManager:
             artist.set_ydata(np.asarray(artist.get_ydata()) + dy)
             
         self.canvas.draw_idle()
+
+    def _checkpoint(self):
+        """Store the current annotation state before a user-visible change."""
+        snapshot = deepcopy(self.get_serialized_data())
+        if not self.undo_stack or self.undo_stack[-1] != snapshot:
+            self.undo_stack.append(snapshot)
+            del self.undo_stack[:-self.history_limit]
+        self.redo_stack.clear()
+
+    def _clear_artists(self):
+        for artist, kind in list(self.annotations):
+            if kind == 'text':
+                self._set_text_underline(artist, False)
+            try:
+                artist.remove()
+            except (ValueError, AttributeError):
+                pass
+        self.annotations = []
+        self.selected_artist = None
+
+    def _restore(self, snapshot):
+        if self.active_ax is None:
+            return
+        self._clear_artists()
+        self.load_serialized_data(deepcopy(snapshot), self.active_ax)
+        self.clear_selection()
+        if self.on_list_update_callback:
+            self.on_list_update_callback(self.annotations)
+        self.canvas.draw_idle()
+
+    def undo(self):
+        if not self.undo_stack:
+            return False
+        self.redo_stack.append(deepcopy(self.get_serialized_data()))
+        self._restore(self.undo_stack.pop())
+        return True
+
+    def redo(self):
+        if not self.redo_stack:
+            return False
+        self.undo_stack.append(deepcopy(self.get_serialized_data()))
+        self._restore(self.redo_stack.pop())
+        return True
+
+    def clear_all(self):
+        if not self.annotations:
+            return False
+        self._checkpoint()
+        self._clear_artists()
+        if self.on_list_update_callback:
+            self.on_list_update_callback(self.annotations)
+        self.canvas.draw_idle()
+        return True
     
     def get_serialized_data(self):
         """Converts all drawn objects into a dictionary format for JSON saving."""

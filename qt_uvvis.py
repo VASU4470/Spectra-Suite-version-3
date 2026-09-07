@@ -6,7 +6,7 @@ import csv
 from pathlib import Path
 
 import numpy as np
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from uvvis_analysis import fit_tauc, fit_urbach, signal_to_absorption, spectral_axis_to_energy
 from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_widgets import CompactNavigationToolbar
 
 
 class UVVisAnalysisDialog(QDialog):
@@ -77,8 +78,15 @@ class UVVisAnalysisDialog(QDialog):
 
         self.figure = Figure(figsize=(9, 5), constrained_layout=True)
         self.canvas = FigureCanvasQTAgg(self.figure)
-        root.addWidget(NavigationToolbar2QT(self.canvas, self))
         root.addWidget(self.canvas, 1)
+        toolbar_row = QHBoxLayout()
+        self.toolbar = CompactNavigationToolbar(self.canvas, self)
+        self.toolbar_toggle = QPushButton("Hide plot toolbar")
+        self.toolbar_toggle.setCheckable(True)
+        self.toolbar_toggle.toggled.connect(self._toggle_toolbar)
+        toolbar_row.addWidget(self.toolbar, 1)
+        toolbar_row.addWidget(self.toolbar_toggle)
+        root.addLayout(toolbar_row)
         self.result_label = QLabel()
         self.result_label.setWordWrap(True)
         root.addWidget(self.result_label)
@@ -94,6 +102,10 @@ class UVVisAnalysisDialog(QDialog):
         row.addStretch()
         row.addWidget(close)
         root.addLayout(row)
+
+    def _toggle_toolbar(self, hidden):
+        self.toolbar.setVisible(not hidden)
+        self.toolbar_toggle.setText("Show plot toolbar" if hidden else "Hide plot toolbar")
 
     @staticmethod
     def _range_pair():

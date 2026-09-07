@@ -3,6 +3,7 @@ scipy
 pandas
 matplotlib
 openpyxl
+xlrd
 
 # GUI Framework
 PySide6

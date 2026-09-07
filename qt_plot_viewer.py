@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import math
 from pathlib import Path
 
 import numpy as np
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QColorDialog,
@@ -46,11 +48,13 @@ from scipy.signal import find_peaks
 
 from annotations import AnnotationManager
 from config import state
+from dataset_reader import discover_many
 from processing import process_spectrum
 from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_widgets import CompactNavigationToolbar
 
 
 STYLE = LIGHT_STYLE + """
@@ -336,6 +340,8 @@ class PlotViewer(QDialog):
         self.deconv_start = None
         self._skip_close_prompt = False
         self._pending_annotations = state.global_set.get("annotations") or []
+        self._state_undo = []
+        self._state_redo = []
 
         self._build_layout()
         self._build_controls()
@@ -346,39 +352,71 @@ class PlotViewer(QDialog):
             on_list_update_callback=lambda _items: self._sync_annotation_list(),
             text_input_provider=self._request_annotation_text,
         )
+        self._install_shortcuts()
         self._load_active_settings()
         self.update_plot()
 
     # ------------------------------- UI ---------------------------------
     def _build_layout(self):
-        root = QHBoxLayout(self)
+        root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        root.addWidget(splitter)
+        visibility = QHBoxLayout()
+        self.controls_toggle = QPushButton("Hide side panel")
+        self.controls_toggle.setCheckable(True)
+        self.controls_toggle.clicked.connect(self._toggle_controls)
+        self.toolbar_toggle = QPushButton("Hide plot toolbar")
+        self.toolbar_toggle.setCheckable(True)
+        self.toolbar_toggle.clicked.connect(self._toggle_toolbar)
+        visibility.addWidget(self.controls_toggle)
+        visibility.addWidget(self.toolbar_toggle)
+        visibility.addStretch()
+        root.addLayout(visibility)
+
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(True)
+        root.addWidget(self.splitter, 1)
 
         self.controls = QWidget()
-        self.controls.setMinimumWidth(365)
-        self.controls.setMaximumWidth(500)
+        self.controls.setMinimumWidth(250)
         self.controls_layout = QVBoxLayout(self.controls)
         self.controls_layout.setContentsMargins(0, 0, 4, 0)
-        splitter.addWidget(self.controls)
+        self.splitter.addWidget(self.controls)
 
-        plot_panel = QWidget()
-        plot_layout = QVBoxLayout(plot_panel)
+        self.plot_panel = QWidget()
+        plot_layout = QVBoxLayout(self.plot_panel)
         plot_layout.setContentsMargins(4, 0, 0, 0)
         self.figure = Figure(figsize=(10, 6), dpi=100)
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.canvas.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.toolbar = NavigationToolbar2QT(self.canvas, plot_panel)
+        self.toolbar = CompactNavigationToolbar(self.canvas, self.plot_panel)
         self.cursor_label = QLabel("X: -- | Y: --")
         self.cursor_label.setObjectName("cursor")
         self.cursor_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        plot_layout.addWidget(self.toolbar)
         plot_layout.addWidget(self.canvas, 1)
+        plot_layout.addWidget(self.toolbar)
         plot_layout.addWidget(self.cursor_label)
-        splitter.addWidget(plot_panel)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
+        self.splitter.addWidget(self.plot_panel)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([390, 1040])
+
+    def _toggle_controls(self, hidden):
+        self.controls.setVisible(not hidden)
+        self.controls_toggle.setText("Show side panel" if hidden else "Hide side panel")
+
+    def _toggle_toolbar(self, hidden):
+        self.toolbar.setVisible(not hidden)
+        self.toolbar_toggle.setText("Show plot toolbar" if hidden else "Hide plot toolbar")
+
+    def _install_shortcuts(self):
+        self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        self.undo_shortcut.activated.connect(self._undo_active)
+        self.redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
+        self.redo_shortcut.activated.connect(self._redo_active)
+        self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self)
+        self.delete_shortcut.activated.connect(self._delete_active)
+        self.backspace_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Backspace), self)
+        self.backspace_shortcut.activated.connect(self._delete_active)
 
     def _build_controls(self):
         self.tabs = QTabWidget()
@@ -387,6 +425,15 @@ class PlotViewer(QDialog):
         self._build_axes_tab()
         self._build_annotation_tab()
         self._build_analysis_tab()
+
+        history = QHBoxLayout()
+        undo = QPushButton("↶ Undo (Ctrl/Cmd+Z)")
+        undo.clicked.connect(self._undo_active)
+        redo = QPushButton("↷ Redo")
+        redo.clicked.connect(self._redo_active)
+        history.addWidget(undo)
+        history.addWidget(redo)
+        self.controls_layout.addLayout(history)
 
         self.finish_button = QPushButton()
         self.finish_button.setObjectName("primary")
@@ -415,6 +462,19 @@ class PlotViewer(QDialog):
         self.file_combo.addItems(self.stems)
         self.file_combo.currentTextChanged.connect(self._select_file)
         manage_layout.addWidget(self.file_combo)
+        layout_form = QFormLayout()
+        self.plot_layout_combo = QComboBox()
+        for label, value in (
+            ("Individual", "individual"), ("Overlay", "overlay"),
+            ("Vertical stack", "stack"), ("Grid subplots", "grid"),
+        ):
+            self.plot_layout_combo.addItem(label, value)
+        current_mode = state.settings.get("mode", "individual")
+        index = self.plot_layout_combo.findData(current_mode)
+        self.plot_layout_combo.setCurrentIndex(max(0, index))
+        self.plot_layout_combo.currentIndexChanged.connect(self._plot_layout_changed)
+        layout_form.addRow("Plot layout", self.plot_layout_combo)
+        manage_layout.addLayout(layout_form)
         row = QHBoxLayout()
         for label, slot in (
             ("Add", self.add_files), ("Replace", self.replace_current), ("Remove", self.remove_current)
@@ -423,13 +483,16 @@ class PlotViewer(QDialog):
             button.clicked.connect(slot)
             row.addWidget(button)
         manage_layout.addLayout(row)
-        order = QHBoxLayout()
-        up = QPushButton("Move Up")
-        up.clicked.connect(lambda: self.move_current(-1))
-        down = QPushButton("Move Down")
-        down.clicked.connect(lambda: self.move_current(1))
-        order.addWidget(up)
-        order.addWidget(down)
+        order = QGridLayout()
+        for position, (label, direction) in enumerate((
+            ("↑ Up", "up"), ("↓ Down", "down"),
+            ("← Left", "left"), ("→ Right", "right"),
+        )):
+            button = QPushButton(label)
+            button.clicked.connect(
+                lambda _checked=False, step=direction: self.move_current_spatial(step)
+            )
+            order.addWidget(button, position // 2, position % 2)
         manage_layout.addLayout(order)
         layout.addWidget(manage)
 
@@ -593,7 +656,7 @@ class PlotViewer(QDialog):
         form.addRow(self.ann_underline_check)
         apply_props = QPushButton("Apply properties")
         apply_props.clicked.connect(self._apply_annotation_properties)
-        delete = QPushButton("Delete selected")
+        delete = QPushButton("⌫ Delete selected")
         delete.clicked.connect(self._delete_annotation)
         form.addRow(apply_props)
         form.addRow(delete)
@@ -601,6 +664,17 @@ class PlotViewer(QDialog):
         self.annotation_list = QListWidget()
         self.annotation_list.currentRowChanged.connect(self._select_annotation_row)
         layout.addWidget(self.annotation_list)
+        history = QGridLayout()
+        undo = QPushButton("↶ Undo")
+        undo.clicked.connect(lambda: self.annotation_mgr.undo())
+        redo = QPushButton("↷ Redo")
+        redo.clicked.connect(lambda: self.annotation_mgr.redo())
+        clear_all = QPushButton("🗑 Clear all annotations")
+        clear_all.clicked.connect(self._clear_all_annotations)
+        history.addWidget(undo, 0, 0)
+        history.addWidget(redo, 0, 1)
+        history.addWidget(clear_all, 1, 0, 1, 2)
+        layout.addLayout(history)
 
     def _build_analysis_tab(self):
         tab, layout = self._scroll_tab()
@@ -696,6 +770,81 @@ class PlotViewer(QDialog):
         self.canvas.mpl_connect("button_press_event", self.on_click)
         self.canvas.mpl_connect("button_press_event", lambda _event: self.canvas.setFocus())
 
+    def _state_snapshot(self):
+        return {
+            "file_set": copy.deepcopy(state.file_set),
+            "global_set": copy.deepcopy(state.global_set),
+            "mode": state.settings.get("mode", "individual"),
+            "stems": list(self.stems),
+            "data_dict": copy.deepcopy(self.data_dict),
+            "all_data": copy.deepcopy(state.all_data),
+        }
+
+    def _checkpoint_state(self):
+        snapshot = self._state_snapshot()
+        self._state_undo.append(snapshot)
+        del self._state_undo[:-100]
+        self._state_redo.clear()
+
+    def _restore_state(self, snapshot):
+        state.file_set = copy.deepcopy(snapshot["file_set"])
+        state.global_set = copy.deepcopy(snapshot["global_set"])
+        state.settings["mode"] = snapshot["mode"]
+        self.data_dict = copy.deepcopy(snapshot["data_dict"])
+        state.all_data = copy.deepcopy(snapshot["all_data"])
+        self.stems = list(snapshot["stems"])
+        if self.current_stem not in self.stems:
+            self.current_stem = self.stems[0]
+        self.file_combo.blockSignals(True)
+        self.file_combo.clear()
+        self.file_combo.addItems(self.stems)
+        self.file_combo.setCurrentText(self.current_stem)
+        self.file_combo.blockSignals(False)
+        self.plot_layout_combo.blockSignals(True)
+        index = self.plot_layout_combo.findData(state.settings["mode"])
+        self.plot_layout_combo.setCurrentIndex(max(0, index))
+        self.plot_layout_combo.blockSignals(False)
+        self._load_active_settings()
+        self.update_plot()
+
+    def _undo_active(self):
+        if self.tabs.currentWidget() is self.tabs.widget(2) and self.annotation_mgr.undo():
+            return
+        if self._state_undo:
+            self._state_redo.append(self._state_snapshot())
+            self._restore_state(self._state_undo.pop())
+
+    def _redo_active(self):
+        if self.tabs.currentWidget() is self.tabs.widget(2) and self.annotation_mgr.redo():
+            return
+        if self._state_redo:
+            self._state_undo.append(self._state_snapshot())
+            self._restore_state(self._state_redo.pop())
+
+    def _delete_active(self):
+        if self.tabs.currentWidget() is self.tabs.widget(2):
+            self._delete_annotation()
+        elif self.tabs.currentWidget() is self.tabs.widget(3):
+            self.delete_selected_peak()
+
+    def _plot_layout_changed(self):
+        mode = self.plot_layout_combo.currentData()
+        if not mode or mode == state.settings.get("mode"):
+            return
+        if mode == "individual" and len(self.stems) > 1:
+            QMessageBox.information(
+                self, "Individual windows",
+                "Individual mode is chosen before launch. Use Overlay, Vertical stack, or Grid here.",
+            )
+            self.plot_layout_combo.blockSignals(True)
+            index = self.plot_layout_combo.findData(state.settings.get("mode", "overlay"))
+            self.plot_layout_combo.setCurrentIndex(max(0, index))
+            self.plot_layout_combo.blockSignals(False)
+            return
+        self._checkpoint_state()
+        state.settings["mode"] = mode
+        self.update_plot()
+
     # ---------------------------- settings ------------------------------
     def _load_active_settings(self):
         fs = state.file_set.setdefault(self.current_stem, {})
@@ -729,6 +878,7 @@ class PlotViewer(QDialog):
         self.sync_peak_list()
 
     def save_and_update(self):
+        self._checkpoint_state()
         fs = state.file_set[self.current_stem]
         fs.update(
             custom_name=self.name_edit.text().strip() or self.current_stem,
@@ -797,6 +947,7 @@ class PlotViewer(QDialog):
             QMessageBox.critical(self, "Reference Error", str(error))
             return
         fs = state.file_set[self.current_stem]
+        self._checkpoint_state()
         fs["bg_data"] = (x, y)
         fs["bg_filename"] = Path(filename).name
         self.reference_edit.setText(Path(filename).name)
@@ -860,39 +1011,39 @@ class PlotViewer(QDialog):
         )
         if not paths:
             return
-        if state.technique == "GENERAL" and not self._ensure_general_format(Path(paths[0])):
+        datasets, failures = discover_many(paths, minimum_points=11)
+        if not datasets:
+            details = "\n".join(f"{name}: {reason}" for name, reason in failures)
+            QMessageBox.warning(self, "Files skipped", details or "No X/Y datasets were found.")
             return
-        if state.settings.get("mode") == "individual" and self.stems:
-            choice = QMessageBox(self)
-            choice.setWindowTitle("Add Files")
-            choice.setText("How should the new files be displayed with the current spectrum?")
-            choice.addButton("Overlay", QMessageBox.ButtonRole.AcceptRole)
-            stack = choice.addButton("Stacked grid", QMessageBox.ButtonRole.ActionRole)
-            cancel = choice.addButton(QMessageBox.StandardButton.Cancel)
-            choice.exec()
-            if choice.clickedButton() == cancel:
-                return
-            state.settings["mode"] = "stack" if choice.clickedButton() == stack else "overlay"
+        from qt_setup import DatasetSelectionDialog
+        picker = DatasetSelectionDialog(datasets, self, existing_count=len(self.stems))
+        if picker.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._checkpoint_state()
+        previous_mode = state.settings.get("mode", "individual")
+        if len(picker.selected) > 1 or len(self.stems) > 0:
+            state.settings["mode"] = picker.mode
+            index = self.plot_layout_combo.findData(state.settings["mode"])
+            self.plot_layout_combo.blockSignals(True)
+            self.plot_layout_combo.setCurrentIndex(index)
+            self.plot_layout_combo.blockSignals(False)
+        if previous_mode == "individual" and state.settings.get("mode") != "individual":
             state.mode_switched_mid_session = True
             self._refresh_finish_button()
-        failed = []
-        for value in paths:
-            path = Path(value)
-            try:
-                x, y = self._read_data_file(path)
-                if len(x) <= 10:
-                    raise ValueError("not enough numeric rows")
-            except Exception:
-                failed.append(path.name)
-                continue
-            stem = _unique_stem(path, self.stems)
+        for dataset in picker.selected:
+            x, y = dataset.x, dataset.y
+            stem = _unique_stem(Path(dataset.name), self.stems)
             self.stems.append(stem)
             self.data_dict[stem] = (x, y)
             state.all_data.append((stem, x, y))
             self._init_file_settings(stem)
             self.file_combo.addItem(stem)
-        if failed:
-            QMessageBox.warning(self, "Files Skipped", "Could not read:\n" + "\n".join(failed))
+        if failures:
+            QMessageBox.warning(
+                self, "Some files skipped",
+                "\n".join(f"{name}: {reason}" for name, reason in failures),
+            )
         self.update_plot()
 
     def replace_current(self):
@@ -946,6 +1097,7 @@ class PlotViewer(QDialog):
         answer = QMessageBox.question(self, "Remove File", f"Remove '{self.current_stem}'?")
         if answer != QMessageBox.StandardButton.Yes:
             return
+        self._checkpoint_state()
         stem = self.current_stem
         index = self.stems.index(stem)
         self.stems.remove(stem)
@@ -962,6 +1114,7 @@ class PlotViewer(QDialog):
         new = old + direction
         if not 0 <= new < len(self.stems):
             return
+        self._checkpoint_state()
         self.stems[old], self.stems[new] = self.stems[new], self.stems[old]
         state.all_data.sort(key=lambda item: self.stems.index(item[0]))
         self.file_combo.blockSignals(True)
@@ -970,6 +1123,22 @@ class PlotViewer(QDialog):
         self.file_combo.setCurrentText(self.current_stem)
         self.file_combo.blockSignals(False)
         self.update_plot()
+
+    def move_current_spatial(self, direction):
+        """Reorder row-major grid cells or the linear stack/overlay order."""
+        if state.settings.get("mode") == "grid":
+            columns = max(1, int(math.ceil(math.sqrt(len(self.stems)))))
+            current = self.stems.index(self.current_stem)
+            if direction == "left" and current % columns == 0:
+                return
+            if direction == "right" and (
+                current % columns == columns - 1 or current + 1 >= len(self.stems)
+            ):
+                return
+            step = {"left": -1, "right": 1, "up": -columns, "down": columns}[direction]
+        else:
+            step = -1 if direction in {"left", "up"} else 1
+        self.move_current(step)
 
     # ------------------------------ plotting -----------------------------
     def update_plot(self):
@@ -983,10 +1152,18 @@ class PlotViewer(QDialog):
         self.figure.clear()
         self.cursors = []
         mode = state.settings.get("mode", "individual")
-        is_stack = mode == "stack"
-        if is_stack:
+        is_stack = mode in {"stack", "grid"}
+        if mode == "stack":
             axes_value = self.figure.subplots(len(self.stems), 1, sharex=True)
             axes = list(np.atleast_1d(axes_value).flat)
+        elif mode == "grid":
+            columns = max(1, int(math.ceil(math.sqrt(len(self.stems)))))
+            rows = int(math.ceil(len(self.stems) / columns))
+            axes_value = self.figure.subplots(rows, columns, squeeze=False)
+            all_axes = list(np.asarray(axes_value).flat)
+            axes = all_axes[:len(self.stems)]
+            for unused in all_axes[len(self.stems):]:
+                unused.set_visible(False)
         else:
             axes = [self.figure.add_subplot(111)] * len(self.stems)
 
@@ -1135,11 +1312,13 @@ class PlotViewer(QDialog):
         closest_x, closest_y = x[index], y[index]
         fs = state.file_set[self.current_stem]
         if mode == "peak":
+            self._checkpoint_state()
             fs.setdefault("labels", []).append((closest_x, closest_y, f"{closest_x:.1f}"))
             self.update_plot()
         elif mode == "xrd_peak":
             result = self.calculate_xrd_peak(event.xdata, x, y)
             if result:
+                self._checkpoint_state()
                 fs.setdefault("xrd_peaks", []).append(result)
                 self.update_plot()
         elif mode == "area":
@@ -1152,6 +1331,7 @@ class PlotViewer(QDialog):
                 mask = (x >= x1) & (x <= x2)
                 x_sel, y_sel = x[mask], y[mask]
                 if len(x_sel) > 1:
+                    self._checkpoint_state()
                     order = np.argsort(x_sel)
                     x_sel, y_sel = x_sel[order], y_sel[order]
                     baseline = np.interp(x_sel, [x_sel[0], x_sel[-1]], [y_sel[0], y_sel[-1]])
@@ -1180,17 +1360,20 @@ class PlotViewer(QDialog):
         if len(self.baseline_pts) < 2:
             QMessageBox.warning(self, "Baseline", "Click at least two baseline points first.")
             return
+        self._checkpoint_state()
         state.file_set[self.current_stem]["manual_baseline_pts"] = list(self.baseline_pts)
         self.baseline_pts = []
         self.click_mode.setCurrentIndex(0)
         self.update_plot()
 
     def clear_manual_baseline(self):
+        self._checkpoint_state()
         state.file_set[self.current_stem]["manual_baseline_pts"] = []
         self.baseline_pts = []
         self.update_plot()
 
     def clear_deconvolution(self):
+        self._checkpoint_state()
         state.file_set[self.current_stem]["deconvs"] = []
         self.deconv_start = None
         self.update_plot()
@@ -1200,6 +1383,7 @@ class PlotViewer(QDialog):
             self.auto_find_xrd_peaks()
             return
         x, y = self.get_processed_data_for_stem(self.current_stem)
+        self._checkpoint_state()
         fs = state.file_set[self.current_stem]
         search_y = y if state.technique in {"GENERAL", "UVVIS", "RAMAN"} or fs.get("t2a", False) else -y
         peaks, _ = find_peaks(search_y, prominence=self.prominence_spin.value())
@@ -1229,6 +1413,7 @@ class PlotViewer(QDialog):
         return peak_x, peak_y, fwhm, size
 
     def auto_find_xrd_peaks(self):
+        self._checkpoint_state()
         x, y = self.get_processed_data_for_stem(self.current_stem)
         peaks, _ = find_peaks(
             y, height=self.xrd_height_spin.value(), prominence=self.prominence_spin.value()
@@ -1276,6 +1461,7 @@ class PlotViewer(QDialog):
         except Exception as error:
             QMessageBox.critical(self, "Fitting Error", f"The fit did not converge:\n{error}")
             return
+        self._checkpoint_state()
         state.file_set[self.current_stem].setdefault("deconvs", []).append(
             (x1, x2, baseline, params, count, valley)
         )
@@ -1311,6 +1497,7 @@ class PlotViewer(QDialog):
         row = self.peak_list.currentRow()
         if row < 0:
             return
+        self._checkpoint_state()
         fs = state.file_set[self.current_stem]
         primary_key = "xrd_peaks" if state.technique == "XRD" else "labels"
         primary = fs.get(primary_key, [])
@@ -1323,6 +1510,7 @@ class PlotViewer(QDialog):
         self.update_plot()
 
     def clear_peaks(self):
+        self._checkpoint_state()
         fs = state.file_set[self.current_stem]
         for key in ("labels", "areas", "deconvs", "xrd_peaks"):
             fs[key] = []
@@ -1425,6 +1613,17 @@ class PlotViewer(QDialog):
     def _delete_annotation(self):
         self.annotation_mgr.delete_selected()
         self._sync_annotation_list()
+
+    def _clear_all_annotations(self):
+        if not self.annotation_mgr.annotations:
+            return
+        answer = QMessageBox.question(
+            self, "Clear annotations", "Remove every annotation from this plot?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.annotation_mgr.clear_all()
+            self._sync_annotation_list()
 
     def sync_annotations_to_state(self):
         state.global_set["annotations"] = self.annotation_mgr.get_serialized_data()

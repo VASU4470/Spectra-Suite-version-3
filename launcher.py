@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QTimer, Qt
+from PySide6.QtCore import QProcess, QSize, QTimer, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QGridLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
@@ -31,11 +31,11 @@ class Workspace:
 
 
 WORKSPACES = (
-    Workspace("ir", "FT-IR\nSpectroscopy", "📈"),
-    Workspace("xrd", "XRD\nAnalysis", "📊"),
-    Workspace("uvvis", "UV-Vis\nAnalysis", "🌈"),
-    Workspace("raman", "Raman\nAnalysis", "🔬"),
-    Workspace("general", "General\nPlotter", "📉", experimental=True),
+    Workspace("ir", "FT-IR\nSpectroscopy", "ir_icon.png"),
+    Workspace("xrd", "XRD\nAnalysis", "xrd_icon.png"),
+    Workspace("uvvis", "UV-Vis\nAnalysis", "uvvis_icon.svg"),
+    Workspace("raman", "Raman\nAnalysis", "raman_icon.svg"),
+    Workspace("general", "General\nPlotter", "plot_icon.svg", experimental=True),
 )
 
 
@@ -104,7 +104,11 @@ class WelcomeDashboard(QWidget):
 
     def _workspace_button(self, workspace: Workspace) -> QPushButton:
         suffix = "\n\nEXPERIMENTAL" if workspace.experimental else ""
-        button = QPushButton(f"{workspace.icon}\n\n{workspace.title}{suffix}")
+        button = QPushButton(f"{workspace.title}{suffix}")
+        icon_path = resource_path(workspace.icon)
+        if icon_path.exists():
+            button.setIcon(QIcon(str(icon_path)))
+            button.setIconSize(QSize(52, 52))
         button.setMinimumHeight(145)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setProperty("experimental", workspace.experimental)

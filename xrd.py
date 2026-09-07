@@ -14,6 +14,10 @@ from readers import robust_read_spectrum as robust_read_xrd
 
 
 def load_data_files(parent=None):
+    if state.pending_data:
+        state.all_data.extend(state.pending_data)
+        state.pending_data = []
+        return True
     file_list = [Path(f) for f in state.settings.get('files', [])]
     if not file_list:
         QMessageBox.critical(parent, "Error", "No files selected or found.")
@@ -90,8 +94,11 @@ def main():
 
         mode = state.settings.get('mode', 'individual')
 
-        if mode in ['overlay', 'stack']:
-            title = "XRD Overlay Mode" if mode == 'overlay' else "XRD Stacked Grid Mode"
+        if mode in ['overlay', 'stack', 'grid']:
+            title = {
+                "overlay": "XRD Overlay Mode", "stack": "XRD Vertical Stack",
+                "grid": "XRD Grid Mode",
+            }[mode]
             run_plot_viewer(state.all_data, title, out_dir=None)
 
         elif mode == 'individual':

@@ -15,6 +15,10 @@ from readers import robust_read_spectrum
 
 
 def load_data_files(parent=None):
+    if state.pending_data:
+        state.all_data.extend(state.pending_data)
+        state.pending_data = []
+        return True
     files = [Path(value) for value in state.settings.get("files", [])]
     if not files:
         QMessageBox.critical(parent, "Error", "No files selected or found.")
@@ -54,8 +58,11 @@ def main():
                 state.init_file_settings()
                 break
         mode = state.settings.get("mode", "individual")
-        if mode in {"overlay", "stack"}:
-            title = "Raman Overlay Mode" if mode == "overlay" else "Raman Stacked Grid Mode"
+        if mode in {"overlay", "stack", "grid"}:
+            title = {
+                "overlay": "Raman Overlay Mode", "stack": "Raman Vertical Stack",
+                "grid": "Raman Grid Mode",
+            }[mode]
             run_plot_viewer(state.all_data, title, out_dir=None)
         else:
             for index, data in enumerate(state.all_data):

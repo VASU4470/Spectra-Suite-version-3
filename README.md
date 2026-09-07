@@ -36,6 +36,20 @@ area, step, pie, histogram, and box plots. Series colors, lines, markers,
 widths, titles, axis labels, legends, grids, and value labels are editable.
 Edited tables, reusable JSON projects, and PNG/PDF/SVG figures can be saved.
 
+The plotting usability pass adds visible technique icons and titles, resizable
+and hideable side panels, compact Matplotlib toolbars below the graph, and
+cross-platform Ctrl/Cmd undo/redo plus Delete/Backspace handling. Annotation
+tools include undo, redo, selected-object deletion, and clear-all; the General
+2D Plotter now includes the same basic annotation workflow. General Plotter
+supports one X/category column with multiple selected Y columns; independent
+multi-X/multi-Y axes are planned as a separate follow-up tool.
+
+Spectroscopy imports now discover multiple datasets in one file. Repeated
+X/Y column pairs, a shared X column with several Y columns, and every worksheet
+in an Excel workbook are listed before plotting. Users can plot selected data
+or all discovered data as individual windows, an overlay, a vertical stack, or
+a grid. Grid order can be rearranged up/down/left/right from the viewer.
+
 **SpectraSuite - FT-IR and XRD Analysis (Pilot Study)**
 
 Welcome to the SpectraSuite beta testing program! This software is being developed at UNAM/ICAT to simplify and enhance the pedagogical experience of analyzing FT-IR and XRD spectral data.

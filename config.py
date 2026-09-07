@@ -80,6 +80,7 @@ class SessionState:
         self.restart_to_menu = False # Signals a workspace to return to its Qt setup dialog
         self.general_format = None # NEW: {'delimiter','skip_rows','x_col','y_col'} chosen for the GENERAL plotter, reused when adding more files mid-session
         self.mode_switched_mid_session = False # NEW: set when 'Add File(s)' switches Individual -> Overlay/Stack inside an open PlotViewer; tells main()'s per-file loop to stop (state.all_data now holds files that loop never expected, and they're already shown together in the window that's about to close)
+        self.pending_data = [] # Datasets selected from multi-sheet/multi-column files in the setup dialog
         
         self.global_set = {
             'xlim': None, 'ylim': None,
