@@ -37,6 +37,19 @@ class AnnotationHistoryTests(unittest.TestCase):
         self.manager.undo()
         self.assertEqual(self.manager.annotations[0][0].get_position(), before)
 
+    def test_line_endpoint_can_be_reshaped(self):
+        self.manager.load_serialized_data([{
+            "kind": "line", "x": [0.0, 1.0], "y": [0.0, 1.0],
+            "c": "red", "lw": 2.0, "ls": "-",
+        }], self.ax)
+        artist, kind = self.manager.annotations[1]
+        self.manager._select_artist(artist, kind)
+        self.manager.drag_original = self.manager._geometry(artist, kind)
+        self.manager.drag_handle = "end"
+        self.manager._apply_geometry_drag(artist, kind, 2.0, 3.0, 0.0, 0.0)
+        self.assertEqual(float(artist.get_xdata()[-1]), 2.0)
+        self.assertEqual(float(artist.get_ydata()[-1]), 3.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

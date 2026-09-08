@@ -273,11 +273,25 @@ class SetupDialog(QDialog):
             if not datasets:
                 QMessageBox.critical(self, "No Data", "No plottable X/Y datasets were found.")
                 return
-            picker = DatasetSelectionDialog(datasets, self)
-            if picker.exec() != QDialog.DialogCode.Accepted:
-                return
-            state.pending_data = [(item.name, item.x, item.y) for item in picker.selected]
-            state.settings["mode"] = picker.mode
+            if len(datasets) == 1:
+                # A chooser adds no value for a single discovered spectrum.
+                item = datasets[0]
+                state.pending_data = [(item.name, item.x, item.y)]
+                state.pending_reference = None
+                state.settings["mode"] = "individual"
+            else:
+                picker = DatasetSelectionDialog(datasets, self)
+                if picker.exec() != QDialog.DialogCode.Accepted:
+                    return
+                state.pending_data = [(item.name, item.x, item.y) for item in picker.selected]
+                state.pending_reference = (
+                    None if picker.reference_dataset is None else (
+                        picker.reference_dataset.name,
+                        picker.reference_dataset.x,
+                        picker.reference_dataset.y,
+                    )
+                )
+                state.settings["mode"] = picker.mode
         self.ready = True
         self.accept()
 
@@ -453,6 +467,7 @@ class DatasetSelectionDialog(QDialog):
         self.datasets = list(datasets)
         self.existing_count = int(existing_count)
         self.selected = []
+        self.reference_dataset = None
         self.mode = "individual"
         self.setWindowTitle(f"Select {state.technique} datasets to plot")
         self.resize(720, 560)
@@ -479,6 +494,34 @@ class DatasetSelectionDialog(QDialog):
         if self.datasets:
             self.list_widget.item(0).setSelected(True)
         layout.addWidget(self.list_widget, 1)
+        self.reference_combo = QComboBox()
+        self.reference_combo.addItem("None — do not subtract a baseline/reference", -1)
+        for index, dataset in enumerate(self.datasets):
+            self.reference_combo.addItem(dataset.name, index)
+        if state.technique in {"UVVIS", "RAMAN"}:
+            reference_words = ("baseline", "background", "blank", "reference", "dark", "substrate")
+            candidate = next(
+                (index for index, item in enumerate(self.datasets)
+                 if any(word in item.name.lower() for word in reference_words)),
+                None,
+            )
+            if candidate is not None:
+                self.reference_combo.setCurrentIndex(candidate + 1)
+                self.list_widget.clearSelection()
+                sample_index = next(
+                    (index for index in range(len(self.datasets)) if index != candidate), None
+                )
+                if sample_index is not None:
+                    self.list_widget.item(sample_index).setSelected(True)
+            reference_note = QLabel(
+                "Optional: choose a baseline/background dataset from this file. It will be "
+                "interpolated and subtracted from every selected sample."
+            )
+            reference_note.setWordWrap(True)
+            layout.addWidget(reference_note)
+            layout.addWidget(self.reference_combo)
+        else:
+            self.reference_combo.setVisible(False)
         row = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -495,11 +538,20 @@ class DatasetSelectionDialog(QDialog):
         layout.addLayout(row)
 
     def _choose(self, use_all):
+        reference_index = int(self.reference_combo.currentData())
+        self.reference_dataset = (
+            self.datasets[reference_index] if reference_index >= 0 else None
+        )
         rows = list(range(len(self.datasets))) if use_all else sorted({
             self.list_widget.row(item) for item in self.list_widget.selectedItems()
         })
+        if reference_index >= 0:
+            rows = [row for row in rows if row != reference_index]
         if not rows:
-            QMessageBox.warning(self, "Selection Required", "Select at least one dataset.")
+            QMessageBox.warning(
+                self, "Selection Required",
+                "Select at least one sample dataset in addition to the baseline/reference.",
+            )
             return
         self.selected = [self.datasets[row] for row in rows]
         total_count = len(self.selected) + self.existing_count

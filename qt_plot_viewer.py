@@ -56,6 +56,8 @@ from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 from plot_export import save_figure
+from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
+from spectral_preprocessing import subtract_reference, trim_noisy_edges
 
 
 STYLE = LIGHT_STYLE + """
@@ -352,6 +354,8 @@ class PlotViewer(QDialog):
         self._pending_annotations = state.global_set.get("annotations") or []
         self._state_undo = []
         self._state_redo = []
+        self._artist_to_stem = {}
+        self._axes_to_stem = {}
 
         self._build_layout()
         self._build_controls()
@@ -521,6 +525,22 @@ class PlotViewer(QDialog):
         color_layout.addWidget(self.color_edit)
         color_layout.addWidget(pick)
         form.addRow("Color", color_row)
+        palette = QWidget()
+        palette_layout = QGridLayout(palette)
+        palette_layout.setContentsMargins(0, 0, 0, 0)
+        palette_layout.setSpacing(3)
+        for index, (name, value) in enumerate(BASIC_COLORS):
+            swatch = QPushButton()
+            swatch.setFixedSize(24, 24)
+            swatch.setToolTip(name)
+            swatch.setStyleSheet(
+                f"background:{value}; border:1px solid #64748b; border-radius:4px; padding:0;"
+            )
+            swatch.clicked.connect(
+                lambda _checked=False, selected=value: self.color_edit.setText(selected)
+            )
+            palette_layout.addWidget(swatch, index // 6, index % 6)
+        form.addRow("Basic palette", palette)
         self.offset_spin = QDoubleSpinBox()
         self.offset_spin.setRange(-1e9, 1e9)
         self.offset_spin.setDecimals(5)
@@ -542,6 +562,9 @@ class PlotViewer(QDialog):
         self.derivative_combo = QComboBox()
         self.derivative_combo.addItems(["None", "First", "Second"])
         form.addRow("Derivative", self.derivative_combo)
+        self.clean_edges_check = QCheckBox("Trim unusually noisy spectrum ends")
+        self.clean_edges_check.setVisible(state.technique in {"UVVIS", "RAMAN"})
+        form.addRow(self.clean_edges_check)
         layout.addWidget(appearance)
 
         reference = QGroupBox("Reference Spectrum Subtraction")
@@ -602,6 +625,28 @@ class PlotViewer(QDialog):
         form.addRow(self.minor_check)
         form.addRow(self.tick_labels_check)
         layout.addWidget(group)
+        legend = QGroupBox("Legend")
+        legend_form = QFormLayout(legend)
+        self.legend_check = QCheckBox("Show legend")
+        self.legend_location = QComboBox()
+        for label, value in LEGEND_LOCATIONS:
+            self.legend_location.addItem(label, value)
+        self.legend_size = QDoubleSpinBox()
+        self.legend_size.setRange(4, 48)
+        self.legend_size.setValue(9)
+        self.legend_color = QLineEdit("#172033")
+        legend_color_row = QWidget()
+        legend_color_layout = QHBoxLayout(legend_color_row)
+        legend_color_layout.setContentsMargins(0, 0, 0, 0)
+        legend_color_layout.addWidget(self.legend_color)
+        legend_color_button = QPushButton("Pick")
+        legend_color_button.clicked.connect(self.choose_legend_color)
+        legend_color_layout.addWidget(legend_color_button)
+        legend_form.addRow(self.legend_check)
+        legend_form.addRow("Position", self.legend_location)
+        legend_form.addRow("Font size", self.legend_size)
+        legend_form.addRow("Font color", legend_color_row)
+        layout.addWidget(legend)
         apply_button = QPushButton("Apply axes settings")
         apply_button.setObjectName("primary")
         apply_button.clicked.connect(self.save_and_update)
@@ -780,6 +825,7 @@ class PlotViewer(QDialog):
     def _connect_canvas(self):
         self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
         self.canvas.mpl_connect("button_press_event", self.on_click)
+        self.canvas.mpl_connect("pick_event", self._plot_artist_picked)
         self.canvas.mpl_connect("button_press_event", lambda _event: self.canvas.setFocus())
 
     def _state_snapshot(self):
@@ -875,6 +921,7 @@ class PlotViewer(QDialog):
         self.baseline_check.setChecked(bool(fs.get("do_baseline", False)))
         self.als_spin.setValue(als_value)
         self.derivative_combo.setCurrentIndex(int(fs.get("derivative", 0)))
+        self.clean_edges_check.setChecked(bool(fs.get("auto_clean_edges", False)))
         self.reference_check.setChecked(bool(fs.get("bg_sub", False)))
         self.reference_edit.setText(str(fs.get("bg_filename", "")))
         self.reference_multiplier.setValue(float(fs.get("bg_mult", 1.0)))
@@ -887,6 +934,13 @@ class PlotViewer(QDialog):
         self.ystep_edit.setText(str(state.global_set.get("ystep", "")))
         self.minor_check.setChecked(bool(state.global_set.get("show_minor", False)))
         self.tick_labels_check.setChecked(bool(state.global_set.get("show_tick_lbls", True)))
+        self.legend_check.setChecked(bool(state.global_set.get("show_legend", True)))
+        legend_index = self.legend_location.findData(
+            state.global_set.get("legend_location", "best")
+        )
+        self.legend_location.setCurrentIndex(max(0, legend_index))
+        self.legend_size.setValue(float(state.global_set.get("legend_fontsize", 9)))
+        self.legend_color.setText(str(state.global_set.get("legend_color", "#172033")))
         self.sync_peak_list()
 
     def save_and_update(self):
@@ -902,6 +956,7 @@ class PlotViewer(QDialog):
             do_baseline=self.baseline_check.isChecked(),
             als_lam=self.als_spin.value(),
             derivative=self.derivative_combo.currentIndex(),
+            auto_clean_edges=self.clean_edges_check.isChecked(),
             bg_sub=self.reference_check.isChecked(),
             bg_filename=self.reference_edit.text(),
             bg_mult=self.reference_multiplier.value(),
@@ -913,13 +968,20 @@ class PlotViewer(QDialog):
             ylim=_parse_limits(self.ylim_edit.text()), xstep=self.xstep_edit.text(),
             ystep=self.ystep_edit.text(), show_minor=self.minor_check.isChecked(),
             show_tick_lbls=self.tick_labels_check.isChecked(),
+            show_legend=self.legend_check.isChecked(),
+            legend_location=self.legend_location.currentData() or "best",
+            legend_fontsize=self.legend_size.value(),
+            legend_color=self.legend_color.text().strip() or "#172033",
         )
         self.update_plot()
 
     def apply_to_all(self):
         self.save_and_update()
         source = state.file_set[self.current_stem]
-        keys = ("smooth", "do_baseline", "normalize", "derivative", "als_lam", "t2a", "offset")
+        keys = (
+            "smooth", "do_baseline", "normalize", "derivative", "als_lam",
+            "als_p", "t2a", "offset", "auto_clean_edges",
+        )
         for stem in self.stems:
             for key in keys:
                 state.file_set[stem][key] = source.get(key)
@@ -931,9 +993,10 @@ class PlotViewer(QDialog):
         self.smooth_spin.setValue(15)
         self.normalize_check.setChecked(False)
         self.t2a_check.setChecked(False)
-        self.baseline_check.setChecked(False)
+        self.baseline_check.setChecked(state.technique == "RAMAN")
         self.als_spin.setValue(8.0)
         self.derivative_combo.setCurrentIndex(0)
+        self.clean_edges_check.setChecked(state.technique in {"UVVIS", "RAMAN"})
         self.reference_check.setChecked(False)
         self.reference_edit.clear()
         self.reference_multiplier.setValue(1.0)
@@ -972,6 +1035,11 @@ class PlotViewer(QDialog):
         if color.isValid():
             self.color_edit.setText(color.name())
 
+    def choose_legend_color(self):
+        color = QColorDialog.getColor(QColor(self.legend_color.text()), self, "Legend font color")
+        if color.isValid():
+            self.legend_color.setText(color.name())
+
     def _select_file(self, stem):
         if stem and stem in self.data_dict:
             self.current_stem = stem
@@ -982,19 +1050,22 @@ class PlotViewer(QDialog):
     def get_processed_data_for_stem(self, stem):
         raw_x, raw_y = self.data_dict[stem]
         fs = state.file_set[stem]
-        try:
-            x, y = process_spectrum(raw_x, raw_y, stem)
-        except Exception:
-            x, y = raw_x, raw_y
-        x_arr = np.asarray(x, dtype=float)
-        y_arr = np.asarray(y, dtype=float)
+        x_arr = np.asarray(raw_x, dtype=float)
+        y_arr = np.asarray(raw_y, dtype=float).copy()
 
         if fs.get("t2a", False):
             y_arr = 2 - np.log10(np.clip(y_arr, 0.0001, None))
         if fs.get("bg_sub", False) and "bg_data" in fs:
-            bg_x, bg_y = (np.asarray(item) for item in fs["bg_data"])
-            order = np.argsort(bg_x)
-            y_arr -= np.interp(x_arr, bg_x[order], bg_y[order]) * fs.get("bg_mult", 1.0)
+            bg_x, bg_y = fs["bg_data"]
+            y_arr = subtract_reference(
+                x_arr, y_arr, bg_x, bg_y, fs.get("bg_mult", 1.0)
+            )
+        try:
+            x, y = process_spectrum(x_arr, y_arr, stem)
+        except Exception:
+            x, y = x_arr, y_arr
+        x_arr = np.asarray(x, dtype=float)
+        y_arr = np.asarray(y, dtype=float)
         manual = fs.get("manual_baseline_pts", [])
         if len(manual) >= 2:
             points = np.asarray(manual, dtype=float)
@@ -1006,15 +1077,17 @@ class PlotViewer(QDialog):
                 target = 1.0 if fs.get("t2a", False) else 100.0
                 y_arr = (y_arr - low) / (high - low) * target
         y_arr += float(fs.get("offset", 0.0))
+        if fs.get("auto_clean_edges", False) and state.technique in {"UVVIS", "RAMAN"}:
+            x_arr, y_arr = trim_noisy_edges(x_arr, y_arr)
         return x_arr, y_arr
 
     def _init_file_settings(self, stem):
         index = len(state.file_set)
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
         state.file_set[stem] = {
-            "custom_name": stem, "color": colors[index % len(colors)], "offset": 0.0,
+            "custom_name": stem, "color": PLOT_COLORS[index % len(PLOT_COLORS)], "offset": 0.0,
             "smooth": state.settings.get("smooth", 15), "labels": [], "areas": [],
-            "do_baseline": False, "als_lam": 8.0, "als_p": 0.05,
+            "do_baseline": state.technique == "RAMAN", "als_lam": 8.0, "als_p": 0.05,
+            "auto_clean_edges": state.technique in {"UVVIS", "RAMAN"},
         }
 
     def add_files(self):
@@ -1050,6 +1123,13 @@ class PlotViewer(QDialog):
             self.data_dict[stem] = (x, y)
             state.all_data.append((stem, x, y))
             self._init_file_settings(stem)
+            if picker.reference_dataset is not None:
+                state.file_set[stem].update(
+                    bg_sub=True,
+                    bg_filename=picker.reference_dataset.name,
+                    bg_data=(picker.reference_dataset.x, picker.reference_dataset.y),
+                    bg_mult=1.0,
+                )
             self.file_combo.addItem(stem)
         if failures:
             QMessageBox.warning(
@@ -1157,12 +1237,15 @@ class PlotViewer(QDialog):
         annotations = None
         if hasattr(self, "annotation_mgr"):
             annotations = self.annotation_mgr.get_serialized_data() or self._pending_annotations
+            self.annotation_mgr._remove_handles()
             self.annotation_mgr.annotations = []
             self.annotation_mgr.selected_artist = None
             self._pending_annotations = []
 
         self.figure.clear()
         self.cursors = []
+        self._artist_to_stem = {}
+        self._axes_to_stem = {}
         mode = state.settings.get("mode", "individual")
         is_stack = mode in {"stack", "grid"}
         if mode == "stack":
@@ -1182,13 +1265,20 @@ class PlotViewer(QDialog):
         extents = []
         for index, stem in enumerate(self.stems):
             ax = axes[index]
+            if is_stack:
+                self._axes_to_stem[ax] = stem
             fs = state.file_set[stem]
             x, y = self.get_processed_data_for_stem(stem)
             if not len(x):
                 continue
             extents.append((np.min(x), np.max(x), np.min(y), np.max(y)))
             color = fs.get("color", "black")
-            ax.plot(x, y, label=fs.get("custom_name", stem), color=color, linewidth=1.5)
+            line = ax.plot(
+                x, y, label=fs.get("custom_name", stem), color=color,
+                linewidth=2.4 if stem == self.current_stem else 1.5,
+                picker=6,
+            )[0]
+            self._artist_to_stem[line] = stem
             for px, py, text_value in fs.get("labels", []):
                 ax.plot(px, py, "v", color=color, markersize=6)
                 ax.annotate(text_value, (px, py), xytext=(0, -20), textcoords="offset points", ha="center")
@@ -1213,16 +1303,27 @@ class PlotViewer(QDialog):
                 span = np.max(y) - np.min(y)
                 margin = span * 0.05 if span else 1.0
                 ax.set_ylim(np.min(y) - margin, np.max(y) + margin)
+                active_color = "#2563eb" if stem == self.current_stem else "#94a3b8"
+                active_width = 2.0 if stem == self.current_stem else 0.8
+                for spine in ax.spines.values():
+                    spine.set_edgecolor(active_color)
+                    spine.set_linewidth(active_width)
 
         unique_axes = list(dict.fromkeys(axes))
         if extents:
             for ax in unique_axes:
                 self._style_axis(ax, extents, is_stack)
-        if mode == "overlay":
-            axes[0].legend(loc="best", fontsize=8)
-        else:
-            for ax in unique_axes:
-                ax.legend(loc="upper right", fontsize=8)
+        if state.global_set.get("show_legend", True):
+            legend_axes = [axes[0]] if mode == "overlay" else unique_axes
+            for ax in legend_axes:
+                legend = ax.legend(
+                    loc=state.global_set.get("legend_location", "best"),
+                    fontsize=float(state.global_set.get("legend_fontsize", 9)),
+                )
+                if legend is not None:
+                    legend.set_draggable(True)
+                    for text_artist in legend.get_texts():
+                        text_artist.set_color(state.global_set.get("legend_color", "#172033"))
         self.ax = axes[0] if axes else None
 
         if hasattr(self, "annotation_mgr") and annotations and self.ax is not None:
@@ -1317,7 +1418,12 @@ class PlotViewer(QDialog):
 
     def on_click(self, event):
         mode = self.click_mode.currentData()
-        if mode == "none" or event.inaxes is None or event.xdata is None:
+        if mode == "none":
+            stem = self._axes_to_stem.get(event.inaxes)
+            if stem and stem != self.current_stem and self.annotation_mgr.active_tool == "none":
+                self.file_combo.setCurrentText(stem)
+            return
+        if event.inaxes is None or event.xdata is None:
             return
         x, y = self.get_processed_data_for_stem(self.current_stem)
         index = int(np.abs(x - event.xdata).argmin())
@@ -1367,6 +1473,11 @@ class PlotViewer(QDialog):
                 x1, x2 = sorted((self.deconv_start, closest_x))
                 self.deconv_start = None
                 self.perform_deconvolution(x1, x2, x, y)
+
+    def _plot_artist_picked(self, event):
+        stem = self._artist_to_stem.get(event.artist)
+        if stem and stem != self.current_stem and self.annotation_mgr.active_tool == "none":
+            self.file_combo.setCurrentText(stem)
 
     def apply_manual_baseline(self):
         if len(self.baseline_pts) < 2:
@@ -1587,6 +1698,10 @@ class PlotViewer(QDialog):
     def _annotation_selected(self, artist, kind):
         if artist is None:
             return
+        self.annotation_tool.blockSignals(True)
+        self.annotation_tool.setCurrentIndex(0)
+        self.annotation_tool.blockSignals(False)
+        self.annotation_mgr.active_tool = "none"
         if kind == "text":
             self.ann_text_edit.setText(artist.get_text())
             self.ann_color_edit.setText(str(artist.get_color()))

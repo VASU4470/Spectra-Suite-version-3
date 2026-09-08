@@ -22,6 +22,9 @@ class LinearFit:
     x_start: float
     x_end: float
     points: int
+    slope_std: float = float("nan")
+    intercept_std: float = float("nan")
+    slope_intercept_covariance: float = float("nan")
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,8 @@ class TaucResult:
     band_gap_ev: float
     exponent: float
     fit: LinearFit
+    band_gap_std_ev: float = float("nan")
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -112,7 +117,38 @@ def linear_fit(x, y, start: float, end: float) -> LinearFit:
     residual = float(np.sum((y_fit - predicted) ** 2))
     total = float(np.sum((y_fit - np.mean(y_fit)) ** 2))
     r_squared = 1.0 - residual / total if total > 0 else 1.0
-    return LinearFit(float(slope), float(intercept), r_squared, low, high, len(x_fit))
+    slope_std = intercept_std = covariance_value = float("nan")
+    try:
+        _coefficients, covariance = np.polyfit(x_fit, y_fit, 1, cov=True)
+        slope_std, intercept_std = np.sqrt(np.diag(covariance))
+        covariance_value = float(covariance[0, 1])
+    except (ValueError, np.linalg.LinAlgError):
+        pass
+    return LinearFit(
+        float(slope), float(intercept), r_squared, low, high, len(x_fit),
+        float(slope_std), float(intercept_std), covariance_value,
+    )
+
+
+def correct_absorption_baseline(energy_ev, absorption, start, end, method):
+    """Subtract a constant or linear pre-edge absorption baseline."""
+    energy = np.asarray(energy_ev, float)
+    alpha = np.asarray(absorption, float)
+    key = method.lower()
+    if key.startswith("none"):
+        return alpha.copy(), np.zeros_like(alpha)
+    low, high = sorted((float(start), float(end)))
+    mask = np.isfinite(energy) & np.isfinite(alpha) & (energy >= low) & (energy <= high)
+    if np.count_nonzero(mask) < 3:
+        raise ValueError("The pre-edge baseline range must contain at least three points.")
+    if key.startswith("constant"):
+        baseline = np.full_like(alpha, float(np.median(alpha[mask])))
+    elif key.startswith("linear"):
+        slope, intercept = np.polyfit(energy[mask], alpha[mask], 1)
+        baseline = slope * energy + intercept
+    else:
+        raise ValueError(f"Unsupported baseline method: {method}")
+    return alpha - baseline, baseline
 
 
 def tauc_transform(energy_ev, absorption, transition: str):
@@ -134,7 +170,69 @@ def fit_tauc(energy_ev, absorption, transition: str, start: float, end: float):
     band_gap = -fit.intercept / fit.slope
     if not np.isfinite(band_gap) or band_gap <= 0:
         raise ValueError("The selected range does not produce a physical positive intercept.")
-    return TaucResult(float(band_gap), exponent, fit), ordinate
+    gap_std = float("nan")
+    if np.isfinite(fit.slope_std) and np.isfinite(fit.intercept_std):
+        derivative_slope = fit.intercept / fit.slope ** 2
+        derivative_intercept = -1.0 / fit.slope
+        variance = (
+            derivative_slope ** 2 * fit.slope_std ** 2
+            + derivative_intercept ** 2 * fit.intercept_std ** 2
+        )
+        if np.isfinite(fit.slope_intercept_covariance):
+            variance += (
+                2.0 * derivative_slope * derivative_intercept
+                * fit.slope_intercept_covariance
+            )
+        gap_std = float(np.sqrt(max(0.0, variance)))
+    warnings = []
+    if fit.r_squared < 0.98:
+        warnings.append("The selected region has R² below 0.98; adjust the linear range.")
+    if band_gap >= fit.x_start:
+        warnings.append("The y=0 intercept is not below the fitted region; the range is unsuitable.")
+    if fit.x_start - band_gap > 2.0 * max(fit.x_end - fit.x_start, np.finfo(float).eps):
+        warnings.append("The y=0 intercept is a long extrapolation from the fitted region.")
+    return TaucResult(float(band_gap), exponent, fit, gap_std, tuple(warnings)), ordinate
+
+
+def suggest_tauc_range(energy_ev, absorption, transition: str):
+    """Suggest a high-linearity positive-slope region for user review."""
+    ordinate, _exponent = tauc_transform(energy_ev, absorption, transition)
+    energy, ordinate = _finite_sorted(energy_ev, ordinate)
+    valid = np.isfinite(ordinate) & (ordinate > 0)
+    energy, ordinate = energy[valid], ordinate[valid]
+    n = len(energy)
+    if n < 20:
+        raise ValueError("At least 20 positive Tauc points are needed to suggest a range.")
+    candidates = []
+    for fraction in (0.08, 0.12, 0.18, 0.25):
+        width = max(12, int(n * fraction))
+        if width >= n:
+            continue
+        stride = max(1, width // 8)
+        for start_index in range(0, n - width + 1, stride):
+            xs = energy[start_index:start_index + width]
+            ys = ordinate[start_index:start_index + width]
+            slope, intercept = np.polyfit(xs, ys, 1)
+            if slope <= 0:
+                continue
+            gap = -intercept / slope
+            if not np.isfinite(gap) or gap <= 0 or gap >= xs[0]:
+                continue
+            predicted = slope * xs + intercept
+            total = float(np.sum((ys - np.mean(ys)) ** 2))
+            if total <= 0:
+                continue
+            r2 = 1.0 - float(np.sum((ys - predicted) ** 2)) / total
+            extrapolation = (xs[0] - gap) / max(xs[-1] - xs[0], np.finfo(float).eps)
+            if extrapolation > 2.0:
+                continue
+            signal_span = float(np.ptp(ys)) / max(float(np.ptp(ordinate)), np.finfo(float).eps)
+            score = r2 + min(signal_span, 0.25) * 0.08 - extrapolation * 0.002
+            candidates.append((score, float(xs[0]), float(xs[-1])))
+    if not candidates:
+        raise ValueError("No defensible positive-slope Tauc region was found automatically.")
+    _score, start, end = max(candidates)
+    return start, end
 
 
 def fit_urbach(energy_ev, absorption, start: float, end: float):

@@ -13,7 +13,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from uvvis_analysis import fit_tauc, fit_urbach, signal_to_absorption, spectral_axis_to_energy
+from uvvis_analysis import (
+    correct_absorption_baseline, fit_tauc, fit_urbach, signal_to_absorption,
+    spectral_axis_to_energy, suggest_tauc_range,
+)
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 
@@ -59,12 +62,19 @@ class UVVisAnalysisDialog(QDialog):
         form.addRow("Y-axis data", self.signal_kind)
         form.addRow("Optical path / film thickness", self.thickness)
         form.addRow("Tauc transition model", self.transition)
+        self.baseline_method = QComboBox()
+        self.baseline_method.addItems([
+            "None", "Constant pre-edge baseline", "Linear pre-edge baseline",
+        ])
+        form.addRow("Absorption baseline", self.baseline_method)
         root.addWidget(assumptions)
 
         ranges = QGroupBox("Linear fit ranges (photon energy)")
         range_form = QFormLayout(ranges)
         self.tauc_start, self.tauc_end = self._range_pair()
         self.urbach_start, self.urbach_end = self._range_pair()
+        self.baseline_start, self.baseline_end = self._range_pair()
+        range_form.addRow("Pre-edge baseline range", self._pair_widget(self.baseline_start, self.baseline_end))
         range_form.addRow("Tauc range", self._pair_widget(self.tauc_start, self.tauc_end))
         range_form.addRow("Urbach range", self._pair_widget(self.urbach_start, self.urbach_end))
         root.addWidget(ranges)
@@ -89,12 +99,15 @@ class UVVisAnalysisDialog(QDialog):
         self.result_label.setWordWrap(True)
         root.addWidget(self.result_label)
         row = QHBoxLayout()
+        suggest = QPushButton("Suggest Tauc range")
+        suggest.clicked.connect(self.suggest_range)
         calculate = QPushButton("Calculate / refresh")
         calculate.clicked.connect(self.calculate)
         export = QPushButton("Export analysis CSV")
         export.clicked.connect(self.export_csv)
         close = QPushButton("Close")
         close.clicked.connect(self.accept)
+        row.addWidget(suggest)
         row.addWidget(calculate)
         row.addWidget(export)
         row.addStretch()
@@ -136,51 +149,107 @@ class UVVisAnalysisDialog(QDialog):
         self.tauc_end.setValue(low + 0.65 * span)
         self.urbach_start.setValue(low + 0.15 * span)
         self.urbach_end.setValue(low + 0.35 * span)
+        self.baseline_start.setValue(low + 0.05 * span)
+        self.baseline_end.setValue(low + 0.20 * span)
+
+    def _converted_absorption(self):
+        energy = spectral_axis_to_energy(self.x, self.axis_kind.currentText())
+        thickness = self.thickness.value() or None
+        raw_absorption, label = signal_to_absorption(
+            self.y, self.signal_kind.currentText(), thickness
+        )
+        corrected, baseline = correct_absorption_baseline(
+            energy, raw_absorption, self.baseline_start.value(), self.baseline_end.value(),
+            self.baseline_method.currentText(),
+        )
+        return energy, raw_absorption, corrected, baseline, label
+
+    def suggest_range(self):
+        try:
+            energy, _raw, absorption, _baseline, _label = self._converted_absorption()
+            start, end = suggest_tauc_range(
+                energy, absorption, self.transition.currentText()
+            )
+        except ValueError as error:
+            QMessageBox.warning(self, "Tauc range suggestion", str(error))
+            return
+        self.tauc_start.setValue(start)
+        self.tauc_end.setValue(end)
+        self.result_label.setText(
+            "A candidate linear region was selected. Inspect the plotted fit and R² before reporting Eg."
+        )
 
     def calculate(self):
         try:
-            energy = spectral_axis_to_energy(self.x, self.axis_kind.currentText())
-            thickness = self.thickness.value() or None
-            absorption, absorption_label = signal_to_absorption(
-                self.y, self.signal_kind.currentText(), thickness
-            )
+            energy, raw_absorption, absorption, baseline, absorption_label = self._converted_absorption()
             tauc, ordinate = fit_tauc(
                 energy, absorption, self.transition.currentText(),
                 self.tauc_start.value(), self.tauc_end.value(),
             )
+        except ValueError as error:
+            QMessageBox.warning(self, "UV-Vis analysis", str(error))
+            return
+        urbach_error = ""
+        try:
             urbach, log_alpha = fit_urbach(
                 energy, absorption, self.urbach_start.value(), self.urbach_end.value()
             )
         except ValueError as error:
-            QMessageBox.warning(self, "UV-Vis analysis", str(error))
-            return
+            urbach = None
+            urbach_error = str(error)
+            log_alpha = np.full_like(absorption, np.nan, dtype=float)
+            positive = absorption > 0
+            log_alpha[positive] = np.log(absorption[positive])
 
         order = np.argsort(energy)
-        energy, absorption = energy[order], absorption[order]
+        energy, raw_absorption, absorption, baseline = (
+            energy[order], raw_absorption[order], absorption[order], baseline[order]
+        )
         ordinate, log_alpha = ordinate[order], log_alpha[order]
         finite = np.isfinite(energy) & np.isfinite(absorption)
-        energy, absorption, ordinate, log_alpha = (
-            energy[finite], absorption[finite], ordinate[finite], log_alpha[finite]
+        energy, raw_absorption, absorption, baseline, ordinate, log_alpha = (
+            energy[finite], raw_absorption[finite], absorption[finite], baseline[finite],
+            ordinate[finite], log_alpha[finite]
         )
         self.figure.clear()
         ax1, ax2, ax3 = self.figure.subplots(1, 3)
-        ax1.plot(energy, absorption, color="#1f77b4")
+        if self.baseline_method.currentText() != "None":
+            ax1.plot(energy, raw_absorption, color="#94a3b8", alpha=0.8, label="Converted raw")
+            ax1.plot(energy, baseline, "--", color="#d62728", label="Estimated baseline")
+        ax1.plot(energy, absorption, color="#1f77b4", label="Analysis signal")
+        ax1.legend(fontsize=8)
         ax1.set(xlabel="Photon energy (eV)", ylabel=absorption_label, title="Converted spectrum")
         ax2.plot(energy, ordinate, color="#9467bd")
-        tx = np.linspace(tauc.fit.x_start, tauc.fit.x_end, 100)
+        ax2.axvspan(tauc.fit.x_start, tauc.fit.x_end, color="#dbeafe", alpha=0.35)
+        tx = np.linspace(tauc.band_gap_ev, tauc.fit.x_end, 150)
         ax2.plot(tx, tauc.fit.slope * tx + tauc.fit.intercept, "--", color="#d62728")
-        ax2.axvline(tauc.band_gap_ev, color="#2ca02c", linestyle=":")
+        ax2.axhline(0, color="#64748b", linewidth=0.8)
+        ax2.scatter([tauc.band_gap_ev], [0], color="#2ca02c", zorder=5)
+        ax2.annotate(f"Eg = {tauc.band_gap_ev:.4g} eV\n(y = 0 intercept)",
+                     (tauc.band_gap_ev, 0), xytext=(8, 14), textcoords="offset points",
+                     color="#166534", fontsize=8)
         ax2.set(xlabel="Photon energy (eV)", ylabel=f"(αhν)^{tauc.exponent:.3g}", title="Tauc plot")
         ax3.plot(energy, log_alpha, color="#ff7f0e")
-        ux = np.linspace(urbach.fit.x_start, urbach.fit.x_end, 100)
-        ax3.plot(ux, urbach.fit.slope * ux + urbach.fit.intercept, "--", color="#d62728")
+        if urbach is not None:
+            ux = np.linspace(urbach.fit.x_start, urbach.fit.x_end, 100)
+            ax3.plot(ux, urbach.fit.slope * ux + urbach.fit.intercept, "--", color="#d62728")
         ax3.set(xlabel="Photon energy (eV)", ylabel="ln(absorption)", title="Urbach plot")
         self.canvas.draw_idle()
         proxy_note = "" if absorption_label == "α (cm⁻¹)" else f"; using {absorption_label} as an absorption proxy"
-        self.result_label.setText(
-            f"Estimated Eg = {tauc.band_gap_ev:.4g} eV (Tauc R² = {tauc.fit.r_squared:.5f}); "
+        uncertainty = (
+            f" ± {tauc.band_gap_std_ev:.2g}" if np.isfinite(tauc.band_gap_std_ev) else ""
+        )
+        warning = " " + " ".join(tauc.warnings) if tauc.warnings else ""
+        urbach_note = (
             f"Urbach energy = {urbach.urbach_energy_ev:.4g} eV "
-            f"(R² = {urbach.fit.r_squared:.5f}){proxy_note}."
+            f"(R² = {urbach.fit.r_squared:.5f})"
+            if urbach is not None else f"Urbach fit unavailable: {urbach_error}"
+        )
+        self.result_label.setText(
+            f"Estimated Eg = {tauc.band_gap_ev:.4g}{uncertainty} eV at y=0; "
+            f"fit: y = {tauc.fit.slope:.5g}E {tauc.fit.intercept:+.5g}, "
+            f"R² = {tauc.fit.r_squared:.5f}; "
+            f"{urbach_note}{proxy_note}.{warning}"
         )
         self.last_results = (energy, absorption, ordinate, log_alpha, tauc, urbach, absorption_label)
 
@@ -200,9 +269,12 @@ class UVVisAnalysisDialog(QDialog):
                 writer.writerow(["absorption representation", label])
                 writer.writerow(["transition", self.transition.currentText()])
                 writer.writerow(["band gap (eV)", tauc.band_gap_ev])
+                writer.writerow(["band gap uncertainty (eV)", tauc.band_gap_std_ev])
+                writer.writerow(["Tauc slope", tauc.fit.slope])
+                writer.writerow(["Tauc y intercept", tauc.fit.intercept])
                 writer.writerow(["Tauc R squared", tauc.fit.r_squared])
-                writer.writerow(["Urbach energy (eV)", urbach.urbach_energy_ev])
-                writer.writerow(["Urbach R squared", urbach.fit.r_squared])
+                writer.writerow(["Urbach energy (eV)", urbach.urbach_energy_ev if urbach else "unavailable"])
+                writer.writerow(["Urbach R squared", urbach.fit.r_squared if urbach else "unavailable"])
                 writer.writerow([])
                 writer.writerow(["photon energy (eV)", label, "Tauc ordinate", "ln(absorption)"])
                 writer.writerows(zip(energy, absorption, ordinate, log_alpha))

@@ -4,14 +4,20 @@ from scipy import sparse
 from scipy.sparse.linalg import spsolve
 from config import state
 
-def baseline_als(y, lam=10**8, p=0.99, itermax=10):
-    """Reverted back to p=0.99 (Hugs the bottom of the data)"""
+def baseline_als(y, lam=10**8, p=0.05, itermax=10):
+    """Estimate a lower baseline with asymmetric least squares.
+
+    A small asymmetry value down-weights positive spectral peaks and therefore
+    follows the lower envelope.  Larger values would instead follow the peaks.
+    """
     L = len(y)
-    D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
+    D = sparse.diags(
+        [1.0, -2.0, 1.0], [0, -1, -2], shape=(L, L-2), dtype=float,
+    )
     w = np.ones(L)
     for i in range(itermax):
         W = sparse.spdiags(w, 0, L, L)
-        Z = W + lam * D.dot(D.transpose())
+        Z = (W + lam * D.dot(D.transpose())).tocsc()
         z = spsolve(Z, w * y)
         w = p * (y > z) + (1 - p) * (y < z)
     return z
@@ -36,8 +42,7 @@ def process_spectrum(x, y, stem):
     # 2. BASELINE CORRECTION (ALS)
     if fs.get('do_baseline', False):
         lam_val = 10 ** fs.get('als_lam', 8.0) 
-        # Note: p=0.99 hugs the BOTTOM of the graph (ideal for Absorbance peaks)
-        baseline = baseline_als(y_proc, lam=lam_val, p=0.99)
+        baseline = baseline_als(y_proc, lam=lam_val, p=fs.get('als_p', 0.05))
         y_proc = y_proc - baseline
 
     # 3. DERIVATIVES

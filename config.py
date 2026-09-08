@@ -1,4 +1,4 @@
-import matplotlib.colors as mcolors
+from plot_styles import PLOT_COLORS
 
 # Ordered from most specific/narrow bands to broadest overlapping bands 
 # so the auto-assigner doesn't mask specific peaks with broad ones!
@@ -81,6 +81,7 @@ class SessionState:
         self.general_format = None # NEW: {'delimiter','skip_rows','x_col','y_col'} chosen for the GENERAL plotter, reused when adding more files mid-session
         self.mode_switched_mid_session = False # NEW: set when 'Add File(s)' switches Individual -> Overlay/Stack inside an open PlotViewer; tells main()'s per-file loop to stop (state.all_data now holds files that loop never expected, and they're already shown together in the window that's about to close)
         self.pending_data = [] # Datasets selected from multi-sheet/multi-column files in the setup dialog
+        self.pending_reference = None
         
         self.global_set = {
             'xlim': None, 'ylim': None,
@@ -91,14 +92,15 @@ class SessionState:
             'show_minor': False, 'show_tick_lbls': True,
             'vlines': [], 
             'borders': {'top': False, 'bottom': True, 'left': True, 'right': False},
-            'annotations': [] # NEW: Holds shapes for Overlay/Stack modes
+            'annotations': [], # NEW: Holds shapes for Overlay/Stack modes
+            'show_legend': True, 'legend_location': 'best',
+            'legend_fontsize': 9.0, 'legend_color': '#172033',
         }
 
     def init_file_settings(self):
         """Initializes default plotting parameters for each loaded file."""
-        colors = list(mcolors.TABLEAU_COLORS.values())
         for i, (stem, _, _) in enumerate(self.all_data):
-            default_color = colors[i % len(colors)] if self.settings['mode'] == 'overlay' else 'black'
+            default_color = PLOT_COLORS[i % len(PLOT_COLORS)]
             self.file_set[stem] = {
                 'custom_name': stem,   # <--- ADD THIS LINE!
                 'color': default_color, 
@@ -106,8 +108,15 @@ class SessionState:
                 'smooth': self.settings['smooth'], 
                 'labels': [], 
                 'areas': [], 
-                'do_baseline': False, 
+                'do_baseline': self.technique == 'RAMAN',
                 'als_lam': 8.0,
-                'als_p': 0.05
+                'als_p': 0.05,
+                'auto_clean_edges': self.technique in {'UVVIS', 'RAMAN'},
             }
+            if self.pending_reference is not None:
+                name, ref_x, ref_y = self.pending_reference
+                self.file_set[stem].update(
+                    bg_sub=True, bg_filename=name, bg_data=(ref_x, ref_y), bg_mult=1.0,
+                )
+        self.pending_reference = None
 state = SessionState()

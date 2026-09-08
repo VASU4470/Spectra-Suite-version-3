@@ -7,7 +7,8 @@ import unittest
 import numpy as np
 
 from uvvis_analysis import (
-    fit_tauc, fit_urbach, signal_to_absorption, spectral_axis_to_energy,
+    correct_absorption_baseline, fit_tauc, fit_urbach, signal_to_absorption,
+    spectral_axis_to_energy, suggest_tauc_range,
 )
 
 
@@ -34,6 +35,26 @@ class UVVisAnalysisTests(unittest.TestCase):
         alpha = np.sqrt(7.5 * (energy - expected_gap)) / energy
         result, _ = fit_tauc(energy, alpha, "Direct allowed", 2.3, 3.6)
         self.assertAlmostEqual(result.band_gap_ev, expected_gap, places=8)
+        self.assertGreater(result.fit.r_squared, 0.999999)
+        self.assertLess(result.band_gap_ev, result.fit.x_start)
+
+    def test_pre_edge_baseline_removal_recovers_offset(self):
+        energy = np.linspace(1.5, 4.0, 400)
+        true_signal = np.clip(energy - 2.0, 0, None)
+        measured = true_signal + 0.18 + 0.02 * energy
+        corrected, baseline = correct_absorption_baseline(
+            energy, measured, 1.5, 1.9, "Linear pre-edge baseline"
+        )
+        self.assertLess(float(np.max(np.abs(corrected[energy < 1.9]))), 1e-10)
+        self.assertTrue(np.allclose(baseline, 0.18 + 0.02 * energy, atol=1e-10))
+
+    def test_suggested_tauc_range_has_correct_intercept(self):
+        energy = np.linspace(2.1, 4.0, 500)
+        gap = 2.0
+        alpha = np.sqrt(5.0 * (energy - gap)) / energy
+        start, end = suggest_tauc_range(energy, alpha, "Direct allowed")
+        result, _ = fit_tauc(energy, alpha, "Direct allowed", start, end)
+        self.assertAlmostEqual(result.band_gap_ev, gap, places=7)
         self.assertGreater(result.fit.r_squared, 0.999999)
 
     def test_urbach_fit_recovers_known_energy(self):

@@ -1,13 +1,8 @@
-**SpectraSuite Version 3 - PySide6 Migration**
+**SpectraSuite Version 3**
 
-> **Migration status:** The Version 3 source migration is complete. FT-IR,
-> XRD, UV-Vis, Raman, General 2D, Multi-X/Multi-Y, General 3D, and Fluid
-> Dynamics Plotters now use PySide6 and Matplotlib's Qt canvas. Spectroscopy
-> tools continue to use the shared Qt setup window. The former Tkinter
-> `gui.py` functionality has been
-> moved into `qt_plot_viewer.py` and `qt_setup.py`; no active Python module
-> imports Tkinter. Fluid Dynamics remains labeled experimental while more
-> Tecplot variants are tested with researcher datasets.
+> **Status:** Version 3 includes FT-IR, XRD, UV-Vis, Raman, General 2D, and
+> General 3D workspaces. Multi-X/Multi-Y and Fluid Dynamics remain visible in
+> the launcher as disabled “Coming soon” previews for the next version.
 
 Version 3 retains the Version 2 analysis workflow, including file management,
 individual/overlay/stacked plots, processing and reference subtraction,
@@ -38,11 +33,11 @@ area, step, pie, histogram, and box plots. Series colors, lines, markers,
 widths, titles, axis labels, legends, grids, and value labels are editable.
 Edited tables, reusable JSON projects, and PNG/PDF/SVG figures can be saved.
 
-The Multi-X/Multi-Y Plotter maps a separate X and Y column for every series,
+The in-development Multi-X/Multi-Y Plotter maps a separate X and Y column for every series,
 with bottom/top X axes and left/right Y axes in one figure. The General 3D
 Plotter accepts editable or imported XYZ data and renders scatter,
 triangulated or structured surfaces, wireframes, contours, projected contours,
-and vector fields. The Fluid Dynamics Plotter reads structured ASCII Tecplot
+and vector fields. The in-development Fluid Dynamics Plotter reads structured ASCII Tecplot
 POINT data and provides mesh, filled-contour, line-contour, heatmap, 3D
 surface, wireframe, coordinate-profile, field-difference, and grid-comparison
 views. The supplied 151 x 151 CFD examples were used to validate its reader.
@@ -63,57 +58,19 @@ in an Excel workbook are listed before plotting. Users can plot selected data
 or all discovered data as individual windows, an overlay, a vertical stack, or
 a grid. Grid order can be rearranged up/down/left/right from the viewer.
 
-**SpectraSuite - FT-IR and XRD Analysis (Pilot Study)**
+## Test from source
 
-Welcome to the SpectraSuite beta testing program! This software is being developed at UNAM/ICAT to simplify and enhance the pedagogical experience of analyzing FT-IR and XRD spectral data.
+Use Python 3.11 or 3.12 in a virtual environment:
 
-As part of our pilot study, we are asking students to download the software, test it using the provided sample spectra, and fill out a short usability survey. Your feedback is crucial and will remain anonymous.
+```bash
+python -m pip install -r requirements.txt
+python launcher.py
+```
 
-## 📂 What is Included
-* **SpectraSuite Application:** (Available for macOS and Windows in the [Releases](#) tab).
-* **Sample Data:** 3 FT-IR spectra and 3 XRD spectra to help you test the modules.
-* **Usability Survey:** A brief questionnaire to share your experience.
+The GitHub Actions workflow also compiles, lints, opens the Qt workspaces in an
+off-screen display, runs the numerical and export regression tests, builds the
+application with PyInstaller, and executes the packaged startup check on
+Windows, macOS, and Ubuntu.
 
----
-
-## 🚀 Installation Instructions
-
-### 🍎 For macOS Users
-1. Download the `SpectraSuite_Mac.dmg` file from the Releases section.
-2. Double-click the `.dmg` file to open it.
-3. Drag and drop the `SpectraSuite` app into your **Applications** folder.
-4. **Bypass Apple Security (One-time step):** Because this is an academic beta version, you must clear Apple's quarantine flag to allow the app to run smoothly. 
-   * Open your Mac's **Terminal** app (you can search for it in Spotlight).
-   * Copy and paste the following command and press Enter:
-     ```bash
-     xattr -rc /Applications/SpectraSuite.app
-     ```
-   * *If you get a "Permission Denied" error, use this command instead:*
-     ```bash
-     sudo xattr -rc /Applications/SpectraSuite.app
-     ```
-     *(Note: When you press Enter, the Terminal will ask for your Mac login password. As you type, no characters or stars will appear on the screen. This is a standard macOS security feature; simply type your password blindly and press Enter).*
-5. Go to your Applications folder and double-click SpectraSuite to launch it!
----
-## 🪟 For Windows Users
-1. Download the SpectraSuite_App_Windows.zip file from the Releases section.
-2. Right-click the .zip file and select Extract All... to unzip it.
-3. Move the extracted SpectraSuite folder to a preferred location on your computer (e.g., your Documents folder).
-4. Open the folder and find the main SpectraSuite executable file (.exe).
-5. First Launch: Right-click the executable and select Run as administrator.
-6. Bypass Windows Defender (One-time step): Because this is an academic beta version without a commercial publisher certificate, Microsoft Defender SmartScreen will likely flag it.
-7. When the blue "Windows protected your PC" screen appears, click the More info text right below the warning.
-8. Then, click the Run anyway button that appears at the bottom.
-9. Create a Shortcut: Right-click the executable and select "Create shortcut" (or "Pin to Start" / "Pin to Taskbar"). Drag the shortcut to your Desktop for easy access.
-10. Double-click the shortcut to open the application! (Note: It takes about 10 seconds to load the scientific libraries into memory).
----
-
-## 🧪 Testing Protocol
-1. **Install** the software using the steps above.
-2. **Download** the sample FT-IR and XRD files provided in this repository.
-3. **Explore** the software by loading the sample data, zooming, and testing the available tools.
-4. **Evaluate:** Once you have spent a few minutes using both modules, please complete our pilot study survey.
-
-📝 **[Click Here to Take the Usability Survey] https://forms.gle/9f5SNrWEqNJdh2cy7 **
-
-Thank you for contributing to UNAM/ICAT's educational research!
+Version 3 is still in pre-release testing. A signed installer has not yet been
+published; use the source workflow above until a verified release is available.

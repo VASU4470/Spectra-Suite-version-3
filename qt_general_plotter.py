@@ -23,6 +23,7 @@ from annotations import AnnotationManager
 from plot_export import save_figure
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import CompactNavigationToolbar, PanelToggleButton
+from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
 
 
 STYLE = LIGHT_STYLE
@@ -212,13 +213,16 @@ class GeneralPlotter(QWidget):
         self.setStyleSheet(STYLE)
         apply_window_icon(self, "GENERAL")
         self.loaded_files, self.series_styles = [], {}
+        self._artist_to_series = {}
         self._loading_table = False
         self._build_ui()
         self.annotation_mgr = AnnotationManager(
             self.canvas,
+            on_select_callback=self._annotation_selected,
             on_list_update_callback=lambda _items: self._sync_annotation_list(),
             text_input_provider=self._annotation_text,
         )
+        self.canvas.mpl_connect("pick_event", self._series_picked)
         self._install_shortcuts()
         self.new_table(confirm=False)
 
@@ -303,27 +307,43 @@ class GeneralPlotter(QWidget):
         label_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.title_edit, self.xlabel_edit, self.ylabel_edit = QLineEdit(), QLineEdit(), QLineEdit()
         self.legend_check = QCheckBox("Show legend"); self.legend_check.setChecked(True)
+        self.legend_location = QComboBox()
+        for label, value in LEGEND_LOCATIONS: self.legend_location.addItem(label, value)
+        self.legend_size = QDoubleSpinBox(); self.legend_size.setRange(4, 48); self.legend_size.setValue(9)
+        self.legend_color = QLineEdit("#172033")
         self.grid_check, self.data_labels_check = QCheckBox("Show grid"), QCheckBox("Show data labels")
         label_form.addRow("Graph title", self.title_edit); label_form.addRow("X-axis", self.xlabel_edit)
         label_form.addRow("Y-axis", self.ylabel_edit); label_form.addRow(self.legend_check)
+        label_form.addRow("Legend position", self.legend_location)
+        label_form.addRow("Legend font size", self.legend_size)
+        label_form.addRow("Legend font color", self.legend_color)
         label_form.addRow(self.grid_check); label_form.addRow(self.data_labels_check)
         controls_layout.addWidget(labels)
 
         style = QGroupBox("Selected series style"); style_form = QFormLayout(style)
         style_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.style_series = QComboBox(); self.color_edit = QLineEdit("#1f77b4")
+        self.style_series = QComboBox(); self.series_name_edit = QLineEdit(); self.color_edit = QLineEdit("#1f77b4")
         color_button = QPushButton("Choose color"); color_button.clicked.connect(self.choose_color)
         self.line_style = QComboBox(); self.line_style.addItems(["Solid", "Dashed", "Dotted", "Dash-dot", "None"])
         self.marker = QComboBox(); self.marker.addItems(["None", "Circle", "Square", "Triangle", "Diamond", "Plus", "Cross"])
         self.line_width = QDoubleSpinBox(); self.line_width.setRange(0.1, 20); self.line_width.setValue(1.8)
         self.bar_width = QDoubleSpinBox(); self.bar_width.setRange(0.05, 1.0); self.bar_width.setSingleStep(0.05); self.bar_width.setValue(0.8)
-        for field in (self.style_series, self.color_edit, self.line_style, self.marker,
+        for field in (self.style_series, self.series_name_edit, self.color_edit, self.line_style, self.marker,
                       self.line_width, self.bar_width):
             field.setMinimumWidth(210)
-        style_form.addRow("Series", self.style_series); style_form.addRow("Color", self.color_edit)
+        style_form.addRow("Series", self.style_series); style_form.addRow("Legend name", self.series_name_edit)
+        style_form.addRow("Color", self.color_edit)
         style_form.addRow("", color_button); style_form.addRow("Line", self.line_style)
         style_form.addRow("Marker", self.marker); style_form.addRow("Line width", self.line_width)
-        style_form.addRow("Bar width", self.bar_width); controls_layout.addWidget(style)
+        style_form.addRow("Bar width", self.bar_width)
+        palette = QWidget(); palette_layout = QGridLayout(palette)
+        palette_layout.setContentsMargins(0, 0, 0, 0); palette_layout.setSpacing(3)
+        for index, (name, value) in enumerate(BASIC_COLORS):
+            swatch = QPushButton(); swatch.setFixedSize(24, 24); swatch.setToolTip(name)
+            swatch.setStyleSheet(f"background:{value}; border:1px solid #64748b; border-radius:4px; padding:0;")
+            swatch.clicked.connect(lambda _checked=False, selected=value: self._select_basic_color(selected))
+            palette_layout.addWidget(swatch, index // 6, index % 6)
+        style_form.addRow("Basic palette", palette); controls_layout.addWidget(style)
 
         annotation = QGroupBox("Annotations")
         annotation_layout = QVBoxLayout(annotation)
@@ -376,7 +396,10 @@ class GeneralPlotter(QWidget):
         self.style_series.currentTextChanged.connect(self._load_series_style)
         for widget in (self.title_edit, self.xlabel_edit, self.ylabel_edit): widget.editingFinished.connect(self.plot_data)
         for widget in (self.legend_check, self.grid_check, self.data_labels_check): widget.toggled.connect(self.plot_data)
+        self.legend_location.currentIndexChanged.connect(self.plot_data); self.legend_size.valueChanged.connect(self.plot_data)
+        self.legend_color.editingFinished.connect(self.plot_data)
         self.line_style.currentTextChanged.connect(self._save_series_style); self.marker.currentTextChanged.connect(self._save_series_style)
+        self.series_name_edit.editingFinished.connect(self._save_series_style)
         self.color_edit.editingFinished.connect(self._save_series_style); self.line_width.valueChanged.connect(self._save_series_style)
         self.bar_width.valueChanged.connect(self._save_series_style)
 
@@ -445,6 +468,14 @@ class GeneralPlotter(QWidget):
     def _set_annotation_tool(self):
         self.annotation_mgr.set_tool(self.annotation_tool.currentData())
         self.canvas.setFocus()
+
+    def _annotation_selected(self, artist, _kind):
+        if artist is None:
+            return
+        self.annotation_tool.blockSignals(True)
+        self.annotation_tool.setCurrentIndex(0)
+        self.annotation_tool.blockSignals(False)
+        self.annotation_mgr.active_tool = "none"
 
     def _sync_annotation_list(self):
         self.annotation_list.blockSignals(True)
@@ -593,31 +624,39 @@ class GeneralPlotter(QWidget):
             self.table.end_command(); self._refresh_columns()
 
     def _default_style(self, series):
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
         names = [self.style_series.itemText(i) for i in range(self.style_series.count())]
         index = names.index(series) if series in names else 0
-        return {"color": colors[index % len(colors)], "line": "Solid", "marker": "None", "line_width": 1.8, "bar_width": 0.8}
+        return {"name": series, "color": PLOT_COLORS[index % len(PLOT_COLORS)], "line": "Solid", "marker": "None", "line_width": 1.8, "bar_width": 0.8}
 
     def _load_series_style(self):
         series = self.style_series.currentText()
         if not series: return
         style = self.series_styles.setdefault(series, self._default_style(series))
-        widgets = (self.color_edit, self.line_style, self.marker, self.line_width, self.bar_width)
+        widgets = (self.series_name_edit, self.color_edit, self.line_style, self.marker, self.line_width, self.bar_width)
         for widget in widgets: widget.blockSignals(True)
-        self.color_edit.setText(style["color"]); self.line_style.setCurrentText(style["line"]); self.marker.setCurrentText(style["marker"])
+        self.series_name_edit.setText(style.get("name", series)); self.color_edit.setText(style["color"]); self.line_style.setCurrentText(style["line"]); self.marker.setCurrentText(style["marker"])
         self.line_width.setValue(style["line_width"]); self.bar_width.setValue(style["bar_width"])
         for widget in widgets: widget.blockSignals(False)
 
     def _save_series_style(self, *_args):
         series = self.style_series.currentText()
         if series:
-            self.series_styles[series] = {"color": self.color_edit.text() or "#1f77b4", "line": self.line_style.currentText(),
+            self.series_styles[series] = {"name": self.series_name_edit.text().strip() or series, "color": self.color_edit.text() or "#1f77b4", "line": self.line_style.currentText(),
                 "marker": self.marker.currentText(), "line_width": self.line_width.value(), "bar_width": self.bar_width.value()}
             self.plot_data()
 
     def choose_color(self):
         color = QColorDialog.getColor(QColor(self.color_edit.text()), self, "Series color")
         if color.isValid(): self.color_edit.setText(color.name()); self._save_series_style()
+
+    def _select_basic_color(self, value):
+        self.color_edit.setText(value)
+        self._save_series_style()
+
+    def _series_picked(self, event):
+        series = self._artist_to_series.get(event.artist)
+        if series:
+            self.style_series.setCurrentText(series)
 
     def plot_data(self, *_args):
         x_name, y_names = self.x_column.currentText(), [i.text() for i in self.y_columns.selectedItems()]
@@ -626,9 +665,11 @@ class GeneralPlotter(QWidget):
         annotations = []
         if hasattr(self, "annotation_mgr"):
             annotations = self.annotation_mgr.get_serialized_data()
+            self.annotation_mgr._remove_handles()
             self.annotation_mgr.annotations = []
             self.annotation_mgr.selected_artist = None
         chart = self.chart_type.currentText(); self.figure.clear(); ax = self.figure.add_subplot(111)
+        self._artist_to_series = {}
         x_raw = frame[x_name]; x_numeric = pd.to_numeric(x_raw, errors="coerce")
         x_is_numeric = x_numeric.notna().sum() == x_raw.replace("", np.nan).notna().sum()
         x_plot = x_numeric.to_numpy(float) if x_is_numeric else np.arange(len(frame), dtype=float)
@@ -639,14 +680,14 @@ class GeneralPlotter(QWidget):
             y = pd.to_numeric(frame[y_name], errors="coerce").to_numpy(float); valid = np.isfinite(y) & np.isfinite(x_plot)
             if not np.any(valid): continue
             xv, yv = x_plot[valid], y[valid]; style = self.series_styles.setdefault(y_name, self._default_style(y_name))
-            common = {"label": y_name, "color": style["color"]}; artist = None
-            if chart == "Line": artist = ax.plot(xv, yv, linestyle=line_map[style["line"]], marker=marker_map[style["marker"]], linewidth=style["line_width"], **common)[0]
-            elif chart == "Scatter": artist = ax.scatter(xv, yv, **common)
-            elif chart == "Step": artist = ax.step(xv, yv, where="mid", linestyle=line_map[style["line"]], linewidth=style["line_width"], **common)[0]
+            common = {"label": style.get("name", y_name), "color": style["color"]}; artist = None
+            if chart == "Line": artist = ax.plot(xv, yv, linestyle=line_map[style["line"]], marker=marker_map[style["marker"]], linewidth=style["line_width"], picker=6, **common)[0]
+            elif chart == "Scatter": artist = ax.scatter(xv, yv, picker=True, **common)
+            elif chart == "Step": artist = ax.step(xv, yv, where="mid", linestyle=line_map[style["line"]], linewidth=style["line_width"], picker=6, **common)[0]
             elif chart == "Bar":
                 width = style["bar_width"]/max(1, len(y_names)); offset = (series_index-(len(y_names)-1)/2)*width
                 artist = ax.bar(xv+offset, yv, width=width, **common)
-            elif chart == "Area": artist = ax.fill_between(xv, yv, alpha=.45, **common)
+            elif chart == "Area": artist = ax.fill_between(xv, yv, alpha=.45, **common); artist.set_picker(True)
             elif chart == "Histogram": artist = ax.hist(yv, bins="auto", alpha=.6, **common)[2]
             elif chart == "Box":
                 artist = ax.boxplot(yv, positions=[series_index], tick_labels=[y_name], patch_artist=True); artist["boxes"][0].set_facecolor(style["color"])
@@ -658,6 +699,15 @@ class GeneralPlotter(QWidget):
                     self.figure.clear(); self.canvas.draw_idle(); return
                 ax.pie(pie_values, labels=x_raw[valid].astype(str).to_numpy(), autopct="%1.1f%%" if self.data_labels_check.isChecked() else None)
             plotted += 1
+            if artist is not None:
+                if isinstance(artist, dict):
+                    for item in artist.get("boxes", []): item.set_picker(True); self._artist_to_series[item] = y_name
+                elif hasattr(artist, "patches"):
+                    for item in artist.patches: item.set_picker(True); self._artist_to_series[item] = y_name
+                elif isinstance(artist, (list, tuple)):
+                    for item in artist: item.set_picker(True); self._artist_to_series[item] = y_name
+                else:
+                    self._artist_to_series[artist] = y_name
             if self.data_labels_check.isChecked() and chart not in {"Pie", "Histogram", "Box"}:
                 for px, py in zip(xv, yv): ax.annotate(f"{py:.4g}", (px, py), xytext=(0,5), textcoords="offset points", ha="center", fontsize=8)
         if not x_is_numeric and chart not in {"Histogram", "Box", "Pie"}:
@@ -665,7 +715,10 @@ class GeneralPlotter(QWidget):
         ax.set_title(self.title_edit.text()); ax.set_xlabel(self.xlabel_edit.text() or (x_name if chart not in {"Histogram","Box"} else "Value"))
         ax.set_ylabel(self.ylabel_edit.text() or ("Frequency" if chart == "Histogram" else "Value"))
         if self.grid_check.isChecked() and chart != "Pie": ax.grid(True, alpha=.3)
-        if self.legend_check.isChecked() and plotted and chart not in {"Pie","Box"}: ax.legend()
+        if self.legend_check.isChecked() and plotted and chart not in {"Pie","Box"}:
+            legend = ax.legend(loc=self.legend_location.currentData() or "best", fontsize=self.legend_size.value())
+            legend.set_draggable(True)
+            for text_artist in legend.get_texts(): text_artist.set_color(self.legend_color.text() or "#172033")
         if hasattr(self, "annotation_mgr"):
             self.annotation_mgr.active_ax = ax
             if annotations:
@@ -694,7 +747,9 @@ class GeneralPlotter(QWidget):
         data = {"columns":list(frame.columns), "rows":frame.values.tolist(), "files":self.loaded_files, "styles":self.series_styles,
             "x":self.x_column.currentText(), "y":[i.text() for i in self.y_columns.selectedItems()], "chart":self.chart_type.currentText(),
             "title":self.title_edit.text(), "xlabel":self.xlabel_edit.text(), "ylabel":self.ylabel_edit.text(),
-            "legend":self.legend_check.isChecked(), "grid":self.grid_check.isChecked(), "data_labels":self.data_labels_check.isChecked(),
+            "legend":self.legend_check.isChecked(), "legend_location":self.legend_location.currentData(),
+            "legend_size":self.legend_size.value(), "legend_color":self.legend_color.text(),
+            "grid":self.grid_check.isChecked(), "data_labels":self.data_labels_check.isChecked(),
             "annotations":self.annotation_mgr.get_serialized_data()}
         try: Path(filename).write_text(json.dumps(data, indent=2), encoding="utf-8")
         except OSError as error: QMessageBox.critical(self, "Save error", str(error))
@@ -711,7 +766,10 @@ class GeneralPlotter(QWidget):
             for index in range(self.y_columns.count()): self.y_columns.item(index).setSelected(self.y_columns.item(index).text() in wanted)
             self.chart_type.setCurrentText(data.get("chart", "Line")); self.title_edit.setText(data.get("title", ""))
             self.xlabel_edit.setText(data.get("xlabel", "")); self.ylabel_edit.setText(data.get("ylabel", ""))
-            self.legend_check.setChecked(data.get("legend", True)); self.grid_check.setChecked(data.get("grid", False)); self.data_labels_check.setChecked(data.get("data_labels", False))
+            self.legend_check.setChecked(data.get("legend", True))
+            location_index = self.legend_location.findData(data.get("legend_location", "best")); self.legend_location.setCurrentIndex(max(0, location_index))
+            self.legend_size.setValue(float(data.get("legend_size", 9))); self.legend_color.setText(data.get("legend_color", "#172033"))
+            self.grid_check.setChecked(data.get("grid", False)); self.data_labels_check.setChecked(data.get("data_labels", False))
             self.file_label.setText("Project: " + Path(filename).name); self.plot_data()
             if data.get("annotations") and self.figure.axes:
                 self.annotation_mgr.load_serialized_data(data["annotations"], self.figure.axes[0])

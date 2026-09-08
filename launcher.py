@@ -28,6 +28,7 @@ class Workspace:
     title: str
     icon: str
     experimental: bool = False
+    coming_soon: bool = False
 
 
 WORKSPACES = (
@@ -36,9 +37,9 @@ WORKSPACES = (
     Workspace("uvvis", "UV-Vis\nAnalysis", "uvvis_icon.svg"),
     Workspace("raman", "Raman\nAnalysis", "raman_icon.svg"),
     Workspace("general", "General\n2D Plotter", "plot_icon.svg"),
-    Workspace("multiaxis", "Multi-X / Multi-Y\nPlotter", "multiaxis_icon.svg"),
+    Workspace("multiaxis", "Multi-X / Multi-Y\nPlotter", "multiaxis_icon.svg", coming_soon=True),
     Workspace("plot3d", "General\n3D Plotter", "plot3d_icon.svg"),
-    Workspace("fluid", "Fluid Dynamics\nPlotter", "fluid_icon.svg", experimental=True),
+    Workspace("fluid", "Fluid Dynamics\nPlotter", "fluid_icon.svg", coming_soon=True),
 )
 
 
@@ -70,6 +71,9 @@ QPushButton:hover { background-color: #eff6ff; border-color: #2563eb; }
 QPushButton:pressed { background-color: #dbeafe; }
 QPushButton:disabled { color: #8290a3; }
 QPushButton[experimental="true"] { border-color: #d97706; }
+QPushButton[comingSoon="true"] {
+    border-color: #94a3b8; background-color: #f8fafc; color: #64748b;
+}
 """
 
 
@@ -110,13 +114,15 @@ class WelcomeDashboard(QWidget):
             self._buttons[workspace.key] = button
         layout.addLayout(grid, 1)
 
-        footer = QLabel("Version 3 · PySide6 migration")
+        footer = QLabel("Version 3")
         footer.setObjectName("footer")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(footer)
 
     def _workspace_button(self, workspace: Workspace) -> QPushButton:
-        suffix = "\n\nEXPERIMENTAL" if workspace.experimental else ""
+        suffix = "\n\nCOMING SOON · NEXT VERSION" if workspace.coming_soon else (
+            "\n\nEXPERIMENTAL" if workspace.experimental else ""
+        )
         button = QPushButton(f"{workspace.title}{suffix}")
         icon_path = resource_path(workspace.icon)
         if icon_path.exists():
@@ -125,9 +131,13 @@ class WelcomeDashboard(QWidget):
         button.setMinimumHeight(145)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setProperty("experimental", workspace.experimental)
+        button.setProperty("comingSoon", workspace.coming_soon)
         button.clicked.connect(
             lambda _checked=False, item=workspace: self.launch_workspace(item)
         )
+        if workspace.coming_soon:
+            button.setEnabled(False)
+            button.setCursor(Qt.CursorShape.ArrowCursor)
         return button
 
     def launch_workspace(self, workspace: Workspace) -> None:

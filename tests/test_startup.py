@@ -1,4 +1,4 @@
-"""Cross-platform startup checks for the PySide6 migration."""
+"""Cross-platform startup checks for SpectraSuite Version 3."""
 
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ import numpy as np
 from PySide6.QtWidgets import QApplication, QTableWidgetItem
 
 from config import SessionState, state
+from dataset_reader import SpectrumDataset
 from launcher import WelcomeDashboard, startup_smoke_test, workspace_command
 from qt_general_plotter import GeneralPlotter
 from qt_plot_viewer import ExportOptionsDialog, PlotViewer
-from qt_setup import SetupDialog
+from qt_setup import DatasetSelectionDialog, SetupDialog
 
 
 def reset_state(technique: str) -> None:
@@ -73,6 +74,9 @@ class StartupTests(unittest.TestCase):
             "ir", "xrd", "uvvis", "raman", "general", "multiaxis", "plot3d", "fluid",
         })
         self.assertTrue(all(not button.icon().isNull() for button in dashboard._buttons.values()))
+        self.assertFalse(dashboard._buttons["multiaxis"].isEnabled())
+        self.assertFalse(dashboard._buttons["fluid"].isEnabled())
+        self.assertIn("COMING SOON", dashboard._buttons["fluid"].text())
         dashboard.close()
 
     def test_setup_dialog_constructs_for_every_technique(self):
@@ -84,6 +88,34 @@ class StartupTests(unittest.TestCase):
                 self.app.processEvents()
                 self.assertEqual(state.technique, technique)
                 dialog.reject()
+
+    def test_single_discovered_dataset_skips_selection_dialog(self):
+        reset_state("UVVIS")
+        dialog = SetupDialog()
+        state.settings["files"] = ["one-spectrum.txt"]
+        dataset = SpectrumDataset(
+            "one-spectrum", np.arange(20.0), np.arange(20.0), "one-spectrum.txt"
+        )
+        with patch("qt_setup.discover_many", return_value=([dataset], [])):
+            dialog.start()
+        self.assertTrue(dialog.ready)
+        self.assertEqual(len(state.pending_data), 1)
+        self.assertEqual(state.settings["mode"], "individual")
+
+    def test_embedded_baseline_is_excluded_from_selected_samples(self):
+        reset_state("RAMAN")
+        x = np.arange(20.0)
+        datasets = [
+            SpectrumDataset("sample", x, x + 3, "multi.txt"),
+            SpectrumDataset("background", x, x + 1, "multi.txt"),
+        ]
+        dialog = DatasetSelectionDialog(datasets)
+        dialog.list_widget.clearSelection()
+        dialog.list_widget.item(0).setSelected(True)
+        dialog.reference_combo.setCurrentIndex(2)
+        dialog._choose(False)
+        self.assertEqual([item.name for item in dialog.selected], ["sample"])
+        self.assertEqual(dialog.reference_dataset.name, "background")
 
     def test_plot_viewer_constructs_for_every_technique(self):
         x = np.linspace(400.0, 4000.0, 101)
@@ -99,6 +131,7 @@ class StartupTests(unittest.TestCase):
                 self.app.processEvents()
                 self.assertIsNotNone(viewer.ax)
                 self.assertEqual(viewer.current_stem, stem)
+                self.assertTrue(viewer.legend_check.isChecked())
                 self.assertEqual(viewer.finish_button.text(), "Finish & Close")
                 self.assertEqual(
                     viewer.xrd_height_label.isHidden(), technique != "XRD"

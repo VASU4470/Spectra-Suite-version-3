@@ -26,6 +26,9 @@ class AnnotationManager:
         self.start_y = None
         self.active_ax = None
         self.drag_start_pos = None
+        self.drag_original = None
+        self.drag_handle = None
+        self.selection_handles = []
 
         self.cid_press = self.canvas.mpl_connect('button_press_event', self.on_press)
         self.cid_drag = self.canvas.mpl_connect('motion_notify_event', self.on_drag)
@@ -91,17 +94,8 @@ class AnnotationManager:
     def select_by_index(self, idx):
         """Allows the GUI listbox to select an object without clicking the graph."""
         if 0 <= idx < len(self.annotations):
-            self.selected_artist = self.annotations[idx]
-            artist, kind = self.selected_artist
-            
-            # Setup dragging math in case they click the list, then drag the object
-            if kind == 'text': self.drag_start_pos = artist.get_position()
-            elif kind == 'rect': self.drag_start_pos = artist.get_xy()
-            elif kind == 'circle': self.drag_start_pos = artist.center
-            elif kind == 'arrow': self.drag_start_pos = (artist._posA_posB[0], artist._posA_posB[1])
-            elif kind == 'line': self.drag_start_pos = (artist.get_xdata(), artist.get_ydata())
-            
-            if self.on_select_callback: self.on_select_callback(artist, kind)
+            artist, kind = self.annotations[idx]
+            self._select_artist(artist, kind)
             self.canvas.draw_idle()
 
     def set_tool(self, tool_name):
@@ -110,6 +104,7 @@ class AnnotationManager:
 
     def clear_selection(self):
         self.selected_artist = None
+        self._remove_handles()
         if self.on_select_callback:
             self.on_select_callback(None, None)
         self.canvas.draw_idle()
@@ -119,21 +114,26 @@ class AnnotationManager:
         self.start_x, self.start_y = event.xdata, event.ydata
         self.active_ax = event.inaxes
 
-        # --- SELECTION MODE (With increased sensitivity via 'picker') ---
+        # Existing annotations always take priority over the drawing tool. This
+        # makes a direct click switch naturally into object-edit mode.
+        handle = self._nearest_handle(event)
+        if handle is not None and self.selected_artist:
+            self._checkpoint()
+            self.active_tool = "none"
+            self.drag_handle = handle
+            self.drag_original = self._geometry(*self.selected_artist)
+            return
+        for artist, kind in reversed(self.annotations):
+            contains, _ = artist.contains(event)
+            if contains:
+                self._checkpoint()
+                self.active_tool = "none"
+                self._select_artist(artist, kind)
+                self.drag_original = self._geometry(artist, kind)
+                self.drag_handle = "move"
+                return
+
         if self.active_tool == "none":
-            for artist, kind in reversed(self.annotations):
-                contains, _ = artist.contains(event)
-                if contains:
-                    self._checkpoint()
-                    self.selected_artist = (artist, kind)
-                    if kind == 'text': self.drag_start_pos = artist.get_position()
-                    elif kind == 'rect': self.drag_start_pos = artist.get_xy()
-                    elif kind == 'circle': self.drag_start_pos = artist.center # Ellipse uses center
-                    elif kind == 'arrow': self.drag_start_pos = (artist._posA_posB[0], artist._posA_posB[1])
-                    elif kind == 'line': self.drag_start_pos = (artist.get_xdata(), artist.get_ydata())
-                    
-                    if self.on_select_callback: self.on_select_callback(artist, kind)
-                    return
             self.clear_selection()
             return
 
@@ -179,6 +179,7 @@ class AnnotationManager:
         if artist:
             self.annotations.append((artist, kind))
             self.selected_artist = (artist, kind)
+            self._refresh_handles()
             if self.on_select_callback: self.on_select_callback(artist, kind)
             # NEW: Update the GUI listbox
             if self.on_list_update_callback: self.on_list_update_callback(self.annotations)
@@ -187,23 +188,10 @@ class AnnotationManager:
         if self.start_x is None or not event.inaxes or self.active_ax != event.inaxes: return
         dx, dy = event.xdata - self.start_x, event.ydata - self.start_y
 
-        if self.active_tool == "none" and self.selected_artist and self.drag_start_pos:
+        if self.active_tool == "none" and self.selected_artist and self.drag_original:
             artist, kind = self.selected_artist
-            if kind == 'text':
-                artist.set_position((self.drag_start_pos[0] + dx, self.drag_start_pos[1] + dy))
-                self._update_text_underline(artist)
-            elif kind == 'rect':
-                artist.set_x(self.drag_start_pos[0] + dx)
-                artist.set_y(self.drag_start_pos[1] + dy)
-            elif kind == 'circle':
-                artist.center = (self.drag_start_pos[0] + dx, self.drag_start_pos[1] + dy)
-            elif kind == 'arrow':
-                pA, pB = self.drag_start_pos
-                artist.set_positions((pA[0] + dx, pA[1] + dy), (pB[0] + dx, pB[1] + dy))
-            elif kind == 'line':
-                xd, yd = self.drag_start_pos
-                artist.set_xdata(xd + dx)
-                artist.set_ydata(yd + dy)
+            self._apply_geometry_drag(artist, kind, event.xdata, event.ydata, dx, dy)
+            self._refresh_handles()
             self.canvas.draw_idle()
             return
 
@@ -221,12 +209,128 @@ class AnnotationManager:
                 artist.set_ydata([self.start_y, event.ydata])
             elif kind == "arrow":
                 artist.set_positions((self.start_x, self.start_y), (event.xdata, event.ydata))
+            self._refresh_handles()
             self.canvas.draw_idle()
 
     def on_release(self, event):
         self.start_x = None
         self.start_y = None
         self.drag_start_pos = None
+        self.drag_original = None
+        self.drag_handle = None
+
+    def _geometry(self, artist, kind):
+        if kind == 'text':
+            return {'position': tuple(artist.get_position())}
+        if kind == 'rect':
+            return {'x': artist.get_x(), 'y': artist.get_y(),
+                    'width': artist.get_width(), 'height': artist.get_height()}
+        if kind == 'circle':
+            return {'center': tuple(artist.center), 'width': artist.width, 'height': artist.height}
+        if kind == 'arrow':
+            return {'a': tuple(artist._posA_posB[0]), 'b': tuple(artist._posA_posB[1])}
+        if kind == 'line':
+            return {'x': np.asarray(artist.get_xdata(), float).copy(),
+                    'y': np.asarray(artist.get_ydata(), float).copy()}
+        return {}
+
+    def _select_artist(self, artist, kind):
+        self.selected_artist = (artist, kind)
+        self.active_ax = artist.axes
+        self.drag_start_pos = None
+        self._refresh_handles()
+        if self.on_select_callback:
+            self.on_select_callback(artist, kind)
+
+    def _handle_positions(self, artist, kind):
+        if kind == 'text':
+            return {'move': tuple(artist.get_position())}
+        if kind == 'line':
+            x, y = artist.get_xdata(), artist.get_ydata()
+            return {'start': (x[0], y[0]), 'end': (x[-1], y[-1])}
+        if kind == 'arrow':
+            a, b = artist._posA_posB
+            return {'start': tuple(a), 'end': tuple(b)}
+        if kind == 'rect':
+            x, y, w, h = artist.get_x(), artist.get_y(), artist.get_width(), artist.get_height()
+            return {'sw': (x, y), 'se': (x + w, y), 'nw': (x, y + h), 'ne': (x + w, y + h)}
+        if kind == 'circle':
+            cx, cy = artist.center; hw, hh = artist.width / 2, artist.height / 2
+            return {'left': (cx - hw, cy), 'right': (cx + hw, cy),
+                    'bottom': (cx, cy - hh), 'top': (cx, cy + hh)}
+        return {}
+
+    def _remove_handles(self):
+        for handle in self.selection_handles:
+            try:
+                handle.remove()
+            except (ValueError, AttributeError):
+                pass
+        self.selection_handles = []
+
+    def _refresh_handles(self):
+        self._remove_handles()
+        if not self.selected_artist:
+            return
+        artist, kind = self.selected_artist
+        for name, (x, y) in self._handle_positions(artist, kind).items():
+            handle = Line2D([x], [y], marker='s', markersize=6, markerfacecolor='white',
+                            markeredgecolor='#2563eb', markeredgewidth=1.4,
+                            linestyle='None', zorder=20, clip_on=False)
+            handle._spectra_handle_name = name
+            artist.axes.add_line(handle)
+            self.selection_handles.append(handle)
+
+    def _nearest_handle(self, event):
+        if not self.selected_artist or event.x is None or event.y is None:
+            return None
+        artist, kind = self.selected_artist
+        closest = None
+        for name, point in self._handle_positions(artist, kind).items():
+            pixel = artist.axes.transData.transform(point)
+            distance = float(np.hypot(pixel[0] - event.x, pixel[1] - event.y))
+            if distance <= 10 and (closest is None or distance < closest[0]):
+                closest = (distance, name)
+        return closest[1] if closest else None
+
+    def _apply_geometry_drag(self, artist, kind, x, y, dx, dy):
+        original, handle = self.drag_original, self.drag_handle
+        if handle == 'move':
+            if kind == 'text':
+                px, py = original['position']; artist.set_position((px + dx, py + dy)); self._update_text_underline(artist)
+            elif kind == 'rect':
+                artist.set_xy((original['x'] + dx, original['y'] + dy))
+            elif kind == 'circle':
+                cx, cy = original['center']; artist.center = (cx + dx, cy + dy)
+            elif kind == 'arrow':
+                a, b = original['a'], original['b']; artist.set_positions((a[0]+dx, a[1]+dy), (b[0]+dx, b[1]+dy))
+            elif kind == 'line':
+                artist.set_data(original['x'] + dx, original['y'] + dy)
+            return
+        if kind == 'line':
+            xs, ys = original['x'].copy(), original['y'].copy()
+            index = 0 if handle == 'start' else -1; xs[index], ys[index] = x, y
+            artist.set_data(xs, ys)
+        elif kind == 'arrow':
+            a, b = original['a'], original['b']
+            artist.set_positions((x, y) if handle == 'start' else a,
+                                 (x, y) if handle == 'end' else b)
+        elif kind == 'rect':
+            x0, y0 = original['x'], original['y']; x1 = x0 + original['width']; y1 = y0 + original['height']
+            if 'w' in handle: x0 = x
+            if 'e' in handle: x1 = x
+            if 's' in handle: y0 = y
+            if 'n' in handle: y1 = y
+            artist.set_xy((x0, y0)); artist.set_width(x1 - x0); artist.set_height(y1 - y0)
+        elif kind == 'circle':
+            cx, cy = original['center']; left = cx-original['width']/2; right = cx+original['width']/2
+            bottom = cy-original['height']/2; top = cy+original['height']/2
+            if handle == 'left': left = x
+            elif handle == 'right': right = x
+            elif handle == 'bottom': bottom = y
+            elif handle == 'top': top = y
+            artist.center = ((left+right)/2, (bottom+top)/2)
+            artist.width, artist.height = abs(right-left), abs(top-bottom)
         
     def delete_selected(self):
         if self.selected_artist:
@@ -384,7 +488,7 @@ class AnnotationManager:
         elif kind == 'line':
             artist.set_xdata(np.asarray(artist.get_xdata()) + dx)
             artist.set_ydata(np.asarray(artist.get_ydata()) + dy)
-            
+        self._refresh_handles()
         self.canvas.draw_idle()
 
     def _checkpoint(self):
@@ -396,6 +500,7 @@ class AnnotationManager:
         self.redo_stack.clear()
 
     def _clear_artists(self):
+        self._remove_handles()
         for artist, kind in list(self.annotations):
             if kind == 'text':
                 self._set_text_underline(artist, False)
