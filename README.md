@@ -1,11 +1,13 @@
 **SpectraSuite Version 3 - PySide6 Migration**
 
 > **Migration status:** The Version 3 source migration is complete. FT-IR,
-> XRD, UV-Vis, Raman, and General Plotter now use PySide6, the shared Qt setup window, and
-> Matplotlib's Qt canvas. The former Tkinter `gui.py` functionality has been
+> XRD, UV-Vis, Raman, General 2D, Multi-X/Multi-Y, General 3D, and Fluid
+> Dynamics Plotters now use PySide6 and Matplotlib's Qt canvas. Spectroscopy
+> tools continue to use the shared Qt setup window. The former Tkinter
+> `gui.py` functionality has been
 > moved into `qt_plot_viewer.py` and `qt_setup.py`; no active Python module
-> imports Tkinter. General Plotter remains labeled experimental until its
-> broader format and usability testing is complete.
+> imports Tkinter. Fluid Dynamics remains labeled experimental while more
+> Tecplot variants are tested with researcher datasets.
 
 Version 3 retains the Version 2 analysis workflow, including file management,
 individual/overlay/stacked plots, processing and reference subtraction,
@@ -36,13 +38,24 @@ area, step, pie, histogram, and box plots. Series colors, lines, markers,
 widths, titles, axis labels, legends, grids, and value labels are editable.
 Edited tables, reusable JSON projects, and PNG/PDF/SVG figures can be saved.
 
+The Multi-X/Multi-Y Plotter maps a separate X and Y column for every series,
+with bottom/top X axes and left/right Y axes in one figure. The General 3D
+Plotter accepts editable or imported XYZ data and renders scatter,
+triangulated or structured surfaces, wireframes, contours, projected contours,
+and vector fields. The Fluid Dynamics Plotter reads structured ASCII Tecplot
+POINT data and provides mesh, filled-contour, line-contour, heatmap, 3D
+surface, wireframe, coordinate-profile, field-difference, and grid-comparison
+views. The supplied 151 x 151 CFD examples were used to validate its reader.
+
 The plotting usability pass adds visible technique icons and titles, resizable
 and hideable side panels, compact Matplotlib toolbars below the graph, and
 cross-platform Ctrl/Cmd undo/redo plus Delete/Backspace handling. Annotation
 tools include undo, redo, selected-object deletion, and clear-all; the General
 2D Plotter now includes the same basic annotation workflow. General Plotter
-supports one X/category column with multiple selected Y columns; independent
-multi-X/multi-Y axes are planned as a separate follow-up tool.
+supports one X/category column with multiple selected Y columns, while the
+dedicated Multi-X/Multi-Y workspace handles independent column pairs and axes.
+PNG taskbar variants accompany the SVG launcher icons for consistent Windows,
+macOS, and Linux window identity.
 
 Spectroscopy imports now discover multiple datasets in one file. Repeated
 X/Y column pairs, a shared X column with several Y columns, and every worksheet

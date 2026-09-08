@@ -68,6 +68,10 @@ QPushButton {
 QPushButton:hover { background-color: #dbeafe; border-color: #2563eb; }
 QPushButton:pressed { background-color: #bfdbfe; }
 QPushButton:disabled { color: #8290a3; background-color: #edf1f6; }
+QPushButton#panelArrow {
+    min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px;
+    padding: 0; border-radius: 5px; font-size: 15px; font-weight: 700;
+}
 QPushButton#primary, QPushButton#launch {
     background-color: #2563eb;
     color: #ffffff;
@@ -89,11 +93,14 @@ QToolTip { background-color: #172033; color: #ffffff; border: 1px solid #334155;
 
 
 ICON_FILES = {
-    "FTIR": "ir_icon.png",
-    "XRD": "xrd_icon.png",
-    "UVVIS": "uvvis_icon.svg",
-    "RAMAN": "raman_icon.svg",
-    "GENERAL": "plot_icon.svg",
+    "FTIR": "ir_icon_taskbar.png",
+    "XRD": "xrd_icon_taskbar.png",
+    "UVVIS": "uvvis_icon_taskbar.png",
+    "RAMAN": "raman_icon_taskbar.png",
+    "GENERAL": "plot_icon_taskbar.png",
+    "MULTIAXIS": "multiaxis_icon_taskbar.png",
+    "PLOT3D": "plot3d_icon_taskbar.png",
+    "FLUID": "fluid_icon_taskbar.png",
     "APP": "icon.png",
 }
 

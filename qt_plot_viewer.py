@@ -54,7 +54,8 @@ from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import CompactNavigationToolbar
+from qt_widgets import CompactNavigationToolbar, PanelToggleButton
+from plot_export import save_figure
 
 
 STYLE = LIGHT_STYLE + """
@@ -140,6 +141,7 @@ class TextAnnotationDialog(QDialog):
         self.resize(680, 720)
         self.setMinimumSize(580, 620)
         self.setStyleSheet(STYLE)
+        apply_window_icon(self, state.technique)
         self._build_ui(text, color, fontsize, bold, italic, family, underline)
 
     def _build_ui(self, text, color, fontsize, bold, italic, family, underline):
@@ -268,7 +270,10 @@ class ExportOptionsDialog(QDialog):
         super().__init__(parent)
         self.result = None
         self.setWindowTitle("Export Options")
+        self.setMinimumWidth(430)
+        self.resize(460, 330)
         self.setStyleSheet(STYLE)
+        apply_window_icon(self, state.technique)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Select items to export:"))
         self.data_check = QCheckBox("Processed data (.csv)")
@@ -282,11 +287,16 @@ class ExportOptionsDialog(QDialog):
         self.deconv_check.setEnabled(has_deconvolution)
         layout.addWidget(self.deconv_check)
         form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setHorizontalSpacing(18)
         self.format_combo = QComboBox()
         self.format_combo.addItems([".png", ".jpg", ".svg", ".pdf", ".tiff"])
+        self.format_combo.setMinimumWidth(190)
         self.dpi_combo = QComboBox()
         self.dpi_combo.addItems(["150", "300", "600", "1200"])
         self.dpi_combo.setCurrentText("300")
+        self.dpi_combo.setMinimumWidth(190)
         form.addRow("Image format", self.format_combo)
         form.addRow("Image DPI", self.dpi_combo)
         layout.addLayout(form)
@@ -360,15 +370,17 @@ class PlotViewer(QDialog):
     def _build_layout(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
+
+        self.controls = QWidget()
+        self.controls.setMinimumWidth(250)
+        self.controls_layout = QVBoxLayout(self.controls)
+        self.controls_layout.setContentsMargins(0, 0, 4, 0)
+
         visibility = QHBoxLayout()
-        self.controls_toggle = QPushButton("Hide side panel")
-        self.controls_toggle.setCheckable(True)
-        self.controls_toggle.clicked.connect(self._toggle_controls)
-        self.toolbar_toggle = QPushButton("Hide plot toolbar")
-        self.toolbar_toggle.setCheckable(True)
-        self.toolbar_toggle.clicked.connect(self._toggle_toolbar)
+        self.controls_toggle = PanelToggleButton(self.controls, "left", self)
+        self.controls_toggle.setToolTip("Hide side panel")
+        visibility.addWidget(QLabel("Side panel"))
         visibility.addWidget(self.controls_toggle)
-        visibility.addWidget(self.toolbar_toggle)
         visibility.addStretch()
         root.addLayout(visibility)
 
@@ -376,10 +388,6 @@ class PlotViewer(QDialog):
         self.splitter.setChildrenCollapsible(True)
         root.addWidget(self.splitter, 1)
 
-        self.controls = QWidget()
-        self.controls.setMinimumWidth(250)
-        self.controls_layout = QVBoxLayout(self.controls)
-        self.controls_layout.setContentsMargins(0, 0, 4, 0)
         self.splitter.addWidget(self.controls)
 
         self.plot_panel = QWidget()
@@ -393,7 +401,13 @@ class PlotViewer(QDialog):
         self.cursor_label.setObjectName("cursor")
         self.cursor_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         plot_layout.addWidget(self.canvas, 1)
-        plot_layout.addWidget(self.toolbar)
+        toolbar_row = QHBoxLayout()
+        toolbar_row.setContentsMargins(0, 0, 0, 0)
+        toolbar_row.addWidget(self.toolbar, 1)
+        self.toolbar_toggle = PanelToggleButton(self.toolbar, "bottom", self.plot_panel)
+        self.toolbar_toggle.setToolTip("Hide plot toolbar")
+        toolbar_row.addWidget(self.toolbar_toggle)
+        plot_layout.addLayout(toolbar_row)
         plot_layout.addWidget(self.cursor_label)
         self.splitter.addWidget(self.plot_panel)
         self.splitter.setStretchFactor(0, 0)
@@ -401,12 +415,10 @@ class PlotViewer(QDialog):
         self.splitter.setSizes([390, 1040])
 
     def _toggle_controls(self, hidden):
-        self.controls.setVisible(not hidden)
-        self.controls_toggle.setText("Show side panel" if hidden else "Hide side panel")
+        self.controls_toggle.setChecked(bool(hidden))
 
     def _toggle_toolbar(self, hidden):
-        self.toolbar.setVisible(not hidden)
-        self.toolbar_toggle.setText("Show plot toolbar" if hidden else "Hide plot toolbar")
+        self.toolbar_toggle.setChecked(bool(hidden))
 
     def _install_shortcuts(self):
         self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
@@ -1682,9 +1694,10 @@ class PlotViewer(QDialog):
             if options["report"]:
                 self._write_report(destination / f"{self.current_stem}_analysis_report.txt", fs)
             if options["image"]:
-                self.figure.savefig(
+                save_figure(
+                    self.figure,
                     destination / f"{self.current_stem}_plot{options['format']}",
-                    dpi=options["dpi"], bbox_inches="tight",
+                    dpi=options["dpi"],
                 )
             if options["deconvolution"]:
                 self._export_deconvolutions(destination, fs)
@@ -1848,7 +1861,7 @@ class PlotViewer(QDialog):
             self, "Save chart", f"{self.current_stem}_grain_size.png", "Images (*.png *.pdf *.svg)"
         )
         if filename:
-            figure.savefig(filename, dpi=300, bbox_inches="tight")
+            save_figure(figure, filename, selected_filter=_)
 
     # ------------------------------ closing ------------------------------
     def _has_next_individual_spectrum(self):

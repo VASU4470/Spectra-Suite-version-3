@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QApplication, QTableWidgetItem
 from config import SessionState, state
 from launcher import WelcomeDashboard, startup_smoke_test, workspace_command
 from qt_general_plotter import GeneralPlotter
-from qt_plot_viewer import PlotViewer
+from qt_plot_viewer import ExportOptionsDialog, PlotViewer
 from qt_setup import SetupDialog
 
 
@@ -69,7 +69,9 @@ class StartupTests(unittest.TestCase):
         dashboard = WelcomeDashboard()
         dashboard.show()
         self.app.processEvents()
-        self.assertEqual(set(dashboard._buttons), {"ir", "xrd", "uvvis", "raman", "general"})
+        self.assertEqual(set(dashboard._buttons), {
+            "ir", "xrd", "uvvis", "raman", "general", "multiaxis", "plot3d", "fluid",
+        })
         self.assertTrue(all(not button.icon().isNull() for button in dashboard._buttons.values()))
         dashboard.close()
 
@@ -107,10 +109,20 @@ class StartupTests(unittest.TestCase):
                 self.assertLessEqual(viewer.toolbar.maximumHeight(), 32)
                 viewer.controls_toggle.click()
                 self.assertTrue(viewer.controls.isHidden())
+                self.assertEqual(viewer.controls_toggle.text(), "▶")
                 viewer.controls_toggle.click()
                 self.assertFalse(viewer.controls.isHidden())
+                self.assertEqual(viewer.controls_toggle.text(), "◀")
                 viewer._skip_close_prompt = True
                 viewer.close()
+
+    def test_export_options_are_not_compressed(self):
+        reset_state("XRD")
+        dialog = ExportOptionsDialog()
+        self.assertGreaterEqual(dialog.minimumWidth(), 430)
+        self.assertGreaterEqual(dialog.format_combo.minimumWidth(), 190)
+        self.assertGreaterEqual(dialog.dpi_combo.minimumWidth(), 190)
+        dialog.reject()
 
     def test_general_spreadsheet_plotter_constructs_and_plots(self):
         plotter = GeneralPlotter()

@@ -339,6 +339,7 @@ class ColumnPickerDialog(QDialog):
         self.resize(680, 650)
         self.setMinimumSize(580, 560)
         self.setStyleSheet(STYLE)
+        apply_window_icon(self, state.technique)
         self._build_ui()
         self.refresh_preview()
 

@@ -56,9 +56,15 @@ jobs:
         run: >-
           python -m PyInstaller --noconfirm --clean --onedir
           --name SpectraSuite-CI --add-data "icon.png:."
-          --add-data "ir_icon.png:." --add-data "xrd_icon.png:."
+          --add-data "ir_icon.svg:." --add-data "xrd_icon.svg:."
           --add-data "uvvis_icon.svg:." --add-data "raman_icon.svg:."
-          --add-data "plot_icon.svg:." launcher.py
+          --add-data "plot_icon.svg:." --add-data "multiaxis_icon.svg:."
+          --add-data "plot3d_icon.svg:." --add-data "fluid_icon.svg:."
+          --add-data "ir_icon_taskbar.png:." --add-data "xrd_icon_taskbar.png:."
+          --add-data "uvvis_icon_taskbar.png:." --add-data "raman_icon_taskbar.png:."
+          --add-data "plot_icon_taskbar.png:." --add-data "multiaxis_icon_taskbar.png:."
+          --add-data "plot3d_icon_taskbar.png:." --add-data "fluid_icon_taskbar.png:."
+          launcher.py
 
       - name: Run the packaged startup check
         env:

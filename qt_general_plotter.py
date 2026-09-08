@@ -20,8 +20,9 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from annotations import AnnotationManager
+from plot_export import save_figure
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import CompactNavigationToolbar
+from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 
 
 STYLE = LIGHT_STYLE
@@ -230,6 +231,7 @@ class GeneralPlotter(QWidget):
             button = QPushButton(text); button.clicked.connect(slot); top.addWidget(button)
         panels = QPushButton("Panels ▾")
         panel_menu = QMenu(panels)
+        self.panel_actions = {}
         for label, slot in (
             ("Data table", self._set_data_panel_visible),
             ("Plot options", self._set_controls_visible),
@@ -238,6 +240,7 @@ class GeneralPlotter(QWidget):
             action = panel_menu.addAction(label)
             action.setCheckable(True); action.setChecked(True)
             action.toggled.connect(slot)
+            self.panel_actions[label] = action
         panels.setMenu(panel_menu); top.addWidget(panels)
         top.addStretch(); root.addLayout(top)
         self.splitter = QSplitter(Qt.Orientation.Horizontal); self.splitter.setChildrenCollapsible(True)
@@ -271,7 +274,11 @@ class GeneralPlotter(QWidget):
         self.canvas = FigureCanvasQTAgg(self.figure)
         plot_layout.addWidget(self.canvas, 1)
         self.toolbar = CompactNavigationToolbar(self.canvas, self.plot_panel)
-        plot_layout.addWidget(self.toolbar)
+        toolbar_row = QHBoxLayout(); toolbar_row.setContentsMargins(0, 0, 0, 0)
+        toolbar_row.addWidget(self.toolbar, 1)
+        self.toolbar_toggle = PanelToggleButton(self.toolbar, "bottom", self.plot_panel)
+        toolbar_row.addWidget(self.toolbar_toggle)
+        plot_layout.addLayout(toolbar_row)
         self.splitter.addWidget(self.plot_panel)
 
         controls = QWidget(); controls.setMinimumWidth(260)
@@ -349,6 +356,20 @@ class GeneralPlotter(QWidget):
         self.splitter.addWidget(self.controls_scroll)
         self.splitter.setSizes([460, 650, 420])
 
+        self.data_toggle = PanelToggleButton(self.data_panel, "left", self)
+        self.options_toggle = PanelToggleButton(self.controls_scroll, "right", self)
+        top.insertWidget(6, self.data_toggle)
+        top.insertWidget(7, self.options_toggle)
+        self.data_toggle.toggled.connect(
+            lambda hidden: self.panel_actions["Data table"].setChecked(not hidden)
+        )
+        self.options_toggle.toggled.connect(
+            lambda hidden: self.panel_actions["Plot options"].setChecked(not hidden)
+        )
+        self.toolbar_toggle.toggled.connect(
+            lambda hidden: self.panel_actions["Plot toolbar"].setChecked(not hidden)
+        )
+
         self.x_column.currentTextChanged.connect(self._mapping_changed)
         self.y_columns.itemSelectionChanged.connect(self._mapping_changed)
         self.chart_type.currentTextChanged.connect(self.plot_data)
@@ -360,13 +381,13 @@ class GeneralPlotter(QWidget):
         self.bar_width.valueChanged.connect(self._save_series_style)
 
     def _set_data_panel_visible(self, visible):
-        self.data_panel.setVisible(visible)
+        self.data_toggle.set_panel_visible(visible)
 
     def _set_controls_visible(self, visible):
-        self.controls_scroll.setVisible(visible)
+        self.options_toggle.set_panel_visible(visible)
 
     def _set_toolbar_visible(self, visible):
-        self.toolbar.setVisible(visible)
+        self.toolbar_toggle.set_panel_visible(visible)
 
     def _install_shortcuts(self):
         self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
@@ -661,9 +682,9 @@ class GeneralPlotter(QWidget):
         except Exception as error: QMessageBox.critical(self, "Save error", str(error))
 
     def export_graph(self):
-        filename, _ = QFileDialog.getSaveFileName(self, "Export graph", "graph.png", "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)")
+        filename, selected = QFileDialog.getSaveFileName(self, "Export graph", "graph.png", "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)")
         if filename:
-            try: self.figure.savefig(filename, dpi=300, bbox_inches="tight")
+            try: save_figure(self.figure, filename, selected_filter=selected, dpi=300)
             except Exception as error: QMessageBox.critical(self, "Export error", str(error))
 
     def save_project(self):
