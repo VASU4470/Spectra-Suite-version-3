@@ -19,6 +19,13 @@ QLabel, QCheckBox, QRadioButton {
     color: #172033;
     background-color: transparent;
 }
+QCheckBox::indicator {
+    width: 16px; height: 16px; background-color: #ffffff;
+    border: 1px solid #64748b; border-radius: 3px;
+}
+QCheckBox::indicator:checked {
+    background-color: #2563eb; border: 2px solid #1d4ed8;
+}
 QGroupBox {
     color: #172033;
     border: 1px solid #b8c4d6;

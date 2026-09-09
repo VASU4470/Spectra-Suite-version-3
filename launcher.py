@@ -37,9 +37,10 @@ WORKSPACES = (
     Workspace("uvvis", "UV-Vis\nAnalysis", "uvvis_icon.svg"),
     Workspace("raman", "Raman\nAnalysis", "raman_icon.svg"),
     Workspace("general", "General\n2D Plotter", "plot_icon.svg"),
-    Workspace("multiaxis", "Multi-X / Multi-Y\nPlotter", "multiaxis_icon.svg", coming_soon=True),
     Workspace("plot3d", "General\n3D Plotter", "plot3d_icon.svg"),
+    Workspace("multiaxis", "Multi-X / Multi-Y\nPlotter", "multiaxis_icon.svg", coming_soon=True),
     Workspace("fluid", "Fluid Dynamics\nPlotter", "fluid_icon.svg", coming_soon=True),
+    Workspace("xps", "XPS\nAnalysis", "xps_icon.svg", coming_soon=True),
 )
 
 
@@ -120,7 +121,7 @@ class WelcomeDashboard(QWidget):
         layout.addWidget(footer)
 
     def _workspace_button(self, workspace: Workspace) -> QPushButton:
-        suffix = "\n\nCOMING SOON · NEXT VERSION" if workspace.coming_soon else (
+        suffix = "\n\nCOMING SOON\nNEXT VERSION" if workspace.coming_soon else (
             "\n\nEXPERIMENTAL" if workspace.experimental else ""
         )
         button = QPushButton(f"{workspace.title}{suffix}")
@@ -138,6 +139,7 @@ class WelcomeDashboard(QWidget):
         if workspace.coming_soon:
             button.setEnabled(False)
             button.setCursor(Qt.CursorShape.ArrowCursor)
+            button.setToolTip(f"{workspace.title.replace(chr(10), ' ')} is planned for the next version.")
         return button
 
     def launch_workspace(self, workspace: Workspace) -> None:
@@ -247,7 +249,8 @@ def startup_smoke_test() -> int:
     window.show()
     app.processEvents()
     if set(window._buttons) != {
-        "ir", "xrd", "uvvis", "raman", "general", "multiaxis", "plot3d", "fluid"
+        "ir", "xrd", "uvvis", "raman", "general", "plot3d",
+        "multiaxis", "fluid", "xps",
     }:
         raise RuntimeError("The dashboard did not create every workspace button")
     window.close()

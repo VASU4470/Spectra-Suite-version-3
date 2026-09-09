@@ -21,7 +21,7 @@ from annotations import AnnotationManager
 from plot_export import save_figure
 from qt_general_plotter import DataTable, read_table
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import CompactNavigationToolbar, PanelToggleButton
+from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
 
 
 COLORS = ["#2563eb", "#dc2626", "#059669", "#7c3aed", "#d97706", "#0891b2"]
@@ -120,10 +120,7 @@ class MultiAxisPlotter(QWidget):
         axes_form.addRow(self.legend_check); settings_layout.addWidget(axes_group)
 
         ann_group = QGroupBox("Annotations"); ann_layout = QVBoxLayout(ann_group)
-        self.annotation_tool = QComboBox()
-        for label, value in (("Select / move", "none"), ("Text", "text"), ("Arrow", "arrow"),
-                             ("Line", "line"), ("Rectangle", "rect"), ("Ellipse", "circle")):
-            self.annotation_tool.addItem(label, value)
+        self.annotation_tool = AnnotationToolBar()
         self.annotation_tool.currentIndexChanged.connect(self._set_annotation_tool)
         ann_layout.addWidget(self.annotation_tool)
         self.annotation_list = QListWidget(); self.annotation_list.setMaximumHeight(75)

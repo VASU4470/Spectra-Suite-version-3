@@ -11,14 +11,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MPLBACKEND", "QtAgg")
 
 import numpy as np
-from PySide6.QtWidgets import QApplication, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QPushButton, QScrollArea, QTableWidgetItem
 
 from config import SessionState, state
 from dataset_reader import SpectrumDataset
 from launcher import WelcomeDashboard, startup_smoke_test, workspace_command
 from qt_general_plotter import GeneralPlotter
-from qt_plot_viewer import ExportOptionsDialog, PlotViewer
+from qt_plot_viewer import ExportOptionsDialog, PlotViewer, TextAnnotationDialog
 from qt_setup import DatasetSelectionDialog, SetupDialog
+from qt_widgets import AnnotationToolBar
 
 
 def reset_state(technique: str) -> None:
@@ -71,13 +72,51 @@ class StartupTests(unittest.TestCase):
         dashboard.show()
         self.app.processEvents()
         self.assertEqual(set(dashboard._buttons), {
-            "ir", "xrd", "uvvis", "raman", "general", "multiaxis", "plot3d", "fluid",
+            "ir", "xrd", "uvvis", "raman", "general", "plot3d",
+            "multiaxis", "fluid", "xps",
         })
+        self.assertEqual(
+            list(dashboard._buttons),
+            ["ir", "xrd", "uvvis", "raman", "general", "plot3d",
+             "multiaxis", "fluid", "xps"],
+        )
         self.assertTrue(all(not button.icon().isNull() for button in dashboard._buttons.values()))
         self.assertFalse(dashboard._buttons["multiaxis"].isEnabled())
         self.assertFalse(dashboard._buttons["fluid"].isEnabled())
+        self.assertFalse(dashboard._buttons["xps"].isEnabled())
         self.assertIn("COMING SOON", dashboard._buttons["fluid"].text())
         dashboard.close()
+
+    def test_annotation_tool_selector_is_horizontal_and_accessible(self):
+        toolbar = AnnotationToolBar()
+        toolbar.show()
+        self.app.processEvents()
+        self.assertEqual(len(toolbar._buttons), 6)
+        self.assertEqual([button.toolTip() for button in toolbar._buttons], [
+            "Select / move", "Text", "Arrow", "Line", "Rectangle", "Ellipse",
+        ])
+        self.assertTrue(all(button.width() == 44 and button.height() == 40
+                            for button in toolbar._buttons))
+        toolbar.setCurrentIndex(2)
+        self.assertEqual(toolbar.currentData(), "arrow")
+        toolbar.close()
+
+    def test_rich_annotation_dialog_controls_remain_visible(self):
+        reset_state("UVVIS")
+        dialog = TextAnnotationDialog()
+        dialog.show()
+        self.app.processEvents()
+        self.assertTrue(dialog.findChild(QScrollArea).widgetResizable())
+        self.assertGreaterEqual(dialog.size_spin.minimumWidth(), 180)
+        self.assertGreaterEqual(dialog.family_combo.minimumWidth(), 180)
+        symbol_buttons = [
+            button for button in dialog.findChildren(QPushButton)
+            if button.text() in {label for label, _command in dialog.GREEK + dialog.SYMBOLS}
+        ]
+        self.assertEqual(len(symbol_buttons), len(dialog.GREEK) + len(dialog.SYMBOLS))
+        self.assertTrue(all(button.width() == 44 and button.height() == 34
+                            for button in symbol_buttons))
+        dialog.reject()
 
     def test_setup_dialog_constructs_for_every_technique(self):
         for technique in ("FTIR", "XRD", "UVVIS", "RAMAN", "GENERAL"):

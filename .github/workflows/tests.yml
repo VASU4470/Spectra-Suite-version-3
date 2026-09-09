@@ -60,6 +60,7 @@ jobs:
           --add-data "uvvis_icon.svg:." --add-data "raman_icon.svg:."
           --add-data "plot_icon.svg:." --add-data "multiaxis_icon.svg:."
           --add-data "plot3d_icon.svg:." --add-data "fluid_icon.svg:."
+          --add-data "xps_icon.svg:."
           --add-data "ir_icon_taskbar.png:." --add-data "xrd_icon_taskbar.png:."
           --add-data "uvvis_icon_taskbar.png:." --add-data "raman_icon_taskbar.png:."
           --add-data "plot_icon_taskbar.png:." --add-data "multiaxis_icon_taskbar.png:."

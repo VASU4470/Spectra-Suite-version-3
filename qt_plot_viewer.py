@@ -54,7 +54,7 @@ from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import CompactNavigationToolbar, PanelToggleButton
+from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
 from plot_export import save_figure
 from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
 from spectral_preprocessing import subtract_reference, trim_noisy_edges
@@ -140,20 +140,29 @@ class TextAnnotationDialog(QDialog):
         super().__init__(parent)
         self.result = None
         self.setWindowTitle("Text Annotation")
-        self.resize(680, 720)
-        self.setMinimumSize(580, 620)
+        self.resize(760, 760)
+        self.setMinimumSize(620, 580)
         self.setStyleSheet(STYLE)
         apply_window_icon(self, state.technique)
         self._build_ui(text, color, fontsize, bold, italic, family, underline)
 
     def _build_ui(self, text, color, fontsize, bold, italic, family, underline):
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSpacing(10)
         layout.addWidget(QLabel("Text and Matplotlib math notation"))
         self.text_edit = QTextEdit()
         self.text_edit.setPlainText(text)
-        layout.addWidget(self.text_edit, 1)
+        self.text_edit.setMinimumHeight(100)
+        self.text_edit.setMaximumHeight(150)
+        layout.addWidget(self.text_edit)
 
         style_group = QGroupBox("Style")
+        style_group.setMinimumHeight(175)
         style_form = QFormLayout(style_group)
         flags = QWidget()
         flags_layout = QHBoxLayout(flags)
@@ -171,8 +180,10 @@ class TextAnnotationDialog(QDialog):
         self.size_spin = QDoubleSpinBox()
         self.size_spin.setRange(4, 100)
         self.size_spin.setValue(float(fontsize))
+        self.size_spin.setMinimumWidth(180)
         style_form.addRow("Font size", self.size_spin)
         self.family_combo = QComboBox()
+        self.family_combo.setMinimumWidth(180)
         self.family_combo.addItems(["sans-serif", "serif", "monospace", "cursive", "fantasy"])
         self.family_combo.setCurrentText(family if family in {
             "sans-serif", "serif", "monospace", "cursive", "fantasy"
@@ -182,6 +193,7 @@ class TextAnnotationDialog(QDialog):
         color_layout = QHBoxLayout(color_widget)
         color_layout.setContentsMargins(0, 0, 0, 0)
         self.color_edit = QLineEdit(str(color))
+        self.color_edit.setMinimumWidth(180)
         color_button = QPushButton("Pick")
         color_button.clicked.connect(self._choose_color)
         color_layout.addWidget(self.color_edit)
@@ -195,13 +207,15 @@ class TextAnnotationDialog(QDialog):
         superscript.clicked.connect(lambda: self._insert_math(r"^{}", -1))
         subscript = QPushButton("x₂ Subscript")
         subscript.clicked.connect(lambda: self._insert_math(r"_{}", -1))
+        superscript.setMinimumHeight(36)
+        subscript.setMinimumHeight(36)
         insert_layout.addWidget(superscript)
         insert_layout.addWidget(subscript)
         layout.addWidget(insert_group)
 
         greek_group = QGroupBox("Greek Letters")
         greek_layout = QGridLayout(greek_group)
-        self._symbol_buttons(greek_layout, self.GREEK, 12)
+        self._symbol_buttons(greek_layout, self.GREEK, 9)
         layout.addWidget(greek_group)
         symbol_group = QGroupBox("Math Symbols")
         symbol_layout = QGridLayout(symbol_group)
@@ -213,17 +227,30 @@ class TextAnnotationDialog(QDialog):
         )
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
+        layout.addStretch()
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self._confirm)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        root.addWidget(buttons)
 
     def _symbol_buttons(self, layout, values, columns):
         for index, (label, command) in enumerate(values):
             button = QPushButton(label)
-            button.setMaximumWidth(42)
+            button.setFixedSize(44, 34)
+            button.setAccessibleName(f"Insert {label}")
+            button.setStyleSheet("""
+                QPushButton {
+                    color: #172033; background: #e8eef7;
+                    border: 1px solid #94a3b8; border-radius: 5px;
+                    font-size: 16px; font-weight: 700; padding: 1px;
+                }
+                QPushButton:hover { background: #dbeafe; border-color: #2563eb; }
+                QPushButton:pressed { background: #bfdbfe; }
+            """)
             button.clicked.connect(lambda _checked=False, value=command: self._insert_math(value + " "))
             layout.addWidget(button, index // columns, index % columns)
 
@@ -657,13 +684,7 @@ class PlotViewer(QDialog):
         self.tabs.addTab(tab, "Annotate")
         tools = QGroupBox("Drawing Tool")
         tools_layout = QVBoxLayout(tools)
-        self.annotation_tool = QComboBox()
-        self.annotation_tool.addItem("Select / move", "none")
-        for label, value in (
-            ("Text", "text"), ("Arrow", "arrow"), ("Line", "line"),
-            ("Rectangle", "rect"), ("Ellipse", "circle")
-        ):
-            self.annotation_tool.addItem(label, value)
+        self.annotation_tool = AnnotationToolBar()
         self.annotation_tool.currentIndexChanged.connect(self._set_annotation_tool)
         tools_layout.addWidget(self.annotation_tool)
         tools_layout.addWidget(QLabel("Draw on the graph. Use arrow keys to nudge a selection."))

@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 from annotations import AnnotationManager
 from plot_export import save_figure
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import CompactNavigationToolbar, PanelToggleButton
+from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
 from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
 
 
@@ -347,12 +347,7 @@ class GeneralPlotter(QWidget):
 
         annotation = QGroupBox("Annotations")
         annotation_layout = QVBoxLayout(annotation)
-        self.annotation_tool = QComboBox()
-        for label, value in (
-            ("Select / move", "none"), ("Text", "text"), ("Arrow", "arrow"),
-            ("Line", "line"), ("Rectangle", "rect"), ("Ellipse", "circle"),
-        ):
-            self.annotation_tool.addItem(label, value)
+        self.annotation_tool = AnnotationToolBar()
         self.annotation_tool.currentIndexChanged.connect(self._set_annotation_tool)
         annotation_layout.addWidget(self.annotation_tool)
         self.annotation_list = QListWidget()

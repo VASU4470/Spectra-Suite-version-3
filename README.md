@@ -1,8 +1,8 @@
 **SpectraSuite Version 3**
 
 > **Status:** Version 3 includes FT-IR, XRD, UV-Vis, Raman, General 2D, and
-> General 3D workspaces. Multi-X/Multi-Y and Fluid Dynamics remain visible in
-> the launcher as disabled “Coming soon” previews for the next version.
+> General 3D workspaces. Multi-X/Multi-Y, Fluid Dynamics, and XPS remain visible
+> in the final launcher row as disabled “Coming soon” previews for the next version.
 
 Version 3 retains the Version 2 analysis workflow, including file management,
 individual/overlay/stacked plots, processing and reference subtraction,
