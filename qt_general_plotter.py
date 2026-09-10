@@ -13,7 +13,7 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox,
+    QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMenu,
     QListWidget, QMessageBox, QPushButton, QScrollArea, QSplitter, QTableWidget,
@@ -37,6 +37,11 @@ class DataTable(QTableWidget):
         self.undo_stack, self.redo_stack = [], []
         self._history_suspended = False
         self._last_state = self._snapshot()
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.horizontalHeader().setSectionsClickable(True)
+        self.verticalHeader().setSectionsClickable(True)
+        self.horizontalHeader().sectionClicked.connect(self.selectColumn)
+        self.verticalHeader().sectionClicked.connect(self.selectRow)
         self.itemChanged.connect(self._capture_edit)
 
     def _snapshot(self):
@@ -202,6 +207,19 @@ def detect_delimiter(path: Path):
     return r"\s+" if delimiter == " " else delimiter
 
 
+def parse_axis_limits(text):
+    """Return a sorted two-number limit or None for automatic scaling."""
+    if not str(text).strip():
+        return None
+    try:
+        values = [float(value.strip()) for value in str(text).split(",")]
+    except ValueError as error:
+        raise ValueError("Axis limits must be written as min,max.") from error
+    if len(values) != 2 or values[0] == values[1]:
+        raise ValueError("Axis limits need two different values: min,max.")
+    return sorted(values)
+
+
 class GeneralPlotter(QWidget):
     CHARTS = ["Line", "Scatter", "Bar", "Area", "Step", "Pie", "Histogram", "Box"]
 
@@ -230,6 +248,7 @@ class GeneralPlotter(QWidget):
         root = QVBoxLayout(self)
         top = QHBoxLayout()
         for text, slot in (("New blank table", self.new_table), ("Add file", self.add_file),
+                           ("Replace data", self.replace_data),
                            ("Save data", self.save_data), ("Save project", self.save_project),
                            ("Open project", self.open_project), ("Export graph", self.export_graph)):
             button = QPushButton(text); button.clicked.connect(slot); top.addWidget(button)
@@ -260,11 +279,18 @@ class GeneralPlotter(QWidget):
         )
         data_layout.addWidget(self.table, 1)
         edit_row = QHBoxLayout()
-        for text, slot in (("+ Row", self.add_row), ("− Row", self.delete_rows),
-                           ("+ Column", self.add_column), ("− Column", self.delete_columns),
+        for text, slot in (("Insert row", self.add_row), ("Delete row(s)", self.delete_rows),
+                           ("Insert column", self.add_column), ("Delete column(s)", self.delete_columns),
                            ("Rename", self.rename_column)):
             button = QPushButton(text); button.clicked.connect(slot); edit_row.addWidget(button)
         data_layout.addLayout(edit_row)
+        role_row = QHBoxLayout()
+        set_x = QPushButton("Set selected column as X")
+        set_x.clicked.connect(self.set_selected_column_as_x)
+        add_y = QPushButton("Add selected column(s) as Y")
+        add_y.clicked.connect(self.add_selected_columns_as_y)
+        role_row.addWidget(set_x); role_row.addWidget(add_y)
+        data_layout.addLayout(role_row)
         table_history = QHBoxLayout()
         for text, slot in (("↶ Undo data", self._undo_table), ("↷ Redo data", self._redo_table)):
             button = QPushButton(text); button.clicked.connect(slot); table_history.addWidget(button)
@@ -306,6 +332,9 @@ class GeneralPlotter(QWidget):
         labels = QGroupBox("Titles and labels"); label_form = QFormLayout(labels)
         label_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.title_edit, self.xlabel_edit, self.ylabel_edit = QLineEdit(), QLineEdit(), QLineEdit()
+        self.xlim_edit, self.ylim_edit = QLineEdit(), QLineEdit()
+        self.xlim_edit.setPlaceholderText("automatic or min,max")
+        self.ylim_edit.setPlaceholderText("automatic or min,max")
         self.legend_check = QCheckBox("Show legend"); self.legend_check.setChecked(True)
         self.legend_location = QComboBox()
         for label, value in LEGEND_LOCATIONS: self.legend_location.addItem(label, value)
@@ -313,7 +342,9 @@ class GeneralPlotter(QWidget):
         self.legend_color = QLineEdit("#172033")
         self.grid_check, self.data_labels_check = QCheckBox("Show grid"), QCheckBox("Show data labels")
         label_form.addRow("Graph title", self.title_edit); label_form.addRow("X-axis", self.xlabel_edit)
-        label_form.addRow("Y-axis", self.ylabel_edit); label_form.addRow(self.legend_check)
+        label_form.addRow("Y-axis", self.ylabel_edit)
+        label_form.addRow("X limits", self.xlim_edit); label_form.addRow("Y limits", self.ylim_edit)
+        label_form.addRow(self.legend_check)
         label_form.addRow("Legend position", self.legend_location)
         label_form.addRow("Legend font size", self.legend_size)
         label_form.addRow("Legend font color", self.legend_color)
@@ -389,7 +420,9 @@ class GeneralPlotter(QWidget):
         self.y_columns.itemSelectionChanged.connect(self._mapping_changed)
         self.chart_type.currentTextChanged.connect(self.plot_data)
         self.style_series.currentTextChanged.connect(self._load_series_style)
-        for widget in (self.title_edit, self.xlabel_edit, self.ylabel_edit): widget.editingFinished.connect(self.plot_data)
+        for widget in (self.title_edit, self.xlabel_edit, self.ylabel_edit,
+                       self.xlim_edit, self.ylim_edit):
+            widget.editingFinished.connect(self.plot_data)
         for widget in (self.legend_check, self.grid_check, self.data_labels_check): widget.toggled.connect(self.plot_data)
         self.legend_location.currentIndexChanged.connect(self.plot_data); self.legend_size.valueChanged.connect(self.plot_data)
         self.legend_color.editingFinished.connect(self.plot_data)
@@ -515,23 +548,56 @@ class GeneralPlotter(QWidget):
         self._set_dataframe(pd.DataFrame({"X": [""]*25, "Y": [""]*25}))
         self.file_label.setText("Manual data — type values below or paste from Excel")
         self.title_edit.clear(); self.xlabel_edit.setText("X"); self.ylabel_edit.setText("Y")
+        self.xlim_edit.clear(); self.ylim_edit.clear()
         self.figure.clear(); self.canvas.draw_idle()
 
     def add_file(self):
         filenames, _ = QFileDialog.getOpenFileNames(self, "Add data table", "",
             "Data tables (*.csv *.tsv *.txt *.dat *.xy *.xlsx *.xls);;All files (*)")
+        self.load_paths(filenames, replace=False)
+
+    def replace_data(self):
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Replace table data", "",
+            "Data tables (*.csv *.tsv *.txt *.dat *.xy *.xlsx *.xls);;All files (*)",
+        )
+        if not filename:
+            return
+        if QMessageBox.question(
+            self, "Replace data", "Replace the complete current table?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.load_paths([filename], replace=True)
+
+    def load_paths(self, filenames, *, replace=False):
+        if replace:
+            self.loaded_files = []
+            self.series_styles = {}
+            if hasattr(self, "annotation_mgr"):
+                self.annotation_mgr._clear_artists()
+                self.annotation_mgr.undo_stack.clear()
+                self.annotation_mgr.redo_stack.clear()
+            current = pd.DataFrame()
+        else:
+            current = self._dataframe(False)
         for filename in filenames:
             path = Path(filename)
             try: incoming = read_table(path)
             except Exception as error:
                 QMessageBox.warning(self, "Import error", f"Could not import {path.name}:\n{error}"); continue
-            current = self._dataframe(False)
             if current.empty:
                 merged = incoming.reset_index(drop=True)
             else:
-                incoming = incoming.rename(columns={c: f"{path.stem}.{c}" for c in incoming.columns if c in current.columns})
+                incoming = incoming.rename(columns={
+                    column: f"{path.stem}.{column}"
+                    for column in incoming.columns
+                    if column in current.columns
+                })
                 merged = pd.concat([current.reset_index(drop=True), incoming.reset_index(drop=True)], axis=1)
-            self.loaded_files.append(str(path)); self._set_dataframe(merged)
+            current = merged
+            self.loaded_files.append(str(path))
+            self._set_dataframe(merged)
         if self.loaded_files: self.file_label.setText("Imported: " + ", ".join(Path(f).name for f in self.loaded_files))
 
     def _set_dataframe(self, frame):
@@ -585,19 +651,26 @@ class GeneralPlotter(QWidget):
 
     def add_row(self):
         self.table.begin_command()
-        self.table.insertRow(self.table.currentRow()+1 if self.table.currentRow() >= 0 else self.table.rowCount())
+        self.table.insertRow(self.table.currentRow() if self.table.currentRow() >= 0 else self.table.rowCount())
         self.table.end_command()
 
     def delete_rows(self):
+        rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
+        if not rows and self.table.currentRow() >= 0:
+            rows = [self.table.currentRow()]
         self.table.begin_command()
-        for row in sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True): self.table.removeRow(row)
+        for row in rows:
+            self.table.removeRow(row)
         self.table.end_command()
 
     def add_column(self):
         name, ok = QInputDialog.getText(self, "Add column", "Column name", text=f"Column {self.table.columnCount()+1}")
         if ok and name:
             self.table.begin_command()
-            col = self.table.columnCount(); self.table.insertColumn(col); self.table.setHorizontalHeaderItem(col, QTableWidgetItem(name))
+            col = self.table.currentColumn()
+            if col < 0:
+                col = self.table.columnCount()
+            self.table.insertColumn(col); self.table.setHorizontalHeaderItem(col, QTableWidgetItem(name))
             self.table.end_command(); self._refresh_columns()
 
     def delete_columns(self):
@@ -605,10 +678,34 @@ class GeneralPlotter(QWidget):
         if not columns and self.table.currentColumn() >= 0: columns = [self.table.currentColumn()]
         if self.table.columnCount()-len(columns) < 1:
             QMessageBox.warning(self, "Columns required", "Keep at least one column."); return
+        names = [
+            self.table.horizontalHeaderItem(column).text()
+            for column in columns if self.table.horizontalHeaderItem(column)
+        ]
         self.table.begin_command()
         for col in columns: self.table.removeColumn(col)
         self.table.end_command()
+        for name in names:
+            self.series_styles.pop(name, None)
         self._refresh_columns()
+
+    def _selected_columns(self):
+        columns = sorted({index.column() for index in self.table.selectedIndexes()})
+        if not columns and self.table.currentColumn() >= 0:
+            columns = [self.table.currentColumn()]
+        return columns
+
+    def set_selected_column_as_x(self):
+        columns = self._selected_columns()
+        if columns:
+            self.x_column.setCurrentIndex(columns[0])
+
+    def add_selected_columns_as_y(self):
+        columns = self._selected_columns()
+        x_column = self.x_column.currentIndex()
+        for column in columns:
+            if column != x_column and column < self.y_columns.count():
+                self.y_columns.item(column).setSelected(True)
 
     def rename_column(self):
         col = self.table.currentColumn()
@@ -616,7 +713,10 @@ class GeneralPlotter(QWidget):
         old = self.table.horizontalHeaderItem(col).text(); name, ok = QInputDialog.getText(self, "Rename column", "New name", text=old)
         if ok and name:
             self.table.begin_command(); self.table.setHorizontalHeaderItem(col, QTableWidgetItem(name))
-            self.table.end_command(); self._refresh_columns()
+            self.table.end_command()
+            if old in self.series_styles:
+                self.series_styles[name] = self.series_styles.pop(old)
+            self._refresh_columns()
 
     def _default_style(self, series):
         names = [self.style_series.itemText(i) for i in range(self.style_series.count())]
@@ -657,6 +757,12 @@ class GeneralPlotter(QWidget):
         x_name, y_names = self.x_column.currentText(), [i.text() for i in self.y_columns.selectedItems()]
         frame = self._dataframe(False)
         if not x_name or not y_names or frame.empty: return
+        try:
+            x_limits = parse_axis_limits(self.xlim_edit.text())
+            y_limits = parse_axis_limits(self.ylim_edit.text())
+        except ValueError as error:
+            QMessageBox.warning(self, "Axis limits", str(error))
+            return
         annotations = []
         if hasattr(self, "annotation_mgr"):
             annotations = self.annotation_mgr.get_serialized_data()
@@ -709,6 +815,10 @@ class GeneralPlotter(QWidget):
             labels = x_raw.astype(str).tolist(); ax.set_xticks(np.arange(len(labels)), labels, rotation=30, ha="right")
         ax.set_title(self.title_edit.text()); ax.set_xlabel(self.xlabel_edit.text() or (x_name if chart not in {"Histogram","Box"} else "Value"))
         ax.set_ylabel(self.ylabel_edit.text() or ("Frequency" if chart == "Histogram" else "Value"))
+        if x_limits and chart != "Pie":
+            ax.set_xlim(x_limits)
+        if y_limits and chart != "Pie":
+            ax.set_ylim(y_limits)
         if self.grid_check.isChecked() and chart != "Pie": ax.grid(True, alpha=.3)
         if self.legend_check.isChecked() and plotted and chart not in {"Pie","Box"}:
             legend = ax.legend(loc=self.legend_location.currentData() or "best", fontsize=self.legend_size.value())
@@ -742,6 +852,7 @@ class GeneralPlotter(QWidget):
         data = {"columns":list(frame.columns), "rows":frame.values.tolist(), "files":self.loaded_files, "styles":self.series_styles,
             "x":self.x_column.currentText(), "y":[i.text() for i in self.y_columns.selectedItems()], "chart":self.chart_type.currentText(),
             "title":self.title_edit.text(), "xlabel":self.xlabel_edit.text(), "ylabel":self.ylabel_edit.text(),
+            "xlim":self.xlim_edit.text(), "ylim":self.ylim_edit.text(),
             "legend":self.legend_check.isChecked(), "legend_location":self.legend_location.currentData(),
             "legend_size":self.legend_size.value(), "legend_color":self.legend_color.text(),
             "grid":self.grid_check.isChecked(), "data_labels":self.data_labels_check.isChecked(),
@@ -761,6 +872,7 @@ class GeneralPlotter(QWidget):
             for index in range(self.y_columns.count()): self.y_columns.item(index).setSelected(self.y_columns.item(index).text() in wanted)
             self.chart_type.setCurrentText(data.get("chart", "Line")); self.title_edit.setText(data.get("title", ""))
             self.xlabel_edit.setText(data.get("xlabel", "")); self.ylabel_edit.setText(data.get("ylabel", ""))
+            self.xlim_edit.setText(data.get("xlim", "")); self.ylim_edit.setText(data.get("ylim", ""))
             self.legend_check.setChecked(data.get("legend", True))
             location_index = self.legend_location.findData(data.get("legend_location", "best")); self.legend_location.setCurrentIndex(max(0, location_index))
             self.legend_size.setValue(float(data.get("legend_size", 9))); self.legend_color.setText(data.get("legend_color", "#172033"))

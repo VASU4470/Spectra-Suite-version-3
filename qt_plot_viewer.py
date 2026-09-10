@@ -44,11 +44,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from scipy.optimize import curve_fit
-from scipy.signal import find_peaks
 
 from annotations import AnnotationManager
 from config import state
 from dataset_reader import discover_many
+from peak_detection import (
+    DEFAULT_MAX_PEAKS,
+    local_extremum_index,
+    noise_adaptive_peak_indices,
+    peak_polarity,
+)
 from processing import process_spectrum
 from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
@@ -140,8 +145,8 @@ class TextAnnotationDialog(QDialog):
         super().__init__(parent)
         self.result = None
         self.setWindowTitle("Text Annotation")
-        self.resize(760, 760)
-        self.setMinimumSize(620, 580)
+        self.resize(820, 800)
+        self.setMinimumSize(660, 600)
         self.setStyleSheet(STYLE)
         apply_window_icon(self, state.technique)
         self._build_ui(text, color, fontsize, bold, italic, family, underline)
@@ -152,6 +157,7 @@ class TextAnnotationDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
+        content.setMinimumWidth(620)
         layout = QVBoxLayout(content)
         layout.setSpacing(10)
         layout.addWidget(QLabel("Text and Matplotlib math notation"))
@@ -164,7 +170,11 @@ class TextAnnotationDialog(QDialog):
         style_group = QGroupBox("Style")
         style_group.setMinimumHeight(175)
         style_form = QFormLayout(style_group)
+        style_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        style_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
+        style_form.setVerticalSpacing(8)
         flags = QWidget()
+        flags.setMinimumHeight(34)
         flags_layout = QHBoxLayout(flags)
         flags_layout.setContentsMargins(0, 0, 0, 0)
         self.bold_check = QCheckBox("Bold")
@@ -181,9 +191,11 @@ class TextAnnotationDialog(QDialog):
         self.size_spin.setRange(4, 100)
         self.size_spin.setValue(float(fontsize))
         self.size_spin.setMinimumWidth(180)
+        self.size_spin.setMinimumHeight(32)
         style_form.addRow("Font size", self.size_spin)
         self.family_combo = QComboBox()
         self.family_combo.setMinimumWidth(180)
+        self.family_combo.setMinimumHeight(32)
         self.family_combo.addItems(["sans-serif", "serif", "monospace", "cursive", "fantasy"])
         self.family_combo.setCurrentText(family if family in {
             "sans-serif", "serif", "monospace", "cursive", "fantasy"
@@ -194,6 +206,7 @@ class TextAnnotationDialog(QDialog):
         color_layout.setContentsMargins(0, 0, 0, 0)
         self.color_edit = QLineEdit(str(color))
         self.color_edit.setMinimumWidth(180)
+        self.color_edit.setMinimumHeight(32)
         color_button = QPushButton("Pick")
         color_button.clicked.connect(self._choose_color)
         color_layout.addWidget(self.color_edit)
@@ -547,6 +560,9 @@ class PlotViewer(QDialog):
         color_layout = QHBoxLayout(color_row)
         color_layout.setContentsMargins(0, 0, 0, 0)
         self.color_edit = QLineEdit()
+        self.color_edit.editingFinished.connect(
+            lambda: self._set_active_line_color(self.color_edit.text())
+        )
         pick = QPushButton("Pick")
         pick.clicked.connect(self.choose_color)
         color_layout.addWidget(self.color_edit)
@@ -564,7 +580,7 @@ class PlotViewer(QDialog):
                 f"background:{value}; border:1px solid #64748b; border-radius:4px; padding:0;"
             )
             swatch.clicked.connect(
-                lambda _checked=False, selected=value: self.color_edit.setText(selected)
+                lambda _checked=False, selected=value: self._set_active_line_color(selected)
             )
             palette_layout.addWidget(swatch, index // 6, index % 6)
         form.addRow("Basic palette", palette)
@@ -763,7 +779,9 @@ class PlotViewer(QDialog):
         self.click_mode.addItem("Navigation", "none")
         if state.technique == "XRD":
             self.click_mode.addItem("Pick XRD peak", "xrd_peak")
-        elif state.technique in {"GENERAL", "UVVIS", "RAMAN"}:
+        elif state.technique in {"UVVIS", "RAMAN"}:
+            self.click_mode.addItem("Pick upward peak", "peak")
+        elif state.technique == "GENERAL":
             self.click_mode.addItem("Pick point", "peak")
         else:
             self.click_mode.addItem("Pick FT-IR peak", "peak")
@@ -776,7 +794,11 @@ class PlotViewer(QDialog):
         self.prominence_spin = QDoubleSpinBox()
         self.prominence_spin.setRange(0, 1e9)
         self.prominence_spin.setDecimals(4)
-        self.prominence_spin.setValue(10.2)
+        self.prominence_spin.setValue(0.0)
+        self.auto_peak_threshold_check = QCheckBox("Automatic noise-adaptive threshold")
+        self.auto_peak_threshold_check.setChecked(True)
+        self.auto_peak_threshold_check.toggled.connect(self._toggle_peak_threshold_fields)
+        form.addRow(self.auto_peak_threshold_check)
         form.addRow("Peak prominence", self.prominence_spin)
         self.xrd_height_spin = QDoubleSpinBox()
         self.xrd_height_spin.setRange(-1e9, 1e9)
@@ -785,6 +807,16 @@ class PlotViewer(QDialog):
         self.xrd_height_label = QLabel("XRD minimum height")
         self.xrd_height_label.setVisible(state.technique == "XRD")
         form.addRow(self.xrd_height_label, self.xrd_height_spin)
+        self.maximum_peaks_spin = QSpinBox()
+        self.maximum_peaks_spin.setRange(1, 200)
+        self.maximum_peaks_spin.setValue(DEFAULT_MAX_PEAKS.get(state.technique, 30))
+        form.addRow("Maximum auto peaks", self.maximum_peaks_spin)
+        self.peak_threshold_info = QLabel(
+            "Automatic mode adapts to the spectrum scale and measured point-to-point noise."
+        )
+        self.peak_threshold_info.setWordWrap(True)
+        form.addRow(self.peak_threshold_info)
+        self._toggle_peak_threshold_fields(True)
         self.show_fwhm_check = QCheckBox("Show FWHM and grain size")
         self.show_fwhm_check.setChecked(True)
         self.show_fwhm_check.setVisible(state.technique == "XRD")
@@ -1054,7 +1086,19 @@ class PlotViewer(QDialog):
         initial = QColor(self.color_edit.text())
         color = QColorDialog.getColor(initial, self, "Choose line color")
         if color.isValid():
-            self.color_edit.setText(color.name())
+            self._set_active_line_color(color.name())
+
+    def _set_active_line_color(self, value):
+        color = QColor(str(value))
+        if not color.isValid() or self.current_stem not in state.file_set:
+            return
+        normalized = color.name()
+        self.color_edit.setText(normalized)
+        if state.file_set[self.current_stem].get("color") == normalized:
+            return
+        self._checkpoint_state()
+        state.file_set[self.current_stem]["color"] = normalized
+        self.update_plot()
 
     def choose_legend_color(self):
         color = QColorDialog.getColor(QColor(self.legend_color.text()), self, "Legend font color")
@@ -1284,6 +1328,7 @@ class PlotViewer(QDialog):
             axes = [self.figure.add_subplot(111)] * len(self.stems)
 
         extents = []
+        label_padding = {}
         for index, stem in enumerate(self.stems):
             ax = axes[index]
             if is_stack:
@@ -1300,15 +1345,35 @@ class PlotViewer(QDialog):
                 picker=6,
             )[0]
             self._artist_to_stem[line] = stem
+            padding = label_padding.setdefault(ax, [0.0, 0.0])
+            upward_labels = peak_polarity(
+                state.technique, bool(fs.get("t2a", False))
+            ) == "up"
             for px, py, text_value in fs.get("labels", []):
-                ax.plot(px, py, "v", color=color, markersize=6)
-                ax.annotate(text_value, (px, py), xytext=(0, -20), textcoords="offset points", ha="center")
+                marker = "^" if upward_labels else "v"
+                offset = 14 if upward_labels else -14
+                vertical_alignment = "bottom" if upward_labels else "top"
+                ax.plot(px, py, marker, color=color, markersize=7)
+                ax.annotate(
+                    text_value, (px, py), xytext=(0, offset),
+                    textcoords="offset points", ha="center", va=vertical_alignment,
+                    annotation_clip=True,
+                )
+                padding[1 if upward_labels else 0] = max(
+                    padding[1 if upward_labels else 0], 0.16
+                )
             for px, py, fwhm, size in fs.get("xrd_peaks", []):
                 label = f"2θ: {px:.1f}°"
                 if self.show_fwhm_check.isChecked():
                     label += f"\nFWHM: {fwhm:.2f}°\nD: {size:.1f} nm"
                 ax.plot(px, py, "o", color=color, markersize=5)
-                ax.annotate(label, (px, py), xytext=(0, 10), textcoords="offset points", ha="center")
+                ax.annotate(
+                    label, (px, py), xytext=(0, 10), textcoords="offset points",
+                    ha="center", va="bottom", annotation_clip=True,
+                )
+                padding[1] = max(
+                    padding[1], 0.34 if self.show_fwhm_check.isChecked() else 0.16
+                )
             for x1, x2, area in fs.get("areas", []):
                 mask = (x >= x1) & (x <= x2)
                 x_sel, y_sel = x[mask], y[mask]
@@ -1334,6 +1399,14 @@ class PlotViewer(QDialog):
         if extents:
             for ax in unique_axes:
                 self._style_axis(ax, extents, is_stack)
+            if not state.global_set.get("ylim"):
+                for ax, (bottom_fraction, top_fraction) in label_padding.items():
+                    bottom, top = ax.get_ylim()
+                    span = abs(top - bottom) or 1.0
+                    ax.set_ylim(
+                        bottom - span * bottom_fraction,
+                        top + span * top_fraction,
+                    )
         if state.global_set.get("show_legend", True):
             legend_axes = [axes[0]] if mode == "overlay" else unique_axes
             for ax in legend_axes:
@@ -1437,6 +1510,10 @@ class PlotViewer(QDialog):
         self.deconv_start = None
         self.update_plot()
 
+    def _toggle_peak_threshold_fields(self, automatic):
+        self.prominence_spin.setEnabled(not automatic)
+        self.xrd_height_spin.setEnabled(not automatic)
+
     def on_click(self, event):
         mode = self.click_mode.currentData()
         if mode == "none":
@@ -1448,6 +1525,12 @@ class PlotViewer(QDialog):
             return
         x, y = self.get_processed_data_for_stem(self.current_stem)
         index = int(np.abs(x - event.xdata).argmin())
+        if mode == "peak" and state.technique in {"FTIR", "UVVIS", "RAMAN"}:
+            direction = peak_polarity(
+                state.technique,
+                bool(state.file_set[self.current_stem].get("t2a", False)),
+            )
+            index = local_extremum_index(x, y, event.xdata, direction=direction)
         closest_x, closest_y = x[index], y[index]
         fs = state.file_set[self.current_stem]
         if mode == "peak":
@@ -1523,14 +1606,33 @@ class PlotViewer(QDialog):
         self.update_plot()
 
     def auto_find_peaks(self):
-        if state.technique == "XRD":
-            self.auto_find_xrd_peaks()
-            return
         x, y = self.get_processed_data_for_stem(self.current_stem)
         self._checkpoint_state()
         fs = state.file_set[self.current_stem]
-        search_y = y if state.technique in {"GENERAL", "UVVIS", "RAMAN"} or fs.get("t2a", False) else -y
-        peaks, _ = find_peaks(search_y, prominence=self.prominence_spin.value())
+        direction = peak_polarity(state.technique, bool(fs.get("t2a", False)))
+        automatic = self.auto_peak_threshold_check.isChecked()
+        peaks, properties = noise_adaptive_peak_indices(
+            y,
+            direction=direction,
+            maximum=self.maximum_peaks_spin.value(),
+            prominence=None if automatic else self.prominence_spin.value(),
+            minimum_height=(
+                None if automatic or state.technique != "XRD"
+                else self.xrd_height_spin.value()
+            ),
+        )
+        used_prominence = float(properties.get("used_prominence", 0.0))
+        self.peak_threshold_info.setText(
+            f"Found {len(peaks)} peak(s); detection prominence {used_prominence:.4g}."
+        )
+        if state.technique == "XRD":
+            results = fs.setdefault("xrd_peaks", [])
+            for index in peaks:
+                result = self.calculate_xrd_peak(x[index], x, y)
+                if result and not any(abs(item[0] - result[0]) < 0.01 for item in results):
+                    results.append(result)
+            self.update_plot()
+            return
         existing = fs.setdefault("labels", [])
         for index in peaks:
             if not any(abs(item[0] - x[index]) < 0.1 for item in existing):
@@ -1557,17 +1659,8 @@ class PlotViewer(QDialog):
         return peak_x, peak_y, fwhm, size
 
     def auto_find_xrd_peaks(self):
-        self._checkpoint_state()
-        x, y = self.get_processed_data_for_stem(self.current_stem)
-        peaks, _ = find_peaks(
-            y, height=self.xrd_height_spin.value(), prominence=self.prominence_spin.value()
-        )
-        results = state.file_set[self.current_stem].setdefault("xrd_peaks", [])
-        for index in peaks:
-            result = self.calculate_xrd_peak(x[index], x, y)
-            if result and not any(abs(item[0] - result[0]) < 0.01 for item in results):
-                results.append(result)
-        self.update_plot()
+        """Compatibility entry point retained for saved UI callbacks."""
+        self.auto_find_peaks()
 
     def perform_deconvolution(self, x1, x2, x, y):
         count, accepted = QInputDialog.getInt(

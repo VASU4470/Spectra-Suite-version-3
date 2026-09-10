@@ -153,7 +153,8 @@ class AnnotationManager:
             artist = Line2D([self.start_x, self.start_x], [self.start_y, self.start_y], color='purple', linewidth=2, linestyle='--', zorder=10, picker=15)
             self.active_ax.add_line(artist)
         elif kind == "arrow":
-            artist = patches.FancyArrowPatch((self.start_x, self.start_y), (self.start_x, self.start_y), arrowstyle='->', color='red', mutation_scale=20, linewidth=2, zorder=10, picker=15)
+            # The press point is the tail; dragging moves the arrow head.
+            artist = patches.FancyArrowPatch((self.start_x, self.start_y), (self.start_x, self.start_y), arrowstyle='-|>', color='red', mutation_scale=20, linewidth=2, zorder=10, picker=15)
             self.active_ax.add_patch(artist)
         elif kind == "text":
             text_value = self.text_input_provider() if self.text_input_provider else None
@@ -183,6 +184,7 @@ class AnnotationManager:
             if self.on_select_callback: self.on_select_callback(artist, kind)
             # NEW: Update the GUI listbox
             if self.on_list_update_callback: self.on_list_update_callback(self.annotations)
+            self.canvas.draw_idle()
 
     def on_drag(self, event):
         if self.start_x is None or not event.inaxes or self.active_ax != event.inaxes: return
@@ -218,6 +220,7 @@ class AnnotationManager:
         self.drag_start_pos = None
         self.drag_original = None
         self.drag_handle = None
+        self.canvas.draw_idle()
 
     def _geometry(self, artist, kind):
         if kind == 'text':
@@ -241,6 +244,9 @@ class AnnotationManager:
         self._refresh_handles()
         if self.on_select_callback:
             self.on_select_callback(artist, kind)
+        # A click selection does not otherwise trigger a Matplotlib redraw.
+        # Draw immediately so edit handles appear without selecting the list item.
+        self.canvas.draw_idle()
 
     def _handle_positions(self, artist, kind):
         if kind == 'text':
@@ -274,7 +280,10 @@ class AnnotationManager:
             return
         artist, kind = self.selected_artist
         for name, (x, y) in self._handle_positions(artist, kind).items():
-            handle = Line2D([x], [y], marker='s', markersize=6, markerfacecolor='white',
+            marker = 's'
+            if kind == 'arrow':
+                marker = 'o' if name == 'start' else 'D'
+            handle = Line2D([x], [y], marker=marker, markersize=7, markerfacecolor='white',
                             markeredgecolor='#2563eb', markeredgewidth=1.4,
                             linestyle='None', zorder=20, clip_on=False)
             handle._spectra_handle_name = name
@@ -443,7 +452,7 @@ class AnnotationManager:
                                          bbox=dict(facecolor='white', alpha=clip['box_alpha'], edgecolor=clip['box_ec'], linewidth=1 if clip['box_ec']!='none' else 0), zorder=10, picker=15)
             self._set_text_underline(artist, clip.get('underline', False))
         elif kind == 'arrow':
-            artist = patches.FancyArrowPatch((clip['posA'][0]+dx, clip['posA'][1]+dy), (clip['posB'][0]+dx, clip['posB'][1]+dy), arrowstyle='->', color=clip['c'], mutation_scale=20, linewidth=clip['lw'], zorder=10, picker=15)
+            artist = patches.FancyArrowPatch((clip['posA'][0]+dx, clip['posA'][1]+dy), (clip['posB'][0]+dx, clip['posB'][1]+dy), arrowstyle='-|>', color=clip['c'], mutation_scale=20, linewidth=clip['lw'], zorder=10, picker=15)
             self.active_ax.add_patch(artist)
         elif kind == 'line':
             artist = Line2D([x+dx for x in clip['x']], [y+dy for y in clip['y']], color=clip['c'], linewidth=clip['lw'], linestyle=clip['ls'], zorder=10, picker=15)
@@ -595,7 +604,7 @@ class AnnotationManager:
                                  bbox=dict(facecolor='white', alpha=clip.get('box_alpha', 1.0), edgecolor=clip.get('box_ec', 'none'), linewidth=1 if clip.get('box_ec', 'none')!='none' else 0), zorder=10, picker=15)
                 self._set_text_underline(artist, clip.get('underline', False))
             elif kind == 'arrow':
-                artist = patches.FancyArrowPatch(clip['posA'], clip['posB'], arrowstyle='->', color=clip['c'], mutation_scale=20, linewidth=clip['lw'], zorder=10, picker=15)
+                artist = patches.FancyArrowPatch(clip['posA'], clip['posB'], arrowstyle='-|>', color=clip['c'], mutation_scale=20, linewidth=clip['lw'], zorder=10, picker=15)
                 ax.add_patch(artist)
             elif kind == 'line':
                 artist = Line2D(clip['x'], clip['y'], color=clip['c'], linewidth=clip['lw'], linestyle=clip.get('ls', '-'), zorder=10, picker=15)

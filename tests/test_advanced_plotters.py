@@ -10,7 +10,7 @@ os.environ.setdefault("MPLBACKEND", "QtAgg")
 
 from PySide6.QtWidgets import QApplication, QTableWidgetItem
 
-from qt_3d_plotter import Plot3D
+from qt_3d_plotter import Plot3D, read_3d_table
 from qt_fluid_plotter import FluidPlotter
 from qt_multi_axis_plotter import MultiAxisPlotter
 
@@ -47,6 +47,22 @@ class AdvancedPlotterTests(unittest.TestCase):
         self.assertFalse(plotter.windowIcon().isNull())
         plotter.controls_toggle.click(); self.assertTrue(plotter.controls_scroll.isHidden())
         self.assertEqual(plotter.controls_toggle.text(), "◀")
+
+    def test_3d_tecplot_import_and_multiple_file_layers(self):
+        text='''TITLE="Velocity"\nVARIABLES="X"\n"Y"\n"U"\nZONE T="Grid"\nI=2 J=2 K=1,F=POINT\n0 0 1\n0 1 2\n1 0 3\n1 1 4\n'''
+        with TemporaryDirectory() as folder:
+            first = Path(folder) / "outlet.plt"
+            second = Path(folder) / "inlet.plt"
+            first.write_text(text, encoding="utf-8")
+            second.write_text(text.replace("1 1 4", "1 1 5"), encoding="utf-8")
+            frame = read_3d_table(first)
+            self.assertEqual(list(frame.columns), ["X", "Y", "U"])
+            self.assertEqual(frame.shape, (4, 3))
+            plotter = Plot3D()
+            plotter.load_paths([str(first), str(second)])
+            self.assertEqual(len(plotter.layers), 2)
+            self.assertEqual(plotter.table.columnCount(), 6)
+            self.assertEqual(len(plotter.figure.axes), 2)  # 3D axes plus one colorbar
 
     def test_fluid_workspace_loads_and_renders(self):
         text='''TITLE="Velocity"\nVARIABLES="X"\n"Y"\n"U"\nZONE T="Grid"\nI=2 J=3 K=1,F=POINT\n0 0 1\n0 1 2\n0 2 3\n1 0 4\n1 1 5\n1 2 6\n'''

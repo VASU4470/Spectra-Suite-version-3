@@ -2,6 +2,8 @@
 
 import unittest
 
+import numpy as np
+from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
@@ -49,6 +51,35 @@ class AnnotationHistoryTests(unittest.TestCase):
         self.manager._apply_geometry_drag(artist, kind, 2.0, 3.0, 0.0, 0.0)
         self.assertEqual(float(artist.get_xdata()[-1]), 2.0)
         self.assertEqual(float(artist.get_ydata()[-1]), 3.0)
+
+    def test_new_text_draws_immediately_with_visible_selection_handle(self):
+        figure = Figure()
+        canvas = FigureCanvasAgg(figure)
+        axis = figure.add_subplot(111)
+        manager = AnnotationManager(canvas, text_input_provider=lambda: "visible")
+        manager.set_tool("text")
+        canvas.draw()
+        pixel_x, pixel_y = axis.transData.transform((0.5, 0.5))
+        manager.on_press(MouseEvent("button_press_event", canvas, pixel_x, pixel_y, button=1))
+        self.assertEqual(len(manager.annotations), 1)
+        self.assertTrue(manager.annotations[0][0].get_visible())
+        self.assertEqual(len(manager.selection_handles), 1)
+
+    def test_arrow_runs_from_pressed_tail_to_dragged_head(self):
+        figure = Figure()
+        canvas = FigureCanvasAgg(figure)
+        axis = figure.add_subplot(111)
+        manager = AnnotationManager(canvas)
+        manager.set_tool("arrow")
+        canvas.draw()
+        tail = axis.transData.transform((0.2, 0.3))
+        head = axis.transData.transform((0.8, 0.7))
+        manager.on_press(MouseEvent("button_press_event", canvas, *tail, button=1))
+        manager.on_drag(MouseEvent("motion_notify_event", canvas, *head, button=1))
+        artist, kind = manager.annotations[0]
+        self.assertEqual(kind, "arrow")
+        self.assertTrue(np.allclose(artist._posA_posB[0], (0.2, 0.3), atol=1e-3))
+        self.assertTrue(np.allclose(artist._posA_posB[1], (0.8, 0.7), atol=1e-3))
 
 
 if __name__ == "__main__":

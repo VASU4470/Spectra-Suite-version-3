@@ -108,7 +108,9 @@ class StartupTests(unittest.TestCase):
         self.app.processEvents()
         self.assertTrue(dialog.findChild(QScrollArea).widgetResizable())
         self.assertGreaterEqual(dialog.size_spin.minimumWidth(), 180)
+        self.assertGreaterEqual(dialog.size_spin.minimumHeight(), 32)
         self.assertGreaterEqual(dialog.family_combo.minimumWidth(), 180)
+        self.assertGreaterEqual(dialog.family_combo.minimumHeight(), 32)
         symbol_buttons = [
             button for button in dialog.findChildren(QPushButton)
             if button.text() in {label for label, _command in dialog.GREEK + dialog.SYMBOLS}
@@ -171,6 +173,9 @@ class StartupTests(unittest.TestCase):
                 self.assertIsNotNone(viewer.ax)
                 self.assertEqual(viewer.current_stem, stem)
                 self.assertTrue(viewer.legend_check.isChecked())
+                self.assertTrue(viewer.auto_peak_threshold_check.isChecked())
+                self.assertFalse(viewer.prominence_spin.isEnabled())
+                self.assertGreater(viewer.maximum_peaks_spin.value(), 0)
                 self.assertEqual(viewer.finish_button.text(), "Finish & Close")
                 self.assertEqual(
                     viewer.xrd_height_label.isHidden(), technique != "XRD"
@@ -196,6 +201,42 @@ class StartupTests(unittest.TestCase):
         self.assertGreaterEqual(dialog.dpi_combo.minimumWidth(), 190)
         dialog.reject()
 
+    def test_peak_markers_point_correctly_and_labels_receive_space(self):
+        x = np.linspace(200.0, 1000.0, 301)
+        y = 1.0 + np.exp(-0.5 * ((x - 550.0) / 25.0) ** 2)
+        for technique, expected_marker in (("FTIR", "v"), ("UVVIS", "^"), ("RAMAN", "^")):
+            with self.subTest(technique=technique):
+                reset_state(technique)
+                state.all_data = [("sample", x.copy(), y.copy())]
+                state.init_file_settings()
+                index = int(np.argmin(y) if technique == "FTIR" else np.argmax(y))
+                state.file_set["sample"]["labels"] = [(x[index], y[index], f"{x[index]:.1f}")]
+                viewer = PlotViewer(state.all_data, "Peak label test")
+                viewer.update_plot()
+                markers = [line.get_marker() for line in viewer.ax.lines]
+                self.assertIn(expected_marker, markers)
+                if technique == "FTIR":
+                    self.assertLess(viewer.ax.get_ylim()[0], float(np.min(y)))
+                else:
+                    self.assertGreater(viewer.ax.get_ylim()[1], float(np.max(y)))
+                viewer._skip_close_prompt = True
+                viewer.close()
+
+    def test_xrd_fwhm_toggle_recalculates_label_margin(self):
+        reset_state("XRD")
+        x = np.linspace(20.0, 80.0, 301)
+        y = 1.0 + 10.0 * np.exp(-0.5 * ((x - 40.0) / 0.4) ** 2)
+        state.all_data = [("sample", x.copy(), y.copy())]
+        state.init_file_settings()
+        state.file_set["sample"]["xrd_peaks"] = [(40.0, 11.0, 0.9, 10.0)]
+        viewer = PlotViewer(state.all_data, "XRD label test")
+        with_details = viewer.ax.get_ylim()[1]
+        viewer.show_fwhm_check.setChecked(False)
+        without_details = viewer.ax.get_ylim()[1]
+        self.assertGreater(with_details, without_details)
+        viewer._skip_close_prompt = True
+        viewer.close()
+
     def test_general_spreadsheet_plotter_constructs_and_plots(self):
         plotter = GeneralPlotter()
         plotter.table.setItem(0, 0, QTableWidgetItem("1"))
@@ -210,6 +251,15 @@ class StartupTests(unittest.TestCase):
         self.assertFalse(plotter.windowIcon().isNull())
         self.assertLessEqual(plotter.toolbar.maximumHeight(), 32)
         self.assertEqual(plotter.y_columns.selectionMode().name, "ExtendedSelection")
+        plotter.xlim_edit.setText("1, 2")
+        plotter.ylim_edit.setText("2, 4")
+        plotter.plot_data()
+        self.assertEqual(tuple(round(value, 6) for value in plotter.figure.axes[0].get_xlim()), (1.0, 2.0))
+        self.assertEqual(tuple(round(value, 6) for value in plotter.figure.axes[0].get_ylim()), (2.0, 4.0))
+        plotter.table.selectColumn(1)
+        plotter.set_selected_column_as_x()
+        self.assertEqual(plotter.x_column.currentText(), "Y")
+        plotter.x_column.setCurrentText("X")
         for chart in plotter.CHARTS:
             with self.subTest(chart=chart):
                 plotter.chart_type.setCurrentText(chart)

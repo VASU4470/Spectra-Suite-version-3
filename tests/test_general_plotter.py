@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from qt_general_plotter import detect_delimiter, read_table
+from qt_general_plotter import detect_delimiter, parse_axis_limits, read_table
 
 
 class GeneralPlotterImportTests(unittest.TestCase):
@@ -37,6 +37,12 @@ class GeneralPlotterImportTests(unittest.TestCase):
                     path.write_text(content, encoding="utf-8")
                     self.assertEqual(detect_delimiter(path), expected)
                     self.assertEqual(read_table(path).shape, (2, 2))
+
+    def test_manual_axis_limits(self):
+        self.assertIsNone(parse_axis_limits(""))
+        self.assertEqual(parse_axis_limits("10, -2"), [-2.0, 10.0])
+        with self.assertRaises(ValueError):
+            parse_axis_limits("5")
 
 
 if __name__ == "__main__":

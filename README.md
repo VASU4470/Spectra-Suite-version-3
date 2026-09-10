@@ -32,15 +32,26 @@ to one or more Y columns; and switches between line, scatter, grouped bar,
 area, step, pie, histogram, and box plots. Series colors, lines, markers,
 widths, titles, axis labels, legends, grids, and value labels are editable.
 Edited tables, reusable JSON projects, and PNG/PDF/SVG figures can be saved.
+Columns can be assigned directly as X or one or more Y series, rows and columns
+can be inserted or removed at the selection, imported data can be appended or
+replaced, and explicit X/Y limits can override automatic scaling.
 
 The in-development Multi-X/Multi-Y Plotter maps a separate X and Y column for every series,
 with bottom/top X axes and left/right Y axes in one figure. The General 3D
 Plotter accepts editable or imported XYZ data and renders scatter,
 triangulated or structured surfaces, wireframes, contours, projected contours,
-and vector fields. The in-development Fluid Dynamics Plotter reads structured ASCII Tecplot
+and vector fields. It also reads ASCII Tecplot POINT (`.plt`) grids, appends
+multiple files as columns in one table, and can render those imports as
+separate layers in the same 3D axes. The in-development Fluid Dynamics Plotter reads structured ASCII Tecplot
 POINT data and provides mesh, filled-contour, line-contour, heatmap, 3D
 surface, wireframe, coordinate-profile, field-difference, and grid-comparison
 views. The supplied 151 x 151 CFD examples were used to validate its reader.
+
+Automatic spectroscopy peak detection is noise- and scale-adaptive. FT-IR
+defaults to valley minima (or upward peaks after transmittance-to-absorbance
+conversion), while XRD, UV-Vis, and Raman use upward maxima. Users can switch
+to manual prominence/height controls and set a maximum number of automatic
+labels.
 
 The plotting usability pass adds visible technique icons and titles, resizable
 and hideable side panels, compact Matplotlib toolbars below the graph, and
