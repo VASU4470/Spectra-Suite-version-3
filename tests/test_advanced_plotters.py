@@ -38,6 +38,14 @@ class AdvancedPlotterTests(unittest.TestCase):
         plotter.data_toggle.click(); self.assertTrue(plotter.data_panel.isHidden())
         self.assertEqual(plotter.data_toggle.text(), "▶")
 
+    def test_multi_axis_ignores_transient_incomplete_table_widgets(self):
+        plotter = MultiAxisPlotter()
+        plotter.table.takeHorizontalHeaderItem(0)
+        self.assertEqual(plotter._columns()[0], "Column 1")
+        plotter.mapping_table.removeCellWidget(0, 6)
+        self.assertIsNone(plotter._mapping(0))
+        plotter.plot_data()  # Qt may call this while a mapping row is being rebuilt.
+
     def test_3d_plot_types(self):
         plotter = Plot3D()
         self.fill_table(plotter.table, ([0, 0, 1, 1], [0, 1, 0, 1], [0, 1, 1, 2]))

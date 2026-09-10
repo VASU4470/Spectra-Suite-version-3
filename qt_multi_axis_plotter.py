@@ -100,6 +100,7 @@ class MultiAxisPlotter(QWidget):
         self.mapping_table.setHorizontalHeaderLabels(
             ["Show", "X column", "Y column", "X axis", "Y axis", "Label", "Color"]
         )
+        self.mapping_table.itemChanged.connect(self.plot_data)
         self.mapping_table.setMinimumHeight(220)
         mapping_layout.addWidget(self.mapping_table)
         mapping_buttons = QHBoxLayout()
@@ -142,7 +143,11 @@ class MultiAxisPlotter(QWidget):
         top.insertWidget(4, self.data_toggle); top.insertWidget(5, self.settings_toggle)
 
     def _columns(self):
-        return [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
+        columns = []
+        for index in range(self.table.columnCount()):
+            header = self.table.horizontalHeaderItem(index)
+            columns.append(header.text() if header is not None else f"Column {index + 1}")
+        return columns
 
     def _combo(self, values, current=""):
         combo = QComboBox(); combo.addItems(values)
@@ -154,21 +159,27 @@ class MultiAxisPlotter(QWidget):
         columns = self._columns()
         if len(columns) < 2:
             return
-        row = self.mapping_table.rowCount(); self.mapping_table.insertRow(row)
-        show = QCheckBox(); show.setChecked(True); show.toggled.connect(self.plot_data)
-        holder = QWidget(); holder_layout = QHBoxLayout(holder); holder_layout.setContentsMargins(8, 0, 0, 0)
-        holder_layout.addWidget(show); holder_layout.addStretch(); self.mapping_table.setCellWidget(row, 0, holder)
-        self.mapping_table.setCellWidget(row, 1, self._combo(columns, columns[0]))
-        self.mapping_table.setCellWidget(row, 2, self._combo(columns, columns[min(row + 1, len(columns) - 1)]))
-        self.mapping_table.setCellWidget(row, 3, self._combo(["Bottom", "Top"], "Bottom"))
-        self.mapping_table.setCellWidget(row, 4, self._combo(["Left", "Right"], "Left" if row == 0 else "Right"))
-        self.mapping_table.setItem(row, 5, QTableWidgetItem(columns[min(row + 1, len(columns) - 1)]))
-        color_button = QPushButton(COLORS[row % len(COLORS)]); color_button.setStyleSheet(
-            f"background:{COLORS[row % len(COLORS)]}; color:white"
-        )
-        color_button.clicked.connect(lambda _checked=False, b=color_button: self._choose_color(b))
-        self.mapping_table.setCellWidget(row, 6, color_button)
-        self.mapping_table.itemChanged.connect(self.plot_data)
+        was_loading = self._loading
+        self._loading = True
+        try:
+            row = self.mapping_table.rowCount(); self.mapping_table.insertRow(row)
+            show = QCheckBox(); show.setChecked(True); show.toggled.connect(self.plot_data)
+            holder = QWidget(); holder_layout = QHBoxLayout(holder); holder_layout.setContentsMargins(8, 0, 0, 0)
+            holder_layout.addWidget(show); holder_layout.addStretch(); self.mapping_table.setCellWidget(row, 0, holder)
+            self.mapping_table.setCellWidget(row, 1, self._combo(columns, columns[0]))
+            self.mapping_table.setCellWidget(row, 2, self._combo(columns, columns[min(row + 1, len(columns) - 1)]))
+            self.mapping_table.setCellWidget(row, 3, self._combo(["Bottom", "Top"], "Bottom"))
+            self.mapping_table.setCellWidget(row, 4, self._combo(["Left", "Right"], "Left" if row == 0 else "Right"))
+            self.mapping_table.setItem(row, 5, QTableWidgetItem(columns[min(row + 1, len(columns) - 1)]))
+            color_button = QPushButton(COLORS[row % len(COLORS)]); color_button.setStyleSheet(
+                f"background:{COLORS[row % len(COLORS)]}; color:white"
+            )
+            color_button.clicked.connect(lambda _checked=False, b=color_button: self._choose_color(b))
+            self.mapping_table.setCellWidget(row, 6, color_button)
+        finally:
+            self._loading = was_loading
+        if not self._loading:
+            self.plot_data()
 
     def remove_mapping(self):
         rows = sorted({index.row() for index in self.mapping_table.selectedIndexes()}, reverse=True)
@@ -183,14 +194,20 @@ class MultiAxisPlotter(QWidget):
             self.plot_data()
 
     def _mapping(self, row):
+        widgets = [self.mapping_table.cellWidget(row, column) for column in range(7)]
+        if any(widget is None for index, widget in enumerate(widgets) if index != 5):
+            return None
+        show = widgets[0].findChild(QCheckBox)
+        if show is None:
+            return None
         return {
-            "show": self.mapping_table.cellWidget(row, 0).findChild(QCheckBox).isChecked(),
-            "x": self.mapping_table.cellWidget(row, 1).currentText(),
-            "y": self.mapping_table.cellWidget(row, 2).currentText(),
-            "x_axis": self.mapping_table.cellWidget(row, 3).currentText(),
-            "y_axis": self.mapping_table.cellWidget(row, 4).currentText(),
+            "show": show.isChecked(),
+            "x": widgets[1].currentText(),
+            "y": widgets[2].currentText(),
+            "x_axis": widgets[3].currentText(),
+            "y_axis": widgets[4].currentText(),
             "label": self.mapping_table.item(row, 5).text() if self.mapping_table.item(row, 5) else "",
-            "color": self.mapping_table.cellWidget(row, 6).text(),
+            "color": widgets[6].text(),
         }
 
     def plot_data(self, *_args):
@@ -216,7 +233,7 @@ class MultiAxisPlotter(QWidget):
         handles, labels = [], []
         for row in range(self.mapping_table.rowCount()):
             item = self._mapping(row)
-            if not item["show"] or item["x"] not in frame or item["y"] not in frame: continue
+            if item is None or not item["show"] or item["x"] not in frame or item["y"] not in frame: continue
             x = pd.to_numeric(frame[item["x"]], errors="coerce").to_numpy(float)
             y = pd.to_numeric(frame[item["y"]], errors="coerce").to_numpy(float)
             valid = np.isfinite(x) & np.isfinite(y)
@@ -258,10 +275,15 @@ class MultiAxisPlotter(QWidget):
         return pd.DataFrame(rows, columns=headers)
 
     def _refresh_mapping_columns(self):
+        if self._loading:
+            return
         columns = self._columns()
         for row in range(self.mapping_table.rowCount()):
             for col in (1, 2):
-                combo = self.mapping_table.cellWidget(row, col); current = combo.currentText()
+                combo = self.mapping_table.cellWidget(row, col)
+                if combo is None:
+                    continue
+                current = combo.currentText()
                 combo.blockSignals(True); combo.clear(); combo.addItems(columns)
                 if current in columns: combo.setCurrentText(current)
                 combo.blockSignals(False)

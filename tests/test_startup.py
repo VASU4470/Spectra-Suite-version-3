@@ -209,6 +209,14 @@ class StartupTests(unittest.TestCase):
                 reset_state(technique)
                 state.all_data = [("sample", x.copy(), y.copy())]
                 state.init_file_settings()
+                state.file_set["sample"].update(
+                    smooth=0,
+                    do_baseline=False,
+                    normalize=False,
+                    derivative=0,
+                    auto_clean_edges=False,
+                    bg_sub=False,
+                )
                 index = int(np.argmin(y) if technique == "FTIR" else np.argmax(y))
                 state.file_set["sample"]["labels"] = [(x[index], y[index], f"{x[index]:.1f}")]
                 viewer = PlotViewer(state.all_data, "Peak label test")
