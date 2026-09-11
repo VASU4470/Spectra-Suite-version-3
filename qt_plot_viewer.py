@@ -13,8 +13,9 @@ from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QColorDialog,
     QComboBox,
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenuBar,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -41,12 +43,19 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 from scipy.optimize import curve_fit
 
 from annotations import AnnotationManager
+from app_version import APP_VERSION
+from column_math import (
+    FormulaError,
+    apply_optical_transform,
+    evaluate_column_formula,
+)
 from config import state
 from dataset_reader import discover_many
 from peak_detection import (
@@ -56,11 +65,19 @@ from peak_detection import (
     peak_polarity,
 )
 from processing import process_spectrum
+from qt_general_plotter import DataTable
 from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
+from qt_updates import UpdateController, show_about
+from qt_widgets import (
+    AnalysisToolBar,
+    AnnotationToolBar,
+    ColumnFormulaDialog,
+    CompactNavigationToolbar,
+    PanelToggleButton,
+)
 from plot_export import save_figure
 from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
 from spectral_preprocessing import subtract_reference, trim_noisy_edges
@@ -69,6 +86,15 @@ from spectral_preprocessing import subtract_reference, trim_noisy_edges
 STYLE = LIGHT_STYLE + """
 QLabel#cursor { color: #1d4ed8; font-weight: 700; }
 """
+
+
+UV_SIGNAL_TRANSFORMS = (
+    ("Original / as imported", "none", None),
+    ("Absorbance → Transmittance (%)", "absorbance_to_percent_transmittance", "Transmittance (%)"),
+    ("Transmittance (%) → Absorbance", "percent_transmittance_to_absorbance", "Absorbance"),
+    ("Reflectance (fraction) → Kubelka–Munk F(R)", "reflectance_fraction_to_kubelka_munk", "Kubelka–Munk F(R)"),
+    ("Reflectance (%) → Kubelka–Munk F(R)", "reflectance_percent_to_kubelka_munk", "Kubelka–Munk F(R)"),
+)
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -104,6 +130,16 @@ def _unique_stem(path: Path, existing: list[str]) -> str:
     while f"{stem}_{index}" in existing:
         index += 1
     return f"{stem}_{index}"
+
+
+def _unique_label(label: str, existing: list[str]) -> str:
+    base = str(label).strip() or "Series"
+    if base not in existing:
+        return base
+    index = 2
+    while f"{base}_{index}" in existing:
+        index += 1
+    return f"{base}_{index}"
 
 
 class TextAnnotationDialog(QDialog):
@@ -397,6 +433,9 @@ class PlotViewer(QDialog):
         self._state_redo = []
         self._artist_to_stem = {}
         self._axes_to_stem = {}
+        self._table_columns = []
+        self._table_dirty = False
+        self._table_loading = False
 
         self._build_layout()
         self._build_controls()
@@ -407,13 +446,17 @@ class PlotViewer(QDialog):
             on_list_update_callback=lambda _items: self._sync_annotation_list(),
             text_input_provider=self._request_annotation_text,
         )
+        self.update_controller = UpdateController(self)
+        self._build_menu_bar()
         self._install_shortcuts()
         self._load_active_settings()
+        self._rebuild_data_table()
         self.update_plot()
 
     # ------------------------------- UI ---------------------------------
     def _build_layout(self):
         root = QVBoxLayout(self)
+        self.root_layout = root
         root.setContentsMargins(8, 8, 8, 8)
 
         self.controls = QWidget()
@@ -426,12 +469,18 @@ class PlotViewer(QDialog):
         self.controls_toggle.setToolTip("Hide side panel")
         visibility.addWidget(QLabel("Side panel"))
         visibility.addWidget(self.controls_toggle)
+        visibility.addSpacing(10)
+        visibility.addWidget(QLabel("Data table"))
         visibility.addStretch()
         root.addLayout(visibility)
 
+        self.workspace_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.workspace_splitter.setChildrenCollapsible(True)
+        root.addWidget(self.workspace_splitter, 1)
+
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(True)
-        root.addWidget(self.splitter, 1)
+        self.workspace_splitter.addWidget(self.splitter)
 
         self.splitter.addWidget(self.controls)
 
@@ -459,17 +508,170 @@ class PlotViewer(QDialog):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([390, 1040])
 
+        self.data_panel = QWidget()
+        self.data_panel.setMinimumHeight(145)
+        data_layout = QVBoxLayout(self.data_panel)
+        data_layout.setContentsMargins(0, 4, 0, 0)
+        data_header = QHBoxLayout()
+        title = QLabel("Editable spectroscopy data — columns are marked [X], [Y], or [Ignore]")
+        title.setWordWrap(True)
+        data_header.addWidget(title, 1)
+        self.data_toggle = PanelToggleButton(self.data_panel, "bottom", self)
+        self.data_toggle.setToolTip("Hide data table")
+        data_layout.addLayout(data_header)
+        self.data_table = DataTable()
+        self.data_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.data_table.itemChanged.connect(self._data_table_changed)
+        self.data_table.model().columnsInserted.connect(self._data_columns_inserted)
+        self.data_table.historyRestored.connect(self._sync_table_metadata)
+        data_layout.addWidget(self.data_table, 1)
+        data_tools = QHBoxLayout()
+        for label, tooltip, slot in (
+            ("＋ Row", "Insert a row at the current selection", self._insert_data_row),
+            ("− Row", "Delete the selected rows", self._delete_data_rows),
+            ("＋ Column", "Insert a new blank column", self._insert_data_column),
+            ("− Column", "Delete the selected columns", self._delete_data_columns),
+            ("Rename", "Rename the selected column", self._rename_data_column),
+            ("X", "Set the selected column as an X axis", lambda: self._set_data_column_role("X")),
+            ("Y", "Set the selected column as a plotted Y series", lambda: self._set_data_column_role("Y")),
+            ("Ignore", "Keep the selected column but do not plot it", lambda: self._set_data_column_role("Ignore")),
+            ("ƒx", "Create a calculated column from a safe formula", self._create_formula_column),
+        ):
+            button = QToolButton()
+            button.setText(label)
+            button.setToolTip(tooltip)
+            button.setAccessibleName(tooltip)
+            button.setFixedHeight(28)
+            button.clicked.connect(slot)
+            data_tools.addWidget(button)
+        data_tools.addStretch()
+        apply_table = QPushButton("Apply table to plot")
+        apply_table.setObjectName("primary")
+        apply_table.setToolTip("Rebuild plotted X/Y series from the edited table")
+        apply_table.clicked.connect(self._apply_data_table)
+        data_tools.addWidget(apply_table)
+        data_layout.addLayout(data_tools)
+        self.workspace_splitter.addWidget(self.data_panel)
+        self.workspace_splitter.setStretchFactor(0, 1)
+        self.workspace_splitter.setStretchFactor(1, 0)
+        self.workspace_splitter.setSizes([610, 220])
+        visibility.insertWidget(4, self.data_toggle)
+
     def _toggle_controls(self, hidden):
         self.controls_toggle.setChecked(bool(hidden))
 
     def _toggle_toolbar(self, hidden):
         self.toolbar_toggle.setChecked(bool(hidden))
 
+    def _build_menu_bar(self):
+        """Add desktop-standard menus while retaining the detailed side panel."""
+        menu_bar = QMenuBar(self)
+        menu_bar.setNativeMenuBar(True)
+        self.root_layout.setMenuBar(menu_bar)
+
+        file_menu = menu_bar.addMenu("&File")
+        add_action = QAction("&Add data…", self)
+        add_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Open))
+        add_action.triggered.connect(self.add_files)
+        file_menu.addAction(add_action)
+        replace_action = QAction("&Replace active data…", self)
+        replace_action.triggered.connect(self.replace_current)
+        file_menu.addAction(replace_action)
+        file_menu.addSeparator()
+        export_action = QAction("&Export data and graph…", self)
+        export_action.setShortcut(QKeySequence("Ctrl+E"))
+        export_action.triggered.connect(self.export_data)
+        file_menu.addAction(export_action)
+        save_action = QAction("&Save session…", self)
+        save_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Save))
+        save_action.triggered.connect(lambda: self.save_session(save_as=True))
+        file_menu.addAction(save_action)
+        file_menu.addSeparator()
+        close_action = QAction("&Close", self)
+        close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))
+        close_action.triggered.connect(self.close)
+        file_menu.addAction(close_action)
+
+        edit_menu = menu_bar.addMenu("&Edit")
+        apply_table = QAction("Apply &data table to plot", self)
+        apply_table.triggered.connect(self._apply_data_table)
+        edit_menu.addAction(apply_table)
+        formula_action = QAction("Create calculated &column…", self)
+        formula_action.triggered.connect(self._create_formula_column)
+        edit_menu.addAction(formula_action)
+        edit_menu.addSeparator()
+        rename_legend = QAction("Edit selected &legend name", self)
+        rename_legend.triggered.connect(self._edit_selected_legend_name)
+        edit_menu.addAction(rename_legend)
+
+        history_menu = menu_bar.addMenu("&History")
+        undo_action = QAction("&Undo", self)
+        undo_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Undo))
+        undo_action.triggered.connect(self._undo_active)
+        history_menu.addAction(undo_action)
+        redo_action = QAction("&Redo", self)
+        redo_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Redo))
+        redo_action.triggered.connect(self._redo_active)
+        history_menu.addAction(redo_action)
+
+        view_menu = menu_bar.addMenu("&View")
+        self.view_controls_action = QAction("Side control panel", self)
+        self.view_data_action = QAction("Editable data table", self)
+        self.view_toolbar_action = QAction("Plot navigation toolbar", self)
+        for action in (
+            self.view_controls_action, self.view_data_action, self.view_toolbar_action
+        ):
+            action.setCheckable(True)
+            action.setChecked(True)
+            view_menu.addAction(action)
+        self.view_controls_action.toggled.connect(self.controls_toggle.set_panel_visible)
+        self.view_data_action.toggled.connect(self.data_toggle.set_panel_visible)
+        self.view_toolbar_action.toggled.connect(self.toolbar_toggle.set_panel_visible)
+        self.controls_toggle.toggled.connect(
+            lambda hidden: self.view_controls_action.setChecked(not hidden)
+        )
+        self.data_toggle.toggled.connect(
+            lambda hidden: self.view_data_action.setChecked(not hidden)
+        )
+        self.toolbar_toggle.toggled.connect(
+            lambda hidden: self.view_toolbar_action.setChecked(not hidden)
+        )
+
+        analysis_menu = menu_bar.addMenu("&Analysis")
+        for _glyph, label, value, _color, _background in self.click_mode.TOOLS:
+            action = QAction(label, self)
+            action.triggered.connect(
+                lambda _checked=False, mode=value: self.click_mode.setCurrentData(mode)
+            )
+            analysis_menu.addAction(action)
+        analysis_menu.addSeparator()
+        auto_peaks = QAction("Auto-find &peaks", self)
+        auto_peaks.triggered.connect(self.auto_find_peaks)
+        analysis_menu.addAction(auto_peaks)
+        if state.technique == "UVVIS":
+            advanced = QAction("Band-gap and &Urbach analysis…", self)
+            advanced.triggered.connect(self.show_uvvis_analysis)
+            analysis_menu.addAction(advanced)
+        elif state.technique == "RAMAN":
+            advanced = QAction("Raman peak &measurements…", self)
+            advanced.triggered.connect(self.show_raman_analysis)
+            analysis_menu.addAction(advanced)
+
+        help_menu = menu_bar.addMenu("&Help")
+        check_updates = QAction("Check for &updates…", self)
+        check_updates.triggered.connect(lambda: self.update_controller.check(silent=False))
+        help_menu.addAction(check_updates)
+        automatic_updates = QAction("Automatically check for updates", self)
+        automatic_updates.setCheckable(True)
+        automatic_updates.setChecked(self.update_controller.automatic_enabled())
+        automatic_updates.toggled.connect(self.update_controller.set_automatic_enabled)
+        help_menu.addAction(automatic_updates)
+        help_menu.addSeparator()
+        about = QAction(f"About SpectraSuite {APP_VERSION}", self)
+        about.triggered.connect(lambda: show_about(self))
+        help_menu.addAction(about)
+
     def _install_shortcuts(self):
-        self.undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
-        self.undo_shortcut.activated.connect(self._undo_active)
-        self.redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
-        self.redo_shortcut.activated.connect(self._redo_active)
         self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self)
         self.delete_shortcut.activated.connect(self._delete_active)
         self.backspace_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Backspace), self)
@@ -541,15 +743,21 @@ class PlotViewer(QDialog):
             row.addWidget(button)
         manage_layout.addLayout(row)
         order = QGridLayout()
+        self.order_buttons = []
         for position, (label, direction) in enumerate((
-            ("↑ Up", "up"), ("↓ Down", "down"),
-            ("← Left", "left"), ("→ Right", "right"),
+            ("↑", "up"), ("↓", "down"),
+            ("←", "left"), ("→", "right"),
         )):
-            button = QPushButton(label)
+            button = QToolButton()
+            button.setText(label)
+            button.setFixedSize(34, 30)
+            button.setToolTip(f"Move selected spectrum {direction}")
+            button.setAccessibleName(f"Move selected spectrum {direction}")
             button.clicked.connect(
                 lambda _checked=False, step=direction: self.move_current_spatial(step)
             )
             order.addWidget(button, position // 2, position % 2)
+            self.order_buttons.append(button)
         manage_layout.addLayout(order)
         layout.addWidget(manage)
 
@@ -599,6 +807,18 @@ class PlotViewer(QDialog):
         self.t2a_check = QCheckBox("Convert %T to absorbance")
         self.t2a_check.setVisible(state.technique == "FTIR")
         form.addRow(self.t2a_check)
+        self.uv_transform_combo = QComboBox()
+        for transform_label, transform_value, _axis_label in UV_SIGNAL_TRANSFORMS:
+            self.uv_transform_combo.addItem(transform_label, transform_value)
+        self.uv_transform_combo.setToolTip(
+            "Absorbance/transmittance conversions are reversible from raw data. "
+            "Kubelka–Munk is a separate diffuse-reflectance transform."
+        )
+        self.uv_transform_label = QLabel("UV-Vis signal")
+        self.uv_transform_label.setVisible(state.technique == "UVVIS")
+        self.uv_transform_combo.setVisible(state.technique == "UVVIS")
+        self.uv_transform_combo.currentIndexChanged.connect(self._uv_transform_changed)
+        form.addRow(self.uv_transform_label, self.uv_transform_combo)
         self.baseline_check = QCheckBox("Apply ALS baseline")
         form.addRow(self.baseline_check)
         self.als_spin = QDoubleSpinBox()
@@ -694,12 +914,18 @@ class PlotViewer(QDialog):
         legend_form.addRow("Font color", legend_color_row)
         self.legend_name_list = QListWidget()
         self.legend_name_list.setMinimumHeight(105)
+        self.legend_name_list.setMinimumWidth(275)
+        self.legend_name_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.legend_name_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.legend_name_list.setToolTip(
             "Double-click a name to edit it. The original file or column name is shown as a tooltip."
         )
         self.legend_name_list.itemChanged.connect(self._legend_name_changed)
         self.legend_name_list.currentItemChanged.connect(self._legend_series_selected)
-        legend_form.addRow("Series names", self.legend_name_list)
+        series_label = QLabel("Series names — double-click a full-width row to edit")
+        series_label.setWordWrap(True)
+        legend_form.addRow(series_label)
+        legend_form.addRow(self.legend_name_list)
         edit_legend_name = QPushButton("Edit selected legend name")
         edit_legend_name.clicked.connect(self._edit_selected_legend_name)
         legend_form.addRow(edit_legend_name)
@@ -789,22 +1015,12 @@ class PlotViewer(QDialog):
         self.tabs.addTab(tab, "Analyze")
         interactive = QGroupBox("Interactive Tools")
         form = QFormLayout(interactive)
-        self.click_mode = QComboBox()
-        self.click_mode.addItem("Navigation", "none")
-        if state.technique == "XRD":
-            self.click_mode.addItem("Pick XRD peak", "xrd_peak")
-        elif state.technique in {"UVVIS", "RAMAN"}:
-            self.click_mode.addItem("Pick upward peak", "peak")
-        elif state.technique == "GENERAL":
-            self.click_mode.addItem("Pick point", "peak")
-        else:
-            self.click_mode.addItem("Pick FT-IR peak", "peak")
-        self.click_mode.addItem("Calculate area", "area")
-        self.click_mode.addItem("Draw manual baseline", "baseline")
-        if state.technique in {"FTIR", "UVVIS", "RAMAN"}:
-            self.click_mode.addItem("Peak deconvolution", "deconv")
+        self.click_mode = AnalysisToolBar(state.technique)
         self.click_mode.currentIndexChanged.connect(self._click_mode_changed)
-        form.addRow("Canvas mode", self.click_mode)
+        form.addRow(self.click_mode)
+        mode_hint = QLabel("Move the pointer over an icon to see what it does.")
+        mode_hint.setWordWrap(True)
+        form.addRow(mode_hint)
         self.prominence_spin = QDoubleSpinBox()
         self.prominence_spin.setRange(0, 1e9)
         self.prominence_spin.setDecimals(6)
@@ -933,9 +1149,13 @@ class PlotViewer(QDialog):
         self.plot_layout_combo.setCurrentIndex(max(0, index))
         self.plot_layout_combo.blockSignals(False)
         self._load_active_settings()
+        self._rebuild_data_table()
         self.update_plot()
 
     def _undo_active(self):
+        if self._focus_in_data_table() and self.data_table.undo_edit():
+            self._table_dirty = True
+            return
         if self.tabs.currentWidget() is self.tabs.widget(2) and self.annotation_mgr.undo():
             return
         if self._state_undo:
@@ -943,14 +1163,29 @@ class PlotViewer(QDialog):
             self._restore_state(self._state_undo.pop())
 
     def _redo_active(self):
+        if self._focus_in_data_table() and self.data_table.redo_edit():
+            self._table_dirty = True
+            return
         if self.tabs.currentWidget() is self.tabs.widget(2) and self.annotation_mgr.redo():
             return
         if self._state_redo:
             self._state_undo.append(self._state_snapshot())
             self._restore_state(self._state_redo.pop())
 
+    def _focus_in_data_table(self):
+        focus = self.focusWidget()
+        return focus is self.data_table or (
+            focus is not None and self.data_table.isAncestorOf(focus)
+        )
+
     def _delete_active(self):
-        if self.tabs.currentWidget() is self.tabs.widget(2):
+        if self._focus_in_data_table():
+            self.data_table.begin_command()
+            for item in self.data_table.selectedItems():
+                item.setText("")
+            self.data_table.end_command()
+            self._table_dirty = True
+        elif self.tabs.currentWidget() is self.tabs.widget(2):
             self._delete_annotation()
         elif self.tabs.currentWidget() is self.tabs.widget(3):
             self.delete_selected_peak()
@@ -988,6 +1223,10 @@ class PlotViewer(QDialog):
         self.smooth_spin.setValue(int(fs.get("smooth", state.settings.get("smooth", 15))))
         self.normalize_check.setChecked(bool(fs.get("normalize", False)))
         self.t2a_check.setChecked(bool(fs.get("t2a", False)))
+        self.uv_transform_combo.blockSignals(True)
+        transform_index = self.uv_transform_combo.findData(fs.get("uv_transform", "none"))
+        self.uv_transform_combo.setCurrentIndex(max(0, transform_index))
+        self.uv_transform_combo.blockSignals(False)
         self.baseline_check.setChecked(bool(fs.get("do_baseline", False)))
         self.als_spin.setValue(als_value)
         self.derivative_combo.setCurrentIndex(int(fs.get("derivative", 0)))
@@ -1093,6 +1332,7 @@ class PlotViewer(QDialog):
             smooth=self.smooth_spin.value(),
             normalize=self.normalize_check.isChecked(),
             t2a=self.t2a_check.isChecked(),
+            uv_transform=self.uv_transform_combo.currentData() or "none",
             do_baseline=self.baseline_check.isChecked(),
             als_lam=self.als_spin.value(),
             derivative=self.derivative_combo.currentIndex(),
@@ -1121,7 +1361,7 @@ class PlotViewer(QDialog):
         source = state.file_set[self.current_stem]
         keys = (
             "smooth", "do_baseline", "normalize", "derivative", "als_lam",
-            "als_p", "t2a", "offset", "auto_clean_edges",
+            "als_p", "t2a", "uv_transform", "offset", "auto_clean_edges",
         )
         for stem in self.stems:
             for key in keys:
@@ -1134,6 +1374,7 @@ class PlotViewer(QDialog):
         self.smooth_spin.setValue(15)
         self.normalize_check.setChecked(False)
         self.t2a_check.setChecked(False)
+        self.uv_transform_combo.setCurrentIndex(0)
         self.baseline_check.setChecked(state.technique == "RAMAN")
         self.als_spin.setValue(8.0)
         self.derivative_combo.setCurrentIndex(0)
@@ -1199,13 +1440,422 @@ class PlotViewer(QDialog):
             self._load_active_settings()
             self.update_plot()
 
+    def _uv_transform_changed(self):
+        if state.technique != "UVVIS" or self.current_stem not in state.file_set:
+            return
+        transform = self.uv_transform_combo.currentData() or "none"
+        fs = state.file_set[self.current_stem]
+        if fs.get("uv_transform", "none") == transform:
+            return
+        self._checkpoint_state()
+        fs.setdefault("uv_source_ylabel", state.global_set.get("ylabel", "Signal"))
+        fs["uv_transform"] = transform
+        axis_label = next(
+            (label for _name, value, label in UV_SIGNAL_TRANSFORMS if value == transform),
+            None,
+        )
+        if transform == "none":
+            axis_label = str(fs.get("uv_source_ylabel") or "Signal")
+        if axis_label:
+            state.global_set["ylabel"] = axis_label
+            self.ylabel_edit.setText(axis_label)
+        self.update_plot()
+
     # ------------------------------- data --------------------------------
+    @staticmethod
+    def _column_code(index):
+        """Return spreadsheet-style letters: A...Z, AA..."""
+        value = int(index) + 1
+        output = ""
+        while value:
+            value, remainder = divmod(value - 1, 26)
+            output = chr(65 + remainder) + output
+        return output
+
+    @staticmethod
+    def _arrays_match(first, second):
+        first = np.asarray(first, dtype=float)
+        second = np.asarray(second, dtype=float)
+        return first.shape == second.shape and bool(np.allclose(
+            first, second, equal_nan=True, rtol=1e-10, atol=1e-12
+        ))
+
+    def _unique_column_name(self, requested, *, excluding=None):
+        base = str(requested).strip() or "Column"
+        used = {
+            item["name"] for index, item in enumerate(self._table_columns)
+            if index != excluding
+        }
+        if base not in used:
+            return base
+        number = 2
+        while f"{base}_{number}" in used:
+            number += 1
+        return f"{base}_{number}"
+
+    def _data_header(self, index):
+        item = self._table_columns[index]
+        return f"{self._column_code(index)} [{item['role']}] {item['name']}"
+
+    def _refresh_data_headers(self):
+        for index in range(self.data_table.columnCount()):
+            header = QTableWidgetItem(self._data_header(index))
+            header.setData(Qt.ItemDataRole.UserRole, copy.deepcopy(self._table_columns[index]))
+            self.data_table.setHorizontalHeaderItem(index, header)
+        self.data_table.resizeColumnsToContents()
+
+    def _sync_table_metadata(self):
+        restored = []
+        for index in range(self.data_table.columnCount()):
+            header = self.data_table.horizontalHeaderItem(index)
+            metadata = header.data(Qt.ItemDataRole.UserRole) if header else None
+            if not isinstance(metadata, dict):
+                metadata = {
+                    "name": f"Column {index + 1}", "role": "Ignore",
+                }
+            restored.append(copy.deepcopy(metadata))
+        self._table_columns = restored
+        self._table_dirty = True
+
+    def _rebuild_data_table(self):
+        if not hasattr(self, "data_table"):
+            return
+        columns = []
+        values = []
+        x_columns = []
+        axis_name = str(state.global_set.get("xlabel") or "X")
+        for stem in self.stems:
+            x_values, y_values = self.data_dict[stem]
+            x_values = np.asarray(x_values, dtype=float)
+            y_values = np.asarray(y_values, dtype=float)
+            x_index = next(
+                (index for index in x_columns if self._arrays_match(values[index], x_values)),
+                None,
+            )
+            if x_index is None:
+                x_name = axis_name if not x_columns else f"{stem} X"
+                x_name = self._unique_name_for_meta(x_name, columns)
+                x_index = len(columns)
+                columns.append({"name": x_name, "role": "X", "source_stem": stem})
+                values.append(x_values)
+                x_columns.append(x_index)
+            y_name = self._unique_name_for_meta(stem, columns)
+            columns.append({
+                "name": y_name, "role": "Y", "source_stem": stem,
+                "x_index": x_index,
+            })
+            values.append(y_values)
+
+        self._table_columns = columns
+        row_count = max((len(value) for value in values), default=0)
+        self._table_loading = True
+        self.data_table._history_suspended = True
+        self.data_table.setUpdatesEnabled(False)
+        self.data_table.clear()
+        self.data_table.setRowCount(row_count)
+        self.data_table.setColumnCount(len(columns))
+        self._refresh_data_headers()
+        for column, array in enumerate(values):
+            for row, value in enumerate(array):
+                text = "" if not np.isfinite(value) else f"{float(value):.12g}"
+                if text:
+                    self.data_table.setItem(row, column, QTableWidgetItem(text))
+        self.data_table.setUpdatesEnabled(True)
+        self.data_table._history_suspended = False
+        self.data_table.reset_history()
+        self._table_loading = False
+        self._table_dirty = False
+
+    @staticmethod
+    def _unique_name_for_meta(requested, metadata):
+        used = {item["name"] for item in metadata}
+        base = str(requested).strip() or "Column"
+        if base not in used:
+            return base
+        number = 2
+        while f"{base}_{number}" in used:
+            number += 1
+        return f"{base}_{number}"
+
+    def _data_table_changed(self, _item=None):
+        if not self._table_loading:
+            self._table_dirty = True
+
+    def _data_columns_inserted(self, _parent=None, _first=None, _last=None):
+        if self._table_loading or self.data_table._history_suspended:
+            return
+        while len(self._table_columns) < self.data_table.columnCount():
+            self._table_columns.append({
+                "name": self._unique_column_name(
+                    f"Column {len(self._table_columns) + 1}"
+                ),
+                "role": "Ignore",
+            })
+        self._refresh_data_headers()
+        self._table_dirty = True
+
+    def _selected_data_columns(self):
+        columns = sorted({index.column() for index in self.data_table.selectedIndexes()})
+        if not columns and self.data_table.currentColumn() >= 0:
+            columns = [self.data_table.currentColumn()]
+        return columns
+
+    def _insert_data_row(self):
+        row = self.data_table.currentRow()
+        if row < 0:
+            row = self.data_table.rowCount()
+        self.data_table.begin_command()
+        self.data_table.insertRow(row)
+        self.data_table.end_command()
+        self._table_dirty = True
+
+    def _delete_data_rows(self):
+        rows = sorted({index.row() for index in self.data_table.selectedIndexes()}, reverse=True)
+        if not rows and self.data_table.currentRow() >= 0:
+            rows = [self.data_table.currentRow()]
+        if not rows:
+            return
+        self.data_table.begin_command()
+        for row in rows:
+            self.data_table.removeRow(row)
+        self.data_table.end_command()
+        self._table_dirty = True
+
+    def _insert_data_column(self):
+        name, accepted = QInputDialog.getText(
+            self, "Insert column", "Column name", text=f"Column {len(self._table_columns) + 1}"
+        )
+        if not accepted or not name.strip():
+            return
+        column = self.data_table.currentColumn()
+        column = self.data_table.columnCount() if column < 0 else column + 1
+        self.data_table.begin_command()
+        self._table_columns.insert(column, {
+            "name": self._unique_column_name(name), "role": "Ignore",
+        })
+        self.data_table.insertColumn(column)
+        self._refresh_data_headers()
+        self.data_table.end_command()
+        self._table_dirty = True
+
+    def _delete_data_columns(self):
+        columns = self._selected_data_columns()
+        if not columns:
+            return
+        if self.data_table.columnCount() - len(columns) < 1:
+            QMessageBox.warning(self, "Columns required", "Keep at least one table column.")
+            return
+        self.data_table.begin_command()
+        for column in reversed(columns):
+            self.data_table.removeColumn(column)
+            self._table_columns.pop(column)
+        self._refresh_data_headers()
+        self.data_table.end_command()
+        self._table_dirty = True
+
+    def _rename_data_column(self):
+        column = self.data_table.currentColumn()
+        if not 0 <= column < len(self._table_columns):
+            return
+        current = self._table_columns[column]["name"]
+        name, accepted = QInputDialog.getText(
+            self, "Rename column", "New column name", text=current
+        )
+        if not accepted or not name.strip():
+            return
+        self.data_table.begin_command()
+        self._table_columns[column]["name"] = self._unique_column_name(
+            name, excluding=column
+        )
+        self._refresh_data_headers()
+        self.data_table.end_command()
+        self._table_dirty = True
+
+    def _set_data_column_role(self, role):
+        columns = self._selected_data_columns()
+        if not columns:
+            QMessageBox.information(self, "Select a column", "Select one or more columns first.")
+            return
+        self.data_table.begin_command()
+        for column in columns:
+            self._table_columns[column]["role"] = role
+        self._refresh_data_headers()
+        self.data_table.end_command()
+        self._table_dirty = True
+
+    def _numeric_table_columns(self):
+        output = []
+        for column in range(self.data_table.columnCount()):
+            values = []
+            for row in range(self.data_table.rowCount()):
+                item = self.data_table.item(row, column)
+                text = item.text().strip() if item else ""
+                if not text:
+                    values.append(np.nan)
+                    continue
+                try:
+                    values.append(float(text))
+                except ValueError as error:
+                    name = self._table_columns[column]["name"]
+                    raise FormulaError(
+                        f"'{text}' in {name}, row {row + 1}, is not numeric."
+                    ) from error
+            output.append(np.asarray(values, dtype=float))
+        return output
+
+    def _create_formula_column(self):
+        if not self._table_columns:
+            return
+        dialog = ColumnFormulaDialog(
+            [item["name"] for item in self._table_columns], self,
+            suggested_name=f"Calculated {len(self._table_columns) + 1}",
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, expression = dialog.result
+        try:
+            result = evaluate_column_formula(expression, self._numeric_table_columns())
+        except FormulaError as error:
+            QMessageBox.warning(self, "Formula error", str(error))
+            return
+        column = self.data_table.columnCount()
+        self.data_table.begin_command()
+        self._table_columns.append({
+            "name": self._unique_column_name(name), "role": "Y", "formula": expression,
+        })
+        self.data_table.insertColumn(column)
+        self._refresh_data_headers()
+        for row, value in enumerate(result):
+            if np.isfinite(value):
+                self.data_table.setItem(row, column, QTableWidgetItem(f"{float(value):.12g}"))
+        self.data_table.end_command()
+        self._table_dirty = True
+        self.data_table.selectColumn(column)
+
+    def _x_column_for_y(self, y_column, x_columns):
+        preceding = [index for index in x_columns if index < y_column]
+        return preceding[-1] if preceding else x_columns[0]
+
+    def _apply_data_table(self):
+        try:
+            columns = self._numeric_table_columns()
+            x_columns = [
+                index for index, item in enumerate(self._table_columns) if item["role"] == "X"
+            ]
+            y_columns = [
+                index for index, item in enumerate(self._table_columns) if item["role"] == "Y"
+            ]
+            if not x_columns or not y_columns:
+                raise FormulaError("Mark at least one column [X] and one column [Y].")
+            rebuilt = []
+            used_names = [
+                item[0] for item in state.all_data if item[0] not in self.stems
+            ]
+            for y_column in y_columns:
+                x_column = self._x_column_for_y(y_column, x_columns)
+                x_values, y_values = columns[x_column], columns[y_column]
+                finite = np.isfinite(x_values) & np.isfinite(y_values)
+                if np.count_nonzero(finite) < 3:
+                    continue
+                name = _unique_label(self._table_columns[y_column]["name"], used_names)
+                used_names.append(name)
+                rebuilt.append((name, x_values[finite], y_values[finite], y_column))
+            if not rebuilt:
+                raise FormulaError("No [Y] column has at least three numeric X/Y row pairs.")
+        except FormulaError as error:
+            QMessageBox.warning(self, "Cannot apply data table", str(error))
+            return False
+
+        self._checkpoint_state()
+        old_view_stems = list(self.stems)
+        old_all_data = list(state.all_data)
+        old_data = self.data_dict
+        old_settings = state.file_set
+        new_data = {}
+        new_settings = {
+            stem: copy.deepcopy(settings)
+            for stem, settings in old_settings.items()
+            if stem not in old_view_stems
+        }
+        renamed_current = None
+        for index, (name, x_values, y_values, y_column) in enumerate(rebuilt):
+            metadata = self._table_columns[y_column]
+            source = metadata.get("source_stem")
+            source_settings = old_settings.get(name) or old_settings.get(source)
+            settings = copy.deepcopy(source_settings) if source_settings else {
+                "custom_name": name,
+                "color": PLOT_COLORS[index % len(PLOT_COLORS)],
+                "offset": 0.0,
+                "smooth": state.settings.get("smooth", 15),
+                "labels": [], "areas": [],
+                "do_baseline": state.technique == "RAMAN",
+                "als_lam": 8.0, "als_p": 0.05,
+                "auto_clean_edges": state.technique in {"UVVIS", "RAMAN"},
+            }
+            old_pair = old_data.get(source or name)
+            changed = old_pair is None or not (
+                self._arrays_match(old_pair[0], x_values)
+                and self._arrays_match(old_pair[1], y_values)
+            )
+            if changed:
+                for key in ("labels", "areas", "deconvs", "xrd_peaks", "manual_baseline_pts"):
+                    settings[key] = []
+            if name != source:
+                settings["custom_name"] = name
+            new_data[name] = (np.asarray(x_values), np.asarray(y_values))
+            new_settings[name] = settings
+            metadata["source_stem"] = name
+            if source == self.current_stem or name == self.current_stem:
+                renamed_current = name
+
+        self.data_dict = new_data
+        self.stems = list(new_data)
+        state.file_set = new_settings
+        rebuilt_all_data = [
+            (stem, self.data_dict[stem][0], self.data_dict[stem][1]) for stem in self.stems
+        ]
+        viewed_positions = [
+            index for index, item in enumerate(old_all_data) if item[0] in old_view_stems
+        ]
+        if viewed_positions:
+            first_position = viewed_positions[0]
+            remaining = [item for item in old_all_data if item[0] not in old_view_stems]
+            insertion = sum(
+                1 for index, item in enumerate(old_all_data[:first_position])
+                if item[0] not in old_view_stems
+            )
+            state.all_data = remaining[:insertion] + rebuilt_all_data + remaining[insertion:]
+        else:
+            state.all_data = rebuilt_all_data
+        self.current_stem = renamed_current if renamed_current in new_data else self.stems[0]
+        self.file_combo.blockSignals(True)
+        self.file_combo.clear()
+        self.file_combo.addItems(self.stems)
+        self.file_combo.setCurrentText(self.current_stem)
+        self.file_combo.blockSignals(False)
+        if state.settings.get("mode") == "individual" and len(self.stems) > 1:
+            state.settings["mode"] = "overlay"
+            state.mode_switched_mid_session = True
+            self.plot_layout_combo.blockSignals(True)
+            self.plot_layout_combo.setCurrentIndex(
+                max(0, self.plot_layout_combo.findData("overlay"))
+            )
+            self.plot_layout_combo.blockSignals(False)
+        self._table_dirty = False
+        self._load_active_settings()
+        self._sync_legend_name_list()
+        self._refresh_finish_button()
+        self.update_plot()
+        return True
+
     def get_processed_data_for_stem(self, stem):
         raw_x, raw_y = self.data_dict[stem]
         fs = state.file_set[stem]
         x_arr = np.asarray(raw_x, dtype=float)
         y_arr = np.asarray(raw_y, dtype=float).copy()
 
+        if state.technique == "UVVIS":
+            y_arr = apply_optical_transform(y_arr, fs.get("uv_transform", "none"))
         if fs.get("t2a", False):
             y_arr = 2 - np.log10(np.clip(y_arr, 0.0001, None))
         if fs.get("bg_sub", False) and "bg_data" in fs:
@@ -1227,7 +1877,10 @@ class PlotViewer(QDialog):
         if fs.get("normalize", False):
             low, high = np.min(y_arr), np.max(y_arr)
             if high != low:
-                target = 1.0 if fs.get("t2a", False) else 100.0
+                transform = fs.get("uv_transform", "none")
+                target = 100.0 if transform == "absorbance_to_percent_transmittance" else 1.0
+                if state.technique == "FTIR" and not fs.get("t2a", False):
+                    target = 100.0
                 y_arr = (y_arr - low) / (high - low) * target
         y_arr += float(fs.get("offset", 0.0))
         if fs.get("auto_clean_edges", False) and state.technique in {"UVVIS", "RAMAN"}:
@@ -1241,9 +1894,12 @@ class PlotViewer(QDialog):
             "smooth": state.settings.get("smooth", 15), "labels": [], "areas": [],
             "do_baseline": state.technique == "RAMAN", "als_lam": 8.0, "als_p": 0.05,
             "auto_clean_edges": state.technique in {"UVVIS", "RAMAN"},
+            "uv_transform": "none",
         }
 
     def add_files(self):
+        if self._table_dirty and not self._apply_data_table():
+            return
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Add data files", "", "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.xlsx *.xls);;All files (*)"
         )
@@ -1284,6 +1940,7 @@ class PlotViewer(QDialog):
                     bg_mult=1.0,
                 )
             self.file_combo.addItem(stem)
+        self._rebuild_data_table()
         self._sync_legend_name_list()
         if failures:
             QMessageBox.warning(
@@ -1293,6 +1950,8 @@ class PlotViewer(QDialog):
         self.update_plot()
 
     def replace_current(self):
+        if self._table_dirty and not self._apply_data_table():
+            return
         path, _ = QFileDialog.getOpenFileName(
             self, "Replace current data", "", "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.xlsx *.xls);;All files (*)"
         )
@@ -1315,6 +1974,7 @@ class PlotViewer(QDialog):
         fs = state.file_set[self.current_stem]
         for key in ("labels", "areas", "deconvs", "xrd_peaks", "manual_baseline_pts"):
             fs[key] = []
+        self._rebuild_data_table()
         self.update_plot()
 
     def _read_data_file(self, path):
@@ -1353,6 +2013,7 @@ class PlotViewer(QDialog):
         self.file_combo.removeItem(index)
         self.current_stem = self.file_combo.currentText()
         self._load_active_settings()
+        self._rebuild_data_table()
         self.update_plot()
 
     def move_current(self, direction):
@@ -1369,6 +2030,7 @@ class PlotViewer(QDialog):
         self.file_combo.setCurrentText(self.current_stem)
         self.file_combo.blockSignals(False)
         self._sync_legend_name_list()
+        self._rebuild_data_table()
         self.update_plot()
 
     def move_current_spatial(self, direction):
@@ -1856,7 +2518,16 @@ class PlotViewer(QDialog):
 
     def show_uvvis_analysis(self):
         x, y = self.get_processed_data_for_stem(self.current_stem)
-        dialog = UVVisAnalysisDialog(x, y, self.current_stem, self)
+        transform = state.file_set[self.current_stem].get("uv_transform", "none")
+        signal_kind = {
+            "absorbance_to_percent_transmittance": "Transmittance (%)",
+            "percent_transmittance_to_absorbance": "Absorbance",
+            "reflectance_fraction_to_kubelka_munk": "Kubelka-Munk F(R)",
+            "reflectance_percent_to_kubelka_munk": "Kubelka-Munk F(R)",
+        }.get(transform)
+        dialog = UVVisAnalysisDialog(
+            x, y, self.current_stem, self, signal_kind=signal_kind
+        )
         dialog.exec()
 
     def show_raman_analysis(self):
@@ -2020,6 +2691,8 @@ class PlotViewer(QDialog):
 
     # --------------------------- export/session --------------------------
     def save_session(self, save_as=False):
+        if self._table_dirty and not self._apply_data_table():
+            return False
         self.sync_annotations_to_state()
         filepath = state.current_session_file
         if save_as or not filepath:
@@ -2048,6 +2721,8 @@ class PlotViewer(QDialog):
         return True
 
     def export_data(self):
+        if self._table_dirty and not self._apply_data_table():
+            return
         fs = state.file_set[self.current_stem]
         options_dialog = ExportOptionsDialog(bool(fs.get("deconvs")), self)
         if options_dialog.exec() != QDialog.DialogCode.Accepted:
@@ -2256,6 +2931,8 @@ class PlotViewer(QDialog):
         self.finish_button.setText(label)
 
     def finish_current(self):
+        if self._table_dirty and not self._apply_data_table():
+            return
         if not self._has_next_individual_spectrum():
             self.close()
             return

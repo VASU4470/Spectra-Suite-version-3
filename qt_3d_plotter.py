@@ -10,16 +10,18 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
+    QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QGridLayout,
+    QGroupBox, QHBoxLayout,
     QInputDialog, QLabel, QLineEdit, QListWidget, QMessageBox, QPushButton, QScrollArea,
     QSlider, QSplitter, QSpinBox, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from plot_export import save_figure
+from column_math import FormulaError, evaluate_column_formula
 from fluid_reader import read_tecplot
 from qt_general_plotter import DataTable, parse_axis_limits, read_table
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import CompactNavigationToolbar, PanelToggleButton
+from qt_widgets import ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton
 
 
 def read_3d_table(path: Path):
@@ -62,12 +64,17 @@ class Plot3D(QWidget):
         data_layout.setContentsMargins(0, 0, 4, 0)
         self.file_label = QLabel("Manual XYZ data - type values or paste from Excel")
         data_layout.addWidget(self.file_label)
-        self.table = DataTable(); data_layout.addWidget(self.table, 1)
-        edit = QHBoxLayout()
-        for label, slot in (("Insert row", self.add_row), ("Delete row(s)", self.delete_rows),
-                            ("Insert column", self.add_column), ("Delete column(s)", self.delete_columns),
-                            ("Rename", self.rename_column)):
-            button = QPushButton(label); button.clicked.connect(slot); edit.addWidget(button)
+        self.table = DataTable()
+        self.table.historyRestored.connect(self._refresh_columns)
+        data_layout.addWidget(self.table, 1)
+        edit = QGridLayout()
+        for index, (label, slot) in enumerate((
+            ("Insert row", self.add_row), ("Delete row(s)", self.delete_rows),
+            ("Insert column", self.add_column), ("Delete column(s)", self.delete_columns),
+            ("Rename", self.rename_column), ("ƒx Formula", self.add_formula_column),
+        )):
+            button = QPushButton(label); button.clicked.connect(slot)
+            edit.addWidget(button, index // 3, index % 3)
         data_layout.addLayout(edit); self.splitter.addWidget(self.data_panel)
 
         self.plot_panel = QWidget(); plot_layout = QVBoxLayout(self.plot_panel)
@@ -163,6 +170,40 @@ class Plot3D(QWidget):
             if current in headers: combo.setCurrentText(current)
             elif index < 3 and headers: combo.setCurrentIndex(min(index, len(headers)-1))
             combo.blockSignals(False)
+
+    def add_formula_column(self):
+        headers = self._headers()
+        dialog = ColumnFormulaDialog(headers, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, expression = dialog.result
+        frame = self._dataframe()
+        columns = [
+            pd.to_numeric(frame[header], errors="coerce").to_numpy(float)
+            for header in headers
+        ]
+        try:
+            result = evaluate_column_formula(expression, columns)
+        except FormulaError as error:
+            QMessageBox.warning(self, "Formula error", str(error))
+            return
+        used = set(headers)
+        base = name.strip() or "Calculated"
+        unique_name = base
+        number = 2
+        while unique_name in used:
+            unique_name = f"{base}_{number}"
+            number += 1
+        column = self.table.columnCount()
+        self.table.begin_command()
+        self.table.insertColumn(column)
+        self.table.setHorizontalHeaderItem(column, QTableWidgetItem(unique_name))
+        for row, value in enumerate(result):
+            if np.isfinite(value):
+                self.table.setItem(row, column, QTableWidgetItem(f"{float(value):.12g}"))
+        self.table.end_command()
+        self._refresh_columns()
+        self.table.selectColumn(column)
 
     def _numeric(self, name): return pd.to_numeric(self._dataframe()[name], errors="coerce").to_numpy(float)
 

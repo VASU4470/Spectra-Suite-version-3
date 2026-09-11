@@ -1,75 +1,93 @@
-**SpectraSuite Version 3**
+# SpectraSuite 3.1.0
 
-> **Status:** Version 3 includes FT-IR, XRD, UV-Vis, Raman, General 2D, and
-> General 3D workspaces. Multi-X/Multi-Y, Fluid Dynamics, and XPS remain visible
-> in the final launcher row as disabled “Coming soon” previews for the next version.
+SpectraSuite is a free desktop application for scientific data plotting and
+analysis. It includes working FT-IR, XRD, UV-Vis, Raman, General 2D, and General
+3D workspaces. Multi-X/Multi-Y, Fluid Dynamics, and XPS remain visible in the
+last launcher row as disabled previews for a future release.
 
-Version 3 retains the Version 2 analysis workflow, including file management,
-individual/overlay/stacked plots, processing and reference subtraction,
-session save/load, annotations, FT-IR peak/area/deconvolution tools, XRD FWHM
-and crystallite-size analysis, configurable data/report/graph export, and the
-end-of-workflow save prompt.
+The application is designed to work offline. Scientific data stays on the
+computer unless the user explicitly saves or exports it.
 
-The UV-Vis workspace adds absorbance/transmittance/reflectance conversion,
-wavelength-energy conversion, peak finding, areas, derivatives, baselines,
-reference subtraction, Gaussian peak deconvolution, Tauc plots for four
-transition models, fitted band-gap estimates, Urbach-energy fitting, and
-Kubelka-Munk analysis for diffuse-reflectance data. Tauc and Urbach results are
-reported with their selected fit ranges and R² values because they depend on
-material assumptions and should be reviewed by the researcher.
+## Spectroscopy workspaces
 
-The Raman workspace provides fluorescence/background correction through the
-shared ALS baseline, smoothing, derivatives, reference subtraction, upward
-band detection, Gaussian deconvolution, FWHM and local-area measurements, and
-user-selected intensity ratios. It deliberately does not infer a material or
-apply material-specific crystallite-size equations without the required model.
+FT-IR, XRD, UV-Vis, and Raman share a consistent plotting workspace with:
 
-The redesigned General 2D Plotter opens as an editable spreadsheet and live
-graph workspace. It imports complete CSV, TSV, delimited-text, and Excel
-tables; supports manual typing and Excel-style copy/paste; allows rows and
-columns to be added, removed, renamed, and edited; maps one X/category column
-to one or more Y columns; and switches between line, scatter, grouped bar,
-area, step, pie, histogram, and box plots. Series colors, lines, markers,
-widths, titles, axis labels, legends, grids, and value labels are editable.
-Edited tables, reusable JSON projects, and PNG/PDF/SVG figures can be saved.
-Columns can be assigned directly as X or one or more Y series, rows and columns
-can be inserted or removed at the selection, imported data can be appended or
-replaced, and explicit X/Y limits can override automatic scaling.
+- Individual, overlay, vertical-stack, and grid layouts
+- Multi-file and multi-column CSV/Excel dataset discovery
+- Noise-adaptive automatic peak detection and manual peak selection
+- Smoothing, normalization, derivatives, reference subtraction, and baselines
+- Editable legends, line styles, axes, annotations, and plot order
+- PNG, JPEG, TIFF, SVG, and PDF graph export
+- Processed-data and analysis-report export
+- Saved JSON sessions
+- Standard File, Edit, History, View, Analysis, and Help menus
+- Compact analysis-mode icons with hover descriptions
 
-The in-development Multi-X/Multi-Y Plotter maps a separate X and Y column for every series,
-with bottom/top X axes and left/right Y axes in one figure. The General 3D
-Plotter accepts editable or imported XYZ data and renders scatter,
-triangulated or structured surfaces, wireframes, contours, projected contours,
-and vector fields. It also reads ASCII Tecplot POINT (`.plt`) grids, appends
-multiple files as columns in one table, and can render those imports as
-separate layers in the same 3D axes. The in-development Fluid Dynamics Plotter reads structured ASCII Tecplot
-POINT data and provides mesh, filled-contour, line-contour, heatmap, 3D
-surface, wireframe, coordinate-profile, field-difference, and grid-comparison
-views. The supplied 151 x 151 CFD examples were used to validate its reader.
+Version 3.1 adds a collapsible spreadsheet below every spectroscopy graph.
+Columns are visibly assigned as `[X]`, `[Y]`, or `[Ignore]`. Users can edit
+cells, copy/paste from a spreadsheet, insert or delete rows and columns, rename
+columns, change column roles, and rebuild the plot from the edited table.
+Shared-X/multiple-Y data can be plotted as an overlay, stack, or grid.
 
-Automatic spectroscopy peak detection is noise- and scale-adaptive. FT-IR
-defaults to valley minima (or upward peaks after transmittance-to-absorbance
-conversion), while XRD, UV-Vis, and Raman use upward maxima. Users can switch
-to manual prominence/height controls and set a maximum number of automatic
-labels.
+### Calculated columns
 
-The plotting usability pass adds visible technique icons and titles, resizable
-and hideable side panels, compact Matplotlib toolbars below the graph, and
-cross-platform Ctrl/Cmd undo/redo plus Delete/Backspace handling. Annotation
-tools include undo, redo, selected-object deletion, and clear-all; the General
-2D Plotter now includes the same basic annotation workflow. General Plotter
-supports one X/category column with multiple selected Y columns, while the
-dedicated Multi-X/Multi-Y workspace handles independent column pairs and axes.
-PNG taskbar variants accompany the SVG launcher icons for consistent Windows,
-macOS, and Linux window identity.
+The calculated-column tool uses a restricted formula language and never runs
+arbitrary Python. Columns are referenced as `C1`, `C2`, and so on. Examples:
 
-Spectroscopy imports now discover multiple datasets in one file. Repeated
-X/Y column pairs, a shared X column with several Y columns, and every worksheet
-in an Excel workbook are listed before plotting. Users can plot selected data
-or all discovered data as individual windows, an overlay, a vertical stack, or
-a grid. Grid order can be rearranged up/down/left/right from the viewer.
+```text
+C2 + C3
+C2 - C3
+C2 * 5
+normalize(C2)
+baseline(C2)
+smooth(C2, 11)
+```
 
-## Test from source
+Supported functions include `abs`, `sqrt`, `log`, `log10`, `exp`, `clip`,
+`normalize`, `zscore`, `smooth`, and `baseline`. UV-Vis formulas also include
+`transmittance(C2)`, `absorbance(C2)`, and `km(C2)`. `km` expects reflectance as
+a fraction; use `km(C2 / 100)` when the source column is percent reflectance.
+
+## UV-Vis calculations
+
+The main UV-Vis workspace provides explicit, reversible display transforms:
+
+- Absorbance → percent transmittance: `%T = 100 × 10⁻ᴬ`
+- Percent transmittance → absorbance: `A = −log₁₀(%T / 100)`
+
+Kubelka-Munk is presented separately because it is a diffuse-reflectance
+transformation, not an absorbance/transmittance conversion:
+
+- Reflectance fraction or percent → `F(R) = (1 − R)² / (2R)`
+
+Every transform starts from the imported raw values, so returning to
+**Original / as imported** restores the original signal.
+
+The advanced UV-Vis dialog supports wavelength/energy conversion, four Tauc
+transition models, explicit fit ranges, band-gap intercepts and uncertainty,
+Urbach-energy fitting, optional pre-edge baseline correction, and Kubelka-Munk
+analysis for reflectance. Fit ranges and R² values are shown because these
+models depend on the material and measurement assumptions and require
+researcher review.
+
+## General plotting
+
+The General 2D Plotter imports or creates editable tables, maps one X/category
+column to multiple Y columns, and produces line, scatter, grouped bar, area,
+step, pie, histogram, and box plots. The General 3D Plotter supports scattered
+XYZ data, structured surfaces, wireframes, contours, vector fields, multiple
+layers, and ASCII Tecplot POINT (`.plt`) grids. Both workspaces also support the
+restricted calculated-column formulas described above.
+
+## Updates and privacy
+
+SpectraSuite checks the public GitHub Releases API at most once per 24 hours and
+shows a message when a newer version is available. The check is asynchronous,
+fails quietly without internet, and can be disabled from **Help → Automatically
+check for updates**. It does not send an installation identifier or scientific
+data. See [PRIVACY.md](PRIVACY.md).
+
+## Run from source
 
 Use Python 3.11 or 3.12 in a virtual environment:
 
@@ -78,10 +96,21 @@ python -m pip install -r requirements.txt
 python launcher.py
 ```
 
-The GitHub Actions workflow also compiles, lints, opens the Qt workspaces in an
-off-screen display, runs the numerical and export regression tests, builds the
-application with PyInstaller, and executes the packaged startup check on
-Windows, macOS, and Ubuntu.
+Update an existing Git clone with:
 
-Version 3 is still in pre-release testing. A signed installer has not yet been
-published; use the source workflow above until a verified release is available.
+```bash
+git pull
+python -m pip install -r requirements.txt
+python launcher.py
+```
+
+The GitHub Actions workflow compiles and lints the project, runs numerical and
+off-screen PySide6 tests, validates image/PDF export, builds the PyInstaller
+application, and starts the packaged result on Windows, macOS, and Ubuntu with
+Python 3.11 and 3.12.
+
+## License
+
+SpectraSuite 3.1.0 is distributed under the [MIT License](LICENSE). A signed
+installer has not yet been published; the source workflow above remains the
+recommended testing path.

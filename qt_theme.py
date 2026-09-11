@@ -75,6 +75,12 @@ QPushButton {
 QPushButton:hover { background-color: #dbeafe; border-color: #2563eb; }
 QPushButton:pressed { background-color: #bfdbfe; }
 QPushButton:disabled { color: #8290a3; background-color: #edf1f6; }
+QToolButton {
+    background-color: #e8eef7; color: #172033;
+    border: 1px solid #94a3b8; border-radius: 5px; padding: 3px 7px;
+}
+QToolButton:hover { background-color: #dbeafe; border-color: #2563eb; }
+QToolButton:pressed, QToolButton:checked { background-color: #bfdbfe; }
 QPushButton#panelArrow {
     min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px;
     padding: 0; border-radius: 5px; font-size: 15px; font-weight: 700;

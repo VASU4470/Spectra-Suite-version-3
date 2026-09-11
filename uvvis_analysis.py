@@ -10,6 +10,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from column_math import kubelka_munk, percent_transmittance_to_absorbance
+
 
 HC_EV_NM = 1239.841984
 
@@ -78,14 +80,15 @@ def signal_to_absorption(y, signal_kind: str, thickness_um: float | None = None)
         if key == "absorbance":
             absorbance = values
         elif key == "transmittance (%)":
-            absorbance = -np.log10(values / 100.0)
+            absorbance = percent_transmittance_to_absorbance(values)
         elif key == "transmittance (fraction)":
-            absorbance = -np.log10(values)
+            absorbance = percent_transmittance_to_absorbance(values * 100.0)
         elif key == "reflectance (%)":
-            reflectance = values / 100.0
-            return (1.0 - reflectance) ** 2 / (2.0 * reflectance), "F(R)"
+            return kubelka_munk(values, percent=True), "F(R)"
         elif key == "reflectance (fraction)":
-            return (1.0 - values) ** 2 / (2.0 * values), "F(R)"
+            return kubelka_munk(values), "F(R)"
+        elif key == "kubelka-munk f(r)":
+            return values.copy(), "F(R)"
         elif key == "absorption coefficient (cm⁻¹)":
             return values.copy(), "α (cm⁻¹)"
         else:

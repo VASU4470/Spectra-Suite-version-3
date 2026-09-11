@@ -24,7 +24,7 @@ from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 class UVVisAnalysisDialog(QDialog):
     """Interactive Tauc and Urbach fitting with explicit measurement assumptions."""
 
-    def __init__(self, x, y, sample_name: str, parent=None):
+    def __init__(self, x, y, sample_name: str, parent=None, *, signal_kind=None):
         super().__init__(parent)
         self.x = np.asarray(x, float)
         self.y = np.asarray(y, float)
@@ -35,6 +35,8 @@ class UVVisAnalysisDialog(QDialog):
         self.setStyleSheet(LIGHT_STYLE)
         apply_window_icon(self, "UVVIS")
         self._build_ui()
+        if signal_kind:
+            self.signal_kind.setCurrentText(signal_kind)
         self._set_default_ranges()
         self.result_label.setText(
             "Choose the correct data representation and linear fit ranges, then click Calculate."
@@ -49,7 +51,8 @@ class UVVisAnalysisDialog(QDialog):
         self.signal_kind = QComboBox()
         self.signal_kind.addItems([
             "Absorbance", "Transmittance (%)", "Transmittance (fraction)",
-            "Reflectance (%)", "Reflectance (fraction)", "Absorption coefficient (cm⁻¹)",
+            "Reflectance (%)", "Reflectance (fraction)", "Kubelka-Munk F(R)",
+            "Absorption coefficient (cm⁻¹)",
         ])
         self.thickness = QDoubleSpinBox()
         self.thickness.setRange(0, 1e7)

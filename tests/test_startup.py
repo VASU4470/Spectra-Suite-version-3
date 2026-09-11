@@ -11,7 +11,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MPLBACKEND", "QtAgg")
 
 import numpy as np
-from PySide6.QtWidgets import QApplication, QPushButton, QScrollArea, QTableWidgetItem
+from PySide6.QtWidgets import (
+    QApplication, QMenuBar, QPushButton, QScrollArea, QTableWidgetItem,
+)
 
 from config import SessionState, state
 from dataset_reader import SpectrumDataset
@@ -19,7 +21,7 @@ from launcher import WelcomeDashboard, startup_smoke_test, workspace_command
 from qt_general_plotter import GeneralPlotter
 from qt_plot_viewer import ExportOptionsDialog, PlotViewer, TextAnnotationDialog
 from qt_setup import DatasetSelectionDialog, SetupDialog
-from qt_widgets import AnnotationToolBar
+from qt_widgets import AnalysisToolBar, AnnotationToolBar
 
 
 def reset_state(technique: str) -> None:
@@ -100,6 +102,25 @@ class StartupTests(unittest.TestCase):
         toolbar.setCurrentIndex(2)
         self.assertEqual(toolbar.currentData(), "arrow")
         toolbar.close()
+
+    def test_analysis_tool_selector_replaces_dropdown_with_small_icons(self):
+        for technique, expected_peak in (
+            ("FTIR", "peak"), ("XRD", "xrd_peak"),
+            ("UVVIS", "peak"), ("RAMAN", "peak"),
+        ):
+            with self.subTest(technique=technique):
+                toolbar = AnalysisToolBar(technique)
+                toolbar.show()
+                self.app.processEvents()
+                self.assertIn(expected_peak, [item[2] for item in toolbar.TOOLS])
+                self.assertTrue(all(button.toolTip() for button in toolbar._buttons))
+                self.assertTrue(all(
+                    button.width() == 38 and button.height() == 34
+                    for button in toolbar._buttons
+                ))
+                toolbar.setCurrentData(expected_peak)
+                self.assertEqual(toolbar.currentData(), expected_peak)
+                toolbar.close()
 
     def test_rich_annotation_dialog_controls_remain_visible(self):
         reset_state("UVVIS")
@@ -184,6 +205,13 @@ class StartupTests(unittest.TestCase):
                     viewer.xrd_height_spin.isHidden(), technique != "XRD"
                 )
                 self.assertLessEqual(viewer.toolbar.maximumHeight(), 32)
+                self.assertIsInstance(viewer.findChild(QMenuBar), QMenuBar)
+                self.assertGreaterEqual(viewer.legend_name_list.minimumWidth(), 275)
+                self.assertTrue(all(
+                    button.width() == 34 and button.height() == 30
+                    for button in viewer.order_buttons
+                ))
+                self.assertGreaterEqual(viewer.data_table.columnCount(), 2)
                 viewer.controls_toggle.click()
                 self.assertTrue(viewer.controls.isHidden())
                 self.assertEqual(viewer.controls_toggle.text(), "▶")
@@ -192,6 +220,42 @@ class StartupTests(unittest.TestCase):
                 self.assertEqual(viewer.controls_toggle.text(), "◀")
                 viewer._skip_close_prompt = True
                 viewer.close()
+
+    def test_shared_x_spectra_use_one_editable_x_column_and_multiple_y_columns(self):
+        reset_state("UVVIS")
+        x = np.linspace(200.0, 800.0, 31)
+        first = np.linspace(0.1, 0.8, 31)
+        second = np.linspace(0.2, 0.9, 31)
+        state.settings["mode"] = "overlay"
+        state.all_data = [("sample A", x.copy(), first.copy()), ("sample B", x.copy(), second.copy())]
+        state.init_file_settings()
+        viewer = PlotViewer(state.all_data, "Editable table test")
+        self.assertEqual(viewer.data_table.columnCount(), 3)
+        self.assertEqual([item["role"] for item in viewer._table_columns], ["X", "Y", "Y"])
+        viewer.data_table.item(0, 1).setText("0.75")
+        self.assertTrue(viewer._table_dirty)
+        self.assertTrue(viewer._apply_data_table())
+        self.assertAlmostEqual(float(viewer.data_dict["sample A"][1][0]), 0.75)
+        viewer._skip_close_prompt = True
+        viewer.close()
+
+    def test_uvvis_display_transform_is_reversible_from_raw_data(self):
+        reset_state("UVVIS")
+        x = np.linspace(200.0, 800.0, 31)
+        absorbance = np.linspace(0.0, 2.0, 31)
+        state.all_data = [("sample", x.copy(), absorbance.copy())]
+        state.init_file_settings()
+        state.file_set["sample"].update(smooth=0, auto_clean_edges=False)
+        viewer = PlotViewer(state.all_data, "UV transform test")
+        index = viewer.uv_transform_combo.findData("absorbance_to_percent_transmittance")
+        viewer.uv_transform_combo.setCurrentIndex(index)
+        _x, transformed = viewer.get_processed_data_for_stem("sample")
+        np.testing.assert_allclose(transformed, 100.0 * 10.0 ** (-absorbance))
+        viewer.uv_transform_combo.setCurrentIndex(0)
+        _x, restored = viewer.get_processed_data_for_stem("sample")
+        np.testing.assert_allclose(restored, absorbance)
+        viewer._skip_close_prompt = True
+        viewer.close()
 
     def test_export_options_are_not_compressed(self):
         reset_state("XRD")

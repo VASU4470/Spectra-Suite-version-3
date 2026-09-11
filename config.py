@@ -111,6 +111,7 @@ class SessionState:
                 'do_baseline': self.technique == 'RAMAN',
                 'als_lam': 8.0,
                 'als_p': 0.05,
+                'uv_transform': 'none',
                 'auto_clean_edges': self.technique in {'UVVIS', 'RAMAN'},
             }
             if self.pending_reference is not None:

@@ -29,6 +29,12 @@ class UVVisAnalysisTests(unittest.TestCase):
         self.assertEqual(label, "F(R)")
         self.assertAlmostEqual(float(transformed[0]), 0.25)
 
+    def test_preconverted_kubelka_munk_is_not_transformed_twice(self):
+        values = np.array([0.2, 0.5, 0.8])
+        transformed, label = signal_to_absorption(values, "Kubelka-Munk F(R)")
+        np.testing.assert_allclose(transformed, values)
+        self.assertEqual(label, "F(R)")
+
     def test_direct_allowed_tauc_fit_recovers_known_gap(self):
         energy = np.linspace(2.2, 3.8, 400)
         expected_gap = 2.05

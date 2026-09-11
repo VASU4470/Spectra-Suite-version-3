@@ -9,11 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, QSize, QTimer, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
-    QApplication, QGridLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QApplication, QGridLayout, QLabel, QMenuBar, QMessageBox, QPushButton,
+    QVBoxLayout, QWidget,
 )
+from app_version import APP_VERSION
 from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_updates import UpdateController, show_about
 
 
 def resource_path(relative_path: str) -> Path:
@@ -91,11 +94,15 @@ class WelcomeDashboard(QWidget):
         self._processes: dict[str, QProcess] = {}
         self._buttons: dict[str, QPushButton] = {}
         self._setup_ui()
+        self.update_controller = UpdateController(self)
+        self._sync_update_menu()
+        self.update_controller.schedule_automatic_check()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(40, 40, 40, 32)
         layout.setSpacing(18)
+        self._build_menu_bar(layout)
 
         title = QLabel("Analytical Spectroscopy Suite")
         title.setObjectName("title")
@@ -115,10 +122,43 @@ class WelcomeDashboard(QWidget):
             self._buttons[workspace.key] = button
         layout.addLayout(grid, 1)
 
-        footer = QLabel("Version 3")
+        footer = QLabel(f"Version {APP_VERSION}")
         footer.setObjectName("footer")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(footer)
+
+    def _build_menu_bar(self, layout):
+        menu_bar = QMenuBar(self)
+        menu_bar.setNativeMenuBar(True)
+        file_menu = menu_bar.addMenu("&File")
+        exit_action = QAction("E&xit", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        help_menu = menu_bar.addMenu("&Help")
+        self.check_update_action = QAction("Check for &Updates…", self)
+        self.check_update_action.triggered.connect(self._check_for_updates)
+        help_menu.addAction(self.check_update_action)
+        self.automatic_update_action = QAction("Automatically check for updates", self)
+        self.automatic_update_action.setCheckable(True)
+        self.automatic_update_action.toggled.connect(self._set_automatic_updates)
+        help_menu.addAction(self.automatic_update_action)
+        help_menu.addSeparator()
+        about_action = QAction("&About SpectraSuite", self)
+        about_action.triggered.connect(lambda: show_about(self))
+        help_menu.addAction(about_action)
+        layout.setMenuBar(menu_bar)
+
+    def _sync_update_menu(self):
+        self.automatic_update_action.blockSignals(True)
+        self.automatic_update_action.setChecked(self.update_controller.automatic_enabled())
+        self.automatic_update_action.blockSignals(False)
+
+    def _set_automatic_updates(self, enabled):
+        self.update_controller.set_automatic_enabled(enabled)
+
+    def _check_for_updates(self):
+        self.update_controller.check(silent=False)
 
     def _workspace_button(self, workspace: Workspace) -> QPushButton:
         suffix = "\n\nCOMING SOON\nNEXT VERSION" if workspace.coming_soon else (

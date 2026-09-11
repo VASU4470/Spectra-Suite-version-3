@@ -10,19 +10,22 @@ import numpy as np
 import pandas as pd
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox,
-    QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog,
+    QDialog, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMenu,
     QListWidget, QMessageBox, QPushButton, QScrollArea, QSplitter, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from annotations import AnnotationManager
+from column_math import FormulaError, evaluate_column_formula
 from plot_export import save_figure
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
+from qt_widgets import (
+    AnnotationToolBar, ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton,
+)
 from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
 
 
@@ -31,6 +34,8 @@ STYLE = LIGHT_STYLE
 
 class DataTable(QTableWidget):
     """Editable grid with spreadsheet-compatible copy, paste, and delete."""
+
+    historyRestored = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -49,6 +54,11 @@ class DataTable(QTableWidget):
             "rows": self.rowCount(), "columns": self.columnCount(),
             "headers": [
                 self.horizontalHeaderItem(col).text() if self.horizontalHeaderItem(col) else ""
+                for col in range(self.columnCount())
+            ],
+            "header_data": [
+                self.horizontalHeaderItem(col).data(Qt.ItemDataRole.UserRole)
+                if self.horizontalHeaderItem(col) else None
                 for col in range(self.columnCount())
             ],
             "cells": [
@@ -95,12 +105,16 @@ class DataTable(QTableWidget):
         self.setRowCount(snapshot["rows"])
         self.setColumnCount(snapshot["columns"])
         self.setHorizontalHeaderLabels(snapshot["headers"])
+        for column, value in enumerate(snapshot.get("header_data", [])):
+            if value is not None and self.horizontalHeaderItem(column):
+                self.horizontalHeaderItem(column).setData(Qt.ItemDataRole.UserRole, value)
         for row, values in enumerate(snapshot["cells"]):
             for col, value in enumerate(values):
                 if value:
                     self.setItem(row, col, QTableWidgetItem(value))
         self._history_suspended = False
         self._last_state = self._snapshot()
+        self.historyRestored.emit()
 
     def undo_edit(self):
         if not self.undo_stack:
@@ -274,22 +288,29 @@ class GeneralPlotter(QWidget):
         self.file_label = QLabel("Manual data"); self.file_label.setWordWrap(True)
         data_layout.addWidget(self.file_label)
         self.table = DataTable(); self.table.itemChanged.connect(self._table_changed)
+        self.table.historyRestored.connect(self._refresh_columns)
         self.table.model().columnsInserted.connect(
             lambda *_args: None if self._loading_table else self._refresh_columns()
         )
         data_layout.addWidget(self.table, 1)
-        edit_row = QHBoxLayout()
-        for text, slot in (("Insert row", self.add_row), ("Delete row(s)", self.delete_rows),
-                           ("Insert column", self.add_column), ("Delete column(s)", self.delete_columns),
-                           ("Rename", self.rename_column)):
-            button = QPushButton(text); button.clicked.connect(slot); edit_row.addWidget(button)
+        edit_row = QGridLayout()
+        for index, (text, slot) in enumerate((
+            ("Insert row", self.add_row), ("Delete row(s)", self.delete_rows),
+            ("Insert column", self.add_column), ("Delete column(s)", self.delete_columns),
+            ("Rename", self.rename_column),
+        )):
+            button = QPushButton(text); button.clicked.connect(slot)
+            edit_row.addWidget(button, index // 3, index % 3)
         data_layout.addLayout(edit_row)
-        role_row = QHBoxLayout()
+        role_row = QGridLayout()
         set_x = QPushButton("Set selected column as X")
         set_x.clicked.connect(self.set_selected_column_as_x)
         add_y = QPushButton("Add selected column(s) as Y")
         add_y.clicked.connect(self.add_selected_columns_as_y)
-        role_row.addWidget(set_x); role_row.addWidget(add_y)
+        formula = QPushButton("ƒx Calculated column")
+        formula.clicked.connect(self.add_formula_column)
+        role_row.addWidget(set_x, 0, 0); role_row.addWidget(add_y, 0, 1)
+        role_row.addWidget(formula, 1, 0, 1, 2)
         data_layout.addLayout(role_row)
         table_history = QHBoxLayout()
         for text, slot in (("↶ Undo data", self._undo_table), ("↷ Redo data", self._redo_table)):
@@ -717,6 +738,38 @@ class GeneralPlotter(QWidget):
             if old in self.series_styles:
                 self.series_styles[name] = self.series_styles.pop(old)
             self._refresh_columns()
+
+    def add_formula_column(self):
+        headers = [
+            self.table.horizontalHeaderItem(column).text()
+            if self.table.horizontalHeaderItem(column) else f"Column {column + 1}"
+            for column in range(self.table.columnCount())
+        ]
+        dialog = ColumnFormulaDialog(headers, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name, expression = dialog.result
+        frame = self._dataframe(True)
+        columns = [
+            pd.to_numeric(frame[header], errors="coerce").to_numpy(float)
+            for header in frame.columns
+        ]
+        try:
+            result = evaluate_column_formula(expression, columns)
+        except FormulaError as error:
+            QMessageBox.warning(self, "Formula error", str(error))
+            return
+        unique_name = _unique_headers(headers + [name])[-1]
+        column = self.table.columnCount()
+        self.table.begin_command()
+        self.table.insertColumn(column)
+        self.table.setHorizontalHeaderItem(column, QTableWidgetItem(unique_name))
+        for row, value in enumerate(result):
+            if np.isfinite(value):
+                self.table.setItem(row, column, QTableWidgetItem(f"{float(value):.12g}"))
+        self.table.end_command()
+        self._refresh_columns()
+        self.table.selectColumn(column)
 
     def _default_style(self, series):
         names = [self.style_series.itemText(i) for i in range(self.style_series.count())]
