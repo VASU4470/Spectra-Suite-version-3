@@ -245,6 +245,57 @@ class StartupTests(unittest.TestCase):
         viewer._skip_close_prompt = True
         viewer.close()
 
+    def test_peak_labels_align_inward_at_horizontal_edges(self):
+        reset_state("UVVIS")
+        x = np.linspace(200.0, 800.0, 301)
+        y = np.linspace(1.0, 2.0, 301)
+        state.all_data = [("sample", x.copy(), y.copy())]
+        state.init_file_settings()
+        state.file_set["sample"].update(
+            smooth=0, auto_clean_edges=False,
+            labels=[(x[0], y[0], "left edge"), (x[-1], y[-1], "right edge")],
+        )
+        viewer = PlotViewer(state.all_data, "Edge label test")
+        labels = {artist.get_text(): artist for artist in viewer.ax.texts}
+        self.assertEqual(labels["left edge"].get_horizontalalignment(), "left")
+        self.assertEqual(labels["right edge"].get_horizontalalignment(), "right")
+        viewer._skip_close_prompt = True
+        viewer.close()
+
+    def test_legend_names_are_editable_without_renaming_source_data(self):
+        reset_state("UVVIS")
+        x = np.linspace(200.0, 800.0, 301)
+        state.all_data = [
+            ("sample.csv · Absorbance", x.copy(), np.sin(x)),
+            ("sample.csv · Reference", x.copy(), np.cos(x)),
+        ]
+        state.settings["mode"] = "overlay"
+        state.init_file_settings()
+        viewer = PlotViewer(state.all_data, "Legend edit test")
+        item = viewer.legend_name_list.item(0)
+        item.setText("Ag sample")
+        self.app.processEvents()
+        self.assertEqual(state.file_set["sample.csv · Absorbance"]["custom_name"], "Ag sample")
+        self.assertEqual(viewer.stems[0], "sample.csv · Absorbance")
+        self.assertIn("Ag sample", [text.get_text() for text in viewer.ax.get_legend().texts])
+        viewer._skip_close_prompt = True
+        viewer.close()
+
+    def test_xrd_peak_click_snaps_only_to_the_nearby_peak(self):
+        reset_state("XRD")
+        x = np.linspace(20.0, 80.0, 6001)
+        nearby = 4.0 * np.exp(-0.5 * ((x - 30.0) / 0.08) ** 2)
+        stronger_neighbour = 20.0 * np.exp(-0.5 * ((x - 30.8) / 0.08) ** 2)
+        y = 1.0 + nearby + stronger_neighbour
+        state.all_data = [("sample", x.copy(), y.copy())]
+        state.init_file_settings()
+        viewer = PlotViewer(state.all_data, "XRD snapping test")
+        result = viewer.calculate_xrd_peak(30.0, x, y)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result[0], 30.0, places=2)
+        viewer._skip_close_prompt = True
+        viewer.close()
+
     def test_general_spreadsheet_plotter_constructs_and_plots(self):
         plotter = GeneralPlotter()
         plotter.table.setItem(0, 0, QTableWidgetItem("1"))

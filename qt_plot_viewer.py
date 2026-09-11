@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -555,6 +556,8 @@ class PlotViewer(QDialog):
         appearance = QGroupBox("Line & Processing")
         form = QFormLayout(appearance)
         self.name_edit = QLineEdit()
+        self.name_edit.setToolTip("Press Enter to update this series name in the legend")
+        self.name_edit.returnPressed.connect(self._commit_display_name)
         form.addRow("Display name", self.name_edit)
         color_row = QWidget()
         color_layout = QHBoxLayout(color_row)
@@ -689,6 +692,17 @@ class PlotViewer(QDialog):
         legend_form.addRow("Position", self.legend_location)
         legend_form.addRow("Font size", self.legend_size)
         legend_form.addRow("Font color", legend_color_row)
+        self.legend_name_list = QListWidget()
+        self.legend_name_list.setMinimumHeight(105)
+        self.legend_name_list.setToolTip(
+            "Double-click a name to edit it. The original file or column name is shown as a tooltip."
+        )
+        self.legend_name_list.itemChanged.connect(self._legend_name_changed)
+        self.legend_name_list.currentItemChanged.connect(self._legend_series_selected)
+        legend_form.addRow("Series names", self.legend_name_list)
+        edit_legend_name = QPushButton("Edit selected legend name")
+        edit_legend_name.clicked.connect(self._edit_selected_legend_name)
+        legend_form.addRow(edit_legend_name)
         layout.addWidget(legend)
         apply_button = QPushButton("Apply axes settings")
         apply_button.setObjectName("primary")
@@ -793,7 +807,8 @@ class PlotViewer(QDialog):
         form.addRow("Canvas mode", self.click_mode)
         self.prominence_spin = QDoubleSpinBox()
         self.prominence_spin.setRange(0, 1e9)
-        self.prominence_spin.setDecimals(4)
+        self.prominence_spin.setDecimals(6)
+        self.prominence_spin.setSingleStep(0.01)
         self.prominence_spin.setValue(0.0)
         self.auto_peak_threshold_check = QCheckBox("Automatic noise-adaptive threshold")
         self.auto_peak_threshold_check.setChecked(True)
@@ -802,7 +817,9 @@ class PlotViewer(QDialog):
         form.addRow("Peak prominence", self.prominence_spin)
         self.xrd_height_spin = QDoubleSpinBox()
         self.xrd_height_spin.setRange(-1e9, 1e9)
-        self.xrd_height_spin.setValue(5.0)
+        self.xrd_height_spin.setDecimals(6)
+        self.xrd_height_spin.setSingleStep(0.1)
+        self.xrd_height_spin.setValue(0.0)
         self.xrd_height_spin.setVisible(state.technique == "XRD")
         self.xrd_height_label = QLabel("XRD minimum height")
         self.xrd_height_label.setVisible(state.technique == "XRD")
@@ -994,7 +1011,77 @@ class PlotViewer(QDialog):
         self.legend_location.setCurrentIndex(max(0, legend_index))
         self.legend_size.setValue(float(state.global_set.get("legend_fontsize", 9)))
         self.legend_color.setText(str(state.global_set.get("legend_color", "#172033")))
+        self._sync_legend_name_list()
         self.sync_peak_list()
+
+    def _sync_legend_name_list(self):
+        if not hasattr(self, "legend_name_list"):
+            return
+        self.legend_name_list.blockSignals(True)
+        existing_stems = [
+            self.legend_name_list.item(index).data(Qt.ItemDataRole.UserRole)
+            for index in range(self.legend_name_list.count())
+        ]
+        rebuild = existing_stems != self.stems
+        if rebuild:
+            self.legend_name_list.clear()
+        current_item = None
+        for index, stem in enumerate(self.stems):
+            display_name = str(state.file_set.get(stem, {}).get("custom_name", stem))
+            if rebuild:
+                item = QListWidgetItem(display_name)
+                item.setData(Qt.ItemDataRole.UserRole, stem)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+                self.legend_name_list.addItem(item)
+            else:
+                item = self.legend_name_list.item(index)
+                item.setText(display_name)
+            item.setToolTip(f"Source: {stem}\nDouble-click to edit the displayed legend name.")
+            if stem == self.current_stem:
+                current_item = item
+        if current_item is not None:
+            self.legend_name_list.setCurrentItem(current_item)
+        self.legend_name_list.blockSignals(False)
+
+    def _legend_series_selected(self, item, _previous=None):
+        if item is None:
+            return
+        stem = item.data(Qt.ItemDataRole.UserRole)
+        if stem in self.data_dict and stem != self.current_stem:
+            self.file_combo.setCurrentText(stem)
+
+    def _edit_selected_legend_name(self):
+        item = self.legend_name_list.currentItem()
+        if item is not None:
+            self.legend_name_list.editItem(item)
+
+    def _legend_name_changed(self, item):
+        stem = item.data(Qt.ItemDataRole.UserRole)
+        if stem not in state.file_set:
+            return
+        new_name = item.text().strip()
+        old_name = str(state.file_set[stem].get("custom_name", stem))
+        if not new_name:
+            item.setText(old_name)
+            return
+        if new_name == old_name:
+            return
+        self._checkpoint_state()
+        state.file_set[stem]["custom_name"] = new_name
+        if stem == self.current_stem:
+            self.name_edit.setText(new_name)
+        item.setToolTip(f"Source: {stem}\nDouble-click to edit the displayed legend name.")
+        self.update_plot()
+
+    def _commit_display_name(self):
+        new_name = self.name_edit.text().strip() or self.current_stem
+        old_name = str(state.file_set[self.current_stem].get("custom_name", self.current_stem))
+        if new_name == old_name:
+            return
+        self._checkpoint_state()
+        state.file_set[self.current_stem]["custom_name"] = new_name
+        self._sync_legend_name_list()
+        self.update_plot()
 
     def save_and_update(self):
         self._checkpoint_state()
@@ -1026,6 +1113,7 @@ class PlotViewer(QDialog):
             legend_fontsize=self.legend_size.value(),
             legend_color=self.legend_color.text().strip() or "#172033",
         )
+        self._sync_legend_name_list()
         self.update_plot()
 
     def apply_to_all(self):
@@ -1196,6 +1284,7 @@ class PlotViewer(QDialog):
                     bg_mult=1.0,
                 )
             self.file_combo.addItem(stem)
+        self._sync_legend_name_list()
         if failures:
             QMessageBox.warning(
                 self, "Some files skipped",
@@ -1279,6 +1368,7 @@ class PlotViewer(QDialog):
         self.file_combo.addItems(self.stems)
         self.file_combo.setCurrentText(self.current_stem)
         self.file_combo.blockSignals(False)
+        self._sync_legend_name_list()
         self.update_plot()
 
     def move_current_spatial(self, direction):
@@ -1345,7 +1435,9 @@ class PlotViewer(QDialog):
                 picker=6,
             )[0]
             self._artist_to_stem[line] = stem
-            padding = label_padding.setdefault(ax, [0.0, 0.0])
+            # Fractions are [horizontal, bottom, top]. Horizontal padding
+            # protects centered labels on the first/last measured point.
+            padding = label_padding.setdefault(ax, [0.0, 0.0, 0.0])
             upward_labels = peak_polarity(
                 state.technique, bool(fs.get("t2a", False))
             ) == "up"
@@ -1353,26 +1445,35 @@ class PlotViewer(QDialog):
                 marker = "^" if upward_labels else "v"
                 offset = 14 if upward_labels else -14
                 vertical_alignment = "bottom" if upward_labels else "top"
+                horizontal_alignment, horizontal_offset = self._peak_label_horizontal_position(
+                    px, x
+                )
                 ax.plot(px, py, marker, color=color, markersize=7)
                 ax.annotate(
-                    text_value, (px, py), xytext=(0, offset),
-                    textcoords="offset points", ha="center", va=vertical_alignment,
+                    text_value, (px, py), xytext=(horizontal_offset, offset),
+                    textcoords="offset points", ha=horizontal_alignment, va=vertical_alignment,
                     annotation_clip=True,
                 )
-                padding[1 if upward_labels else 0] = max(
-                    padding[1 if upward_labels else 0], 0.16
+                padding[0] = max(padding[0], 0.01)
+                padding[2 if upward_labels else 1] = max(
+                    padding[2 if upward_labels else 1], 0.09
                 )
             for px, py, fwhm, size in fs.get("xrd_peaks", []):
                 label = f"2θ: {px:.1f}°"
                 if self.show_fwhm_check.isChecked():
                     label += f"\nFWHM: {fwhm:.2f}°\nD: {size:.1f} nm"
+                horizontal_alignment, horizontal_offset = self._peak_label_horizontal_position(
+                    px, x
+                )
                 ax.plot(px, py, "o", color=color, markersize=5)
                 ax.annotate(
-                    label, (px, py), xytext=(0, 10), textcoords="offset points",
-                    ha="center", va="bottom", annotation_clip=True,
+                    label, (px, py), xytext=(horizontal_offset, 10),
+                    textcoords="offset points", ha=horizontal_alignment, va="bottom",
+                    annotation_clip=True,
                 )
-                padding[1] = max(
-                    padding[1], 0.34 if self.show_fwhm_check.isChecked() else 0.16
+                padding[0] = max(padding[0], 0.01)
+                padding[2] = max(
+                    padding[2], 0.12 if self.show_fwhm_check.isChecked() else 0.07
                 )
             for x1, x2, area in fs.get("areas", []):
                 mask = (x >= x1) & (x <= x2)
@@ -1399,8 +1500,21 @@ class PlotViewer(QDialog):
         if extents:
             for ax in unique_axes:
                 self._style_axis(ax, extents, is_stack)
-            if not state.global_set.get("ylim"):
-                for ax, (bottom_fraction, top_fraction) in label_padding.items():
+            for ax, (horizontal_fraction, bottom_fraction, top_fraction) in label_padding.items():
+                if horizontal_fraction and not state.global_set.get("xlim"):
+                    left, right = ax.get_xlim()
+                    span = abs(right - left) or 1.0
+                    if left <= right:
+                        ax.set_xlim(
+                            left - span * horizontal_fraction,
+                            right + span * horizontal_fraction,
+                        )
+                    else:
+                        ax.set_xlim(
+                            left + span * horizontal_fraction,
+                            right - span * horizontal_fraction,
+                        )
+                if not state.global_set.get("ylim"):
                     bottom, top = ax.get_ylim()
                     span = abs(top - bottom) or 1.0
                     ax.set_ylim(
@@ -1431,6 +1545,26 @@ class PlotViewer(QDialog):
             pass
         self.canvas.draw_idle()
         self.sync_peak_list()
+
+    @staticmethod
+    def _peak_label_horizontal_position(x_value, x_values):
+        """Keep centered peak text from crossing the left or right plot border."""
+        finite = np.asarray(x_values, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if len(finite) < 2:
+            return "center", 0
+        low, high = float(np.min(finite)), float(np.max(finite))
+        span = high - low
+        if span <= 0:
+            return "center", 0
+        fraction = (float(x_value) - low) / span
+        if state.technique == "FTIR":
+            fraction = 1.0 - fraction
+        if fraction <= 0.08:
+            return "left", 4
+        if fraction >= 0.92:
+            return "right", -4
+        return "center", 0
 
     def _style_axis(self, ax, extents, is_stack):
         gs = state.global_set
@@ -1640,12 +1774,27 @@ class PlotViewer(QDialog):
         self.update_plot()
 
     def calculate_xrd_peak(self, x_click, x, y):
-        mask = (x >= x_click - 1.0) & (x <= x_click + 1.0)
-        if not np.any(mask):
+        x_values = np.asarray(x, dtype=float)
+        y_values = np.asarray(y, dtype=float)
+        finite_x = x_values[np.isfinite(x_values)]
+        if not len(finite_x):
             return None
-        xw, yw = x[mask], y[mask]
-        index = int(np.argmax(yw))
-        peak_x, peak_y = xw[index], yw[index]
+        spacing = np.median(np.abs(np.diff(np.unique(np.sort(finite_x))))) if len(finite_x) > 1 else 0.0
+        # Snap only to the nearby peak. The former +/-1 degree search could
+        # unexpectedly jump from a shoulder to a neighbouring strong peak.
+        snap_half_width = max(float(spacing) * 3.0, min(float(np.ptp(finite_x)) * 0.006, 0.5))
+        snap_mask = np.abs(x_values - float(x_click)) <= snap_half_width
+        snap_mask &= np.isfinite(y_values)
+        if not np.any(snap_mask):
+            return None
+        candidates = np.flatnonzero(snap_mask)
+        peak_index = int(candidates[np.argmax(y_values[candidates])])
+        peak_x, peak_y = x_values[peak_index], y_values[peak_index]
+        measure_mask = np.abs(x_values - peak_x) <= max(1.0, snap_half_width)
+        xw, yw = x_values[measure_mask], y_values[measure_mask]
+        order = np.argsort(xw)
+        xw, yw = xw[order], yw[order]
+        index = int(np.abs(xw - peak_x).argmin())
         half = peak_y / 2
         try:
             left = np.interp(half, yw[:index], xw[:index])
