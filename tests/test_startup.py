@@ -246,8 +246,13 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(viewer.project_data_list.count(), 2)
         self.assertEqual(len(viewer.series_chip_buttons), 2)
         self.assertEqual(
+            [viewer.canvas_tabs.tabText(index) for index in range(viewer.canvas_tabs.count())],
+            ["Plot", "Data table"],
+        )
+        self.assertTrue(viewer.canvas_tabs.widget(1).isAncestorOf(viewer.data_table))
+        self.assertEqual(
             [viewer.detail_tabs.tabText(index) for index in range(viewer.detail_tabs.count())],
-            ["Results", "Data table", "History"],
+            ["Results", "History"],
         )
 
         viewer.workflow_buttons["Analyze"].click()
@@ -258,6 +263,10 @@ class StartupTests(unittest.TestCase):
         viewer.command_search.returnPressed.emit()
         self.assertEqual(viewer.tabs.currentIndex(), 1)
         self.assertEqual(viewer.inspector_title.text(), "Style figure")
+        viewer.command_search.setText("open data table")
+        viewer.command_search.returnPressed.emit()
+        self.assertEqual(viewer.canvas_tabs.currentIndex(), 1)
+        self.assertEqual(viewer.inspector_title.text(), "Prepare figure")
 
         viewer.project_data_list.setCurrentRow(1)
         self.assertEqual(viewer.current_stem, "sample")

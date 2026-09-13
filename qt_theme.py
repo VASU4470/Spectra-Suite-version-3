@@ -216,6 +216,25 @@ QFrame#contextInspector {
 }
 QTabWidget#inspectorPages::pane { border: none; background-color: transparent; }
 QTabWidget#inspectorPages QScrollArea { background-color: transparent; }
+QTabWidget#canvasTabs::pane {
+    background-color: #ffffff;
+    border: none;
+    border-top: 1px solid #e2e8f0;
+}
+QTabWidget#canvasTabs QTabBar::tab {
+    background-color: #ffffff;
+    color: #526178;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 7px 18px;
+}
+QTabWidget#canvasTabs QTabBar::tab:selected {
+    color: #1d4ed8;
+    background-color: #eff6ff;
+    border-bottom: 2px solid #2563eb;
+    font-weight: 700;
+}
+QWidget#dataWorkspace { background-color: #ffffff; }
 QFrame#detailDrawer {
     background-color: #ffffff;
     border: 1px solid #d7e0ec;

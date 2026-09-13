@@ -656,7 +656,11 @@ class PlotViewer(QDialog):
         toolbar_row.addWidget(self.toolbar_toggle)
         plot_layout.addLayout(toolbar_row)
         plot_layout.addWidget(self.cursor_label)
-        center_layout.addWidget(self.plot_panel, 1)
+        self.canvas_tabs = QTabWidget()
+        self.canvas_tabs.setObjectName("canvasTabs")
+        self.canvas_tabs.setDocumentMode(True)
+        self.canvas_tabs.addTab(self.plot_panel, "Plot")
+        center_layout.addWidget(self.canvas_tabs, 1)
         self.splitter.addWidget(self.center_panel)
         self.splitter.addWidget(self.controls)
         self.splitter.setStretchFactor(0, 0)
@@ -684,6 +688,7 @@ class PlotViewer(QDialog):
         self.detail_tabs.addTab(results_page, "Results")
 
         table_page = QWidget()
+        table_page.setObjectName("dataWorkspace")
         table_layout = QVBoxLayout(table_page)
         table_layout.setContentsMargins(8, 6, 8, 6)
         table_layout.setSpacing(5)
@@ -724,7 +729,8 @@ class PlotViewer(QDialog):
         apply_table.clicked.connect(self._apply_data_table)
         data_tools.addWidget(apply_table)
         table_layout.addLayout(data_tools)
-        self.detail_tabs.addTab(table_page, "Data table")
+        self.canvas_tabs.addTab(table_page, "Data table")
+        self.canvas_tabs.currentChanged.connect(self._canvas_view_changed)
 
         history_page = QWidget()
         history_layout = QVBoxLayout(history_page)
@@ -737,9 +743,9 @@ class PlotViewer(QDialog):
         self.workspace_splitter.addWidget(self.data_panel)
         self.workspace_splitter.setStretchFactor(0, 1)
         self.workspace_splitter.setStretchFactor(1, 0)
-        self.workspace_splitter.setSizes([625, 205])
+        self.workspace_splitter.setSizes([690, 140])
         self.data_toggle = PanelToggleButton(self.data_panel, "bottom", self)
-        self.data_toggle.setToolTip("Hide details drawer")
+        self.data_toggle.setToolTip("Hide results and history")
         header.addWidget(self.data_toggle)
         self.project_toggle = PanelToggleButton(self.project_sidebar, "left", self)
         self.project_toggle.setToolTip("Hide project sidebar")
@@ -766,9 +772,8 @@ class PlotViewer(QDialog):
         self.inspector_subtitle.setText(subtitle)
         if self.controls.isHidden():
             self.controls_toggle.set_panel_visible(True)
-        if name == "Prepare":
-            self.detail_tabs.setCurrentIndex(1)
-        elif name == "Analyze":
+        if name == "Analyze":
+            self.canvas_tabs.setCurrentIndex(0)
             self.detail_tabs.setCurrentIndex(0)
 
     def _run_command_search(self):
@@ -789,6 +794,8 @@ class PlotViewer(QDialog):
         )
         if destination:
             self._activate_workflow(destination)
+            if destination == "Prepare" and "table" in query:
+                self.canvas_tabs.setCurrentIndex(1)
             self.command_search.clear()
             self.command_search.setPlaceholderText(f"Opened {destination} tools")
         else:
@@ -797,6 +804,11 @@ class PlotViewer(QDialog):
             self.command_search.setToolTip(
                 "Try peak, baseline, table, formula, axes, legend, annotation, export or save."
             )
+
+    def _canvas_view_changed(self, index):
+        """Keep the inspector relevant when the central document changes."""
+        if index == 1 and hasattr(self, "tabs"):
+            self._activate_workflow("Prepare")
 
     def _project_series_selected(self, item, _previous=None):
         if item is None or not hasattr(self, "file_combo"):
@@ -961,7 +973,7 @@ class PlotViewer(QDialog):
         view_menu = menu_bar.addMenu("&View")
         self.view_project_action = QAction("Project and data sidebar", self)
         self.view_controls_action = QAction("Contextual inspector", self)
-        self.view_data_action = QAction("Details drawer", self)
+        self.view_data_action = QAction("Results and history drawer", self)
         self.view_toolbar_action = QAction("Plot navigation toolbar", self)
         for action in (
             self.view_project_action, self.view_controls_action,
@@ -986,6 +998,15 @@ class PlotViewer(QDialog):
         self.toolbar_toggle.toggled.connect(
             lambda hidden: self.view_toolbar_action.setChecked(not hidden)
         )
+        view_menu.addSeparator()
+        plot_workspace = QAction("Show plot workspace", self)
+        plot_workspace.setShortcut(QKeySequence("Ctrl+1"))
+        plot_workspace.triggered.connect(lambda: self.canvas_tabs.setCurrentIndex(0))
+        view_menu.addAction(plot_workspace)
+        table_workspace = QAction("Show data-table workspace", self)
+        table_workspace.setShortcut(QKeySequence("Ctrl+2"))
+        table_workspace.triggered.connect(lambda: self.canvas_tabs.setCurrentIndex(1))
+        view_menu.addAction(table_workspace)
 
         analysis_menu = menu_bar.addMenu("&Analysis")
         for _glyph, label, value, _color, _background in self.click_mode.TOOLS:
