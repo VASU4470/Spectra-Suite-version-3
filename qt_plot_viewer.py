@@ -13,9 +13,10 @@ from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QButtonGroup,
     QCheckBox,
     QColorDialog,
     QComboBox,
@@ -443,7 +444,7 @@ class PlotViewer(QDialog):
         self.annotation_mgr = AnnotationManager(
             self.canvas,
             on_select_callback=self._annotation_selected,
-            on_list_update_callback=lambda _items: self._sync_annotation_list(),
+            on_list_update_callback=lambda _items: self._annotation_list_updated(),
             text_input_provider=self._request_annotation_text,
         )
         self.update_controller = UpdateController(self)
@@ -457,22 +458,89 @@ class PlotViewer(QDialog):
     def _build_layout(self):
         root = QVBoxLayout(self)
         self.root_layout = root
-        root.setContentsMargins(8, 8, 8, 8)
+        root.setContentsMargins(8, 6, 8, 8)
+        root.setSpacing(6)
 
-        self.controls = QWidget()
-        self.controls.setMinimumWidth(250)
+        # Application header: a small number of persistent, global actions.
+        # Technique-specific work stays in the workflow strip and inspector.
+        self.app_header = QFrame()
+        self.app_header.setObjectName("workspaceHeader")
+        header = QHBoxLayout(self.app_header)
+        header.setContentsMargins(12, 8, 10, 8)
+        header.setSpacing(8)
+        brand = QLabel("SpectraSuite")
+        brand.setObjectName("workspaceBrand")
+        header.addWidget(brand)
+        technique = QLabel({
+            "FTIR": "FT–IR", "UVVIS": "UV–Vis", "RAMAN": "Raman",
+            "GENERAL": "2D Plot",
+        }.get(state.technique, state.technique))
+        technique.setObjectName("techniqueBadge")
+        header.addWidget(technique)
+        project = QWidget()
+        project_layout = QVBoxLayout(project)
+        project_layout.setContentsMargins(8, 0, 12, 0)
+        project_layout.setSpacing(0)
+        self.project_title_label = QLabel(self.windowTitle())
+        self.project_title_label.setObjectName("projectTitle")
+        project_layout.addWidget(self.project_title_label)
+        self.project_summary_label = QLabel(f"{len(self.stems)} spectrum{'s' if len(self.stems) != 1 else ''} · Ready")
+        self.project_summary_label.setObjectName("mutedLabel")
+        project_layout.addWidget(self.project_summary_label)
+        header.addWidget(project)
+        self.command_search = QLineEdit()
+        self.command_search.setObjectName("commandSearch")
+        self.command_search.setPlaceholderText("Find a tool or action…")
+        self.command_search.setClearButtonEnabled(True)
+        self.command_search.setMinimumWidth(260)
+        self.command_search.setMaximumWidth(540)
+        self.command_search.returnPressed.connect(self._run_command_search)
+        header.addWidget(self.command_search, 1)
+        save_button = QPushButton("Save")
+        save_button.setToolTip("Save workspace session")
+        save_button.clicked.connect(lambda: self.save_session(save_as=True))
+        header.addWidget(save_button)
+        undo_button = QToolButton()
+        undo_button.setText("↶")
+        undo_button.setToolTip("Undo")
+        undo_button.setAccessibleName("Undo")
+        undo_button.clicked.connect(self._undo_active)
+        header.addWidget(undo_button)
+        redo_button = QToolButton()
+        redo_button.setText("↷")
+        redo_button.setToolTip("Redo")
+        redo_button.setAccessibleName("Redo")
+        redo_button.clicked.connect(self._redo_active)
+        header.addWidget(redo_button)
+        root.addWidget(self.app_header)
+
+        # The inspector remains available through the historical ``controls``
+        # attribute so existing session and GUI code keeps working.
+        self.controls = QFrame()
+        self.controls.setObjectName("contextInspector")
+        self.controls.setMinimumWidth(285)
+        self.controls.setMaximumWidth(440)
         self.controls_layout = QVBoxLayout(self.controls)
-        self.controls_layout.setContentsMargins(0, 0, 4, 0)
+        self.controls_layout.setContentsMargins(10, 10, 10, 8)
+        self.controls_layout.setSpacing(7)
+        inspector_header = QHBoxLayout()
+        inspector_titles = QWidget()
+        inspector_titles_layout = QVBoxLayout(inspector_titles)
+        inspector_titles_layout.setContentsMargins(0, 0, 0, 0)
+        inspector_titles_layout.setSpacing(0)
+        self.inspector_title = QLabel("Prepare figure")
+        self.inspector_title.setObjectName("inspectorTitle")
+        self.inspector_subtitle = QLabel("Data, processing and layout")
+        self.inspector_subtitle.setObjectName("mutedLabel")
+        self.inspector_subtitle.setWordWrap(True)
+        inspector_titles_layout.addWidget(self.inspector_title)
+        inspector_titles_layout.addWidget(self.inspector_subtitle)
+        inspector_header.addWidget(inspector_titles, 1)
+        self.controls_layout.addLayout(inspector_header)
 
-        visibility = QHBoxLayout()
-        self.controls_toggle = PanelToggleButton(self.controls, "left", self)
-        self.controls_toggle.setToolTip("Hide side panel")
-        visibility.addWidget(QLabel("Side panel"))
-        visibility.addWidget(self.controls_toggle)
-        visibility.addSpacing(10)
-        visibility.addWidget(QLabel("Data table"))
-        visibility.addStretch()
-        root.addLayout(visibility)
+        self.controls_toggle = PanelToggleButton(self.controls, "right", self)
+        self.controls_toggle.setToolTip("Hide inspector")
+        header.addWidget(self.controls_toggle)
 
         self.workspace_splitter = QSplitter(Qt.Orientation.Vertical)
         self.workspace_splitter.setChildrenCollapsible(True)
@@ -482,11 +550,96 @@ class PlotViewer(QDialog):
         self.splitter.setChildrenCollapsible(True)
         self.workspace_splitter.addWidget(self.splitter)
 
-        self.splitter.addWidget(self.controls)
+        self.project_sidebar = QFrame()
+        self.project_sidebar.setObjectName("projectSidebar")
+        self.project_sidebar.setMinimumWidth(205)
+        self.project_sidebar.setMaximumWidth(310)
+        project_sidebar_layout = QVBoxLayout(self.project_sidebar)
+        project_sidebar_layout.setContentsMargins(10, 10, 10, 10)
+        project_sidebar_layout.setSpacing(7)
+        new_analysis = QPushButton("＋  New analysis")
+        new_analysis.setObjectName("primary")
+        new_analysis.setToolTip("Import another spectrum into this workspace")
+        new_analysis.clicked.connect(self.add_files)
+        project_sidebar_layout.addWidget(new_analysis)
+        data_heading = QLabel("PROJECT DATA")
+        data_heading.setObjectName("sectionLabel")
+        project_sidebar_layout.addWidget(data_heading)
+        self.project_data_list = QListWidget()
+        self.project_data_list.setObjectName("projectDataList")
+        self.project_data_list.setMinimumHeight(150)
+        self.project_data_list.currentItemChanged.connect(self._project_series_selected)
+        project_sidebar_layout.addWidget(self.project_data_list, 1)
+        quick_heading = QLabel("WORKFLOWS")
+        quick_heading.setObjectName("sectionLabel")
+        project_sidebar_layout.addWidget(quick_heading)
+        prepare_shortcut = QPushButton("≈  Prepare figure")
+        prepare_shortcut.setObjectName("sidebarAction")
+        prepare_shortcut.clicked.connect(lambda: self._activate_workflow("Prepare"))
+        project_sidebar_layout.addWidget(prepare_shortcut)
+        peaks_shortcut = QPushButton("⌁  Find peaks")
+        peaks_shortcut.setObjectName("sidebarAction")
+        peaks_shortcut.clicked.connect(lambda: self._activate_workflow("Analyze"))
+        project_sidebar_layout.addWidget(peaks_shortcut)
+        project_sidebar_layout.addStretch()
+        data_help = QLabel("Select a spectrum here or click a line directly on the plot.")
+        data_help.setObjectName("mutedLabel")
+        data_help.setWordWrap(True)
+        project_sidebar_layout.addWidget(data_help)
+        self.splitter.addWidget(self.project_sidebar)
+
+        self.center_panel = QFrame()
+        self.center_panel.setObjectName("canvasPanel")
+        center_layout = QVBoxLayout(self.center_panel)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+
+        self.workflow_bar = QFrame()
+        self.workflow_bar.setObjectName("workflowBar")
+        workflow_layout = QHBoxLayout(self.workflow_bar)
+        workflow_layout.setContentsMargins(8, 5, 8, 5)
+        workflow_layout.setSpacing(2)
+        self.workflow_button_group = QButtonGroup(self)
+        self.workflow_button_group.setExclusive(True)
+        self.workflow_buttons = {}
+        for index, (name, glyph) in enumerate((
+            ("Prepare", "≈"), ("Analyze", "⌁"), ("Style", "◐"),
+            ("Annotate", "T"), ("Export", "↓"),
+        )):
+            button = QToolButton()
+            button.setText(f"{glyph}  {name}")
+            button.setToolTip(f"Open {name.lower()} tools")
+            button.setAccessibleName(f"{name} workflow")
+            button.setCheckable(True)
+            button.setObjectName("workflowButton")
+            button.clicked.connect(
+                lambda checked=False, selected=name: checked and self._activate_workflow(selected)
+            )
+            self.workflow_button_group.addButton(button, index)
+            self.workflow_buttons[name] = button
+            workflow_layout.addWidget(button)
+        workflow_layout.addStretch()
+        center_layout.addWidget(self.workflow_bar)
+
+        self.series_bar = QFrame()
+        self.series_bar.setObjectName("seriesBar")
+        self.series_chip_layout = QHBoxLayout(self.series_bar)
+        self.series_chip_layout.setContentsMargins(10, 6, 10, 6)
+        self.series_chip_layout.setSpacing(6)
+        self.series_scroll = QScrollArea()
+        self.series_scroll.setObjectName("seriesScroll")
+        self.series_scroll.setWidgetResizable(True)
+        self.series_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.series_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.series_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.series_scroll.setMinimumHeight(47)
+        self.series_scroll.setMaximumHeight(64)
+        self.series_scroll.setWidget(self.series_bar)
+        center_layout.addWidget(self.series_scroll)
 
         self.plot_panel = QWidget()
         plot_layout = QVBoxLayout(self.plot_panel)
-        plot_layout.setContentsMargins(4, 0, 0, 0)
+        plot_layout.setContentsMargins(8, 4, 8, 4)
         self.figure = Figure(figsize=(10, 6), dpi=100)
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.canvas.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -503,28 +656,48 @@ class PlotViewer(QDialog):
         toolbar_row.addWidget(self.toolbar_toggle)
         plot_layout.addLayout(toolbar_row)
         plot_layout.addWidget(self.cursor_label)
-        self.splitter.addWidget(self.plot_panel)
+        center_layout.addWidget(self.plot_panel, 1)
+        self.splitter.addWidget(self.center_panel)
+        self.splitter.addWidget(self.controls)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([390, 1040])
+        self.splitter.setStretchFactor(2, 0)
+        self.splitter.setSizes([225, 880, 330])
 
-        self.data_panel = QWidget()
+        self.data_panel = QFrame()
+        self.data_panel.setObjectName("detailDrawer")
         self.data_panel.setMinimumHeight(145)
         data_layout = QVBoxLayout(self.data_panel)
-        data_layout.setContentsMargins(0, 4, 0, 0)
+        data_layout.setContentsMargins(0, 0, 0, 0)
+        data_layout.setSpacing(0)
+        self.detail_tabs = QTabWidget()
+        self.detail_tabs.setObjectName("detailTabs")
+        data_layout.addWidget(self.detail_tabs)
+
+        results_page = QWidget()
+        results_layout = QVBoxLayout(results_page)
+        results_layout.setContentsMargins(10, 8, 10, 8)
+        self.results_list = QListWidget()
+        self.results_list.setObjectName("resultsList")
+        self.results_list.addItem("Analysis results will appear here.")
+        results_layout.addWidget(self.results_list)
+        self.detail_tabs.addTab(results_page, "Results")
+
+        table_page = QWidget()
+        table_layout = QVBoxLayout(table_page)
+        table_layout.setContentsMargins(8, 6, 8, 6)
+        table_layout.setSpacing(5)
         data_header = QHBoxLayout()
         title = QLabel("Editable spectroscopy data — columns are marked [X], [Y], or [Ignore]")
         title.setWordWrap(True)
         data_header.addWidget(title, 1)
-        self.data_toggle = PanelToggleButton(self.data_panel, "bottom", self)
-        self.data_toggle.setToolTip("Hide data table")
-        data_layout.addLayout(data_header)
+        table_layout.addLayout(data_header)
         self.data_table = DataTable()
         self.data_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.data_table.itemChanged.connect(self._data_table_changed)
         self.data_table.model().columnsInserted.connect(self._data_columns_inserted)
         self.data_table.historyRestored.connect(self._sync_table_metadata)
-        data_layout.addWidget(self.data_table, 1)
+        table_layout.addWidget(self.data_table, 1)
         data_tools = QHBoxLayout()
         for label, tooltip, slot in (
             ("＋ Row", "Insert a row at the current selection", self._insert_data_row),
@@ -550,12 +723,177 @@ class PlotViewer(QDialog):
         apply_table.setToolTip("Rebuild plotted X/Y series from the edited table")
         apply_table.clicked.connect(self._apply_data_table)
         data_tools.addWidget(apply_table)
-        data_layout.addLayout(data_tools)
+        table_layout.addLayout(data_tools)
+        self.detail_tabs.addTab(table_page, "Data table")
+
+        history_page = QWidget()
+        history_layout = QVBoxLayout(history_page)
+        history_layout.setContentsMargins(10, 8, 10, 8)
+        self.history_list = QListWidget()
+        self.history_list.setObjectName("historyList")
+        history_layout.addWidget(self.history_list)
+        self.detail_tabs.addTab(history_page, "History")
+
         self.workspace_splitter.addWidget(self.data_panel)
         self.workspace_splitter.setStretchFactor(0, 1)
         self.workspace_splitter.setStretchFactor(1, 0)
-        self.workspace_splitter.setSizes([610, 220])
-        visibility.insertWidget(4, self.data_toggle)
+        self.workspace_splitter.setSizes([625, 205])
+        self.data_toggle = PanelToggleButton(self.data_panel, "bottom", self)
+        self.data_toggle.setToolTip("Hide details drawer")
+        header.addWidget(self.data_toggle)
+        self.project_toggle = PanelToggleButton(self.project_sidebar, "left", self)
+        self.project_toggle.setToolTip("Hide project sidebar")
+        header.insertWidget(max(0, header.count() - 2), self.project_toggle)
+        self._sync_history_list()
+
+    def _activate_workflow(self, name):
+        """Show one contextual tool family without changing analysis state."""
+        page_map = {"Prepare": 0, "Style": 1, "Annotate": 2, "Analyze": 3, "Export": 4}
+        if name not in page_map or not hasattr(self, "tabs"):
+            return
+        self.tabs.setCurrentIndex(page_map[name])
+        for button_name, button in self.workflow_buttons.items():
+            button.setChecked(button_name == name)
+        descriptions = {
+            "Prepare": ("Prepare figure", "Data, processing and plot arrangement"),
+            "Analyze": ("Analyze spectrum", "Peaks, baseline, area and technique-specific tools"),
+            "Style": ("Style figure", "Axes, legend and publication appearance"),
+            "Annotate": ("Annotate figure", "Text, arrows, lines and editable shapes"),
+            "Export": ("Export & save", "Data, report, figure and reusable workspace session"),
+        }
+        title, subtitle = descriptions[name]
+        self.inspector_title.setText(title)
+        self.inspector_subtitle.setText(subtitle)
+        if self.controls.isHidden():
+            self.controls_toggle.set_panel_visible(True)
+        if name == "Prepare":
+            self.detail_tabs.setCurrentIndex(1)
+        elif name == "Analyze":
+            self.detail_tabs.setCurrentIndex(0)
+
+    def _run_command_search(self):
+        """Route a plain-language command search to the relevant workflow."""
+        query = self.command_search.text().strip().lower()
+        if not query:
+            return
+        routes = (
+            (("peak", "area", "baseline", "fit", "band gap", "urbach", "grain"), "Analyze"),
+            (("axis", "axes", "legend", "colour", "color", "font", "style"), "Style"),
+            (("annot", "text", "arrow", "line", "shape"), "Annotate"),
+            (("export", "save", "report", "pdf", "png", "svg"), "Export"),
+            (("data", "table", "formula", "process", "smooth", "normal", "prepare"), "Prepare"),
+        )
+        destination = next(
+            (name for keywords, name in routes if any(keyword in query for keyword in keywords)),
+            None,
+        )
+        if destination:
+            self._activate_workflow(destination)
+            self.command_search.clear()
+            self.command_search.setPlaceholderText(f"Opened {destination} tools")
+        else:
+            self.command_search.clear()
+            self.command_search.setPlaceholderText("No match — try peak, table, axes, legend or export")
+            self.command_search.setToolTip(
+                "Try peak, baseline, table, formula, axes, legend, annotation, export or save."
+            )
+
+    def _project_series_selected(self, item, _previous=None):
+        if item is None or not hasattr(self, "file_combo"):
+            return
+        stem = item.data(Qt.ItemDataRole.UserRole)
+        if stem in self.data_dict and stem != self.current_stem:
+            self.file_combo.setCurrentText(stem)
+
+    def _select_series_chip(self, stem):
+        if hasattr(self, "file_combo") and stem in self.data_dict:
+            self.file_combo.setCurrentText(stem)
+
+    def _sync_project_data_list(self):
+        if not hasattr(self, "project_data_list"):
+            return
+        self.project_data_list.blockSignals(True)
+        self.project_data_list.clear()
+        current_item = None
+        for stem in self.stems:
+            settings = state.file_set.get(stem, {})
+            display_name = str(settings.get("custom_name", stem))
+            item = QListWidgetItem(display_name)
+            item.setData(Qt.ItemDataRole.UserRole, stem)
+            item.setToolTip(f"Source: {stem}\nRole: plotted Y spectrum")
+            color = QColor(str(settings.get("color", "#2563eb")))
+            if color.isValid():
+                item.setForeground(QBrush(color))
+            self.project_data_list.addItem(item)
+            if stem == self.current_stem:
+                current_item = item
+        if current_item is not None:
+            self.project_data_list.setCurrentItem(current_item)
+        self.project_data_list.blockSignals(False)
+
+    def _sync_series_chips(self):
+        if not hasattr(self, "series_chip_layout"):
+            return
+        while self.series_chip_layout.count():
+            item = self.series_chip_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self.series_chip_buttons = {}
+        for stem in self.stems:
+            settings = state.file_set.get(stem, {})
+            display_name = str(settings.get("custom_name", stem))
+            button = QToolButton()
+            button.setObjectName("seriesChip")
+            button.setText(f"●  {display_name}")
+            button.setToolTip(f"Select {display_name}\nSource: {stem}")
+            button.setAccessibleName(f"Select spectrum {display_name}")
+            button.setCheckable(True)
+            button.setChecked(stem == self.current_stem)
+            color = QColor(str(settings.get("color", "#2563eb")))
+            foreground = color.name() if color.isValid() else "#2563eb"
+            button.setStyleSheet(
+                "QToolButton { color: " + foreground + "; }"
+                "QToolButton:checked { color: #1d4ed8; }"
+            )
+            button.clicked.connect(
+                lambda _checked=False, selected=stem: self._select_series_chip(selected)
+            )
+            self.series_chip_layout.addWidget(button)
+            self.series_chip_buttons[stem] = button
+        self.series_chip_layout.addStretch()
+
+    def _sync_workspace_navigation(self):
+        self._sync_project_data_list()
+        self._sync_series_chips()
+        if hasattr(self, "project_summary_label"):
+            count = len(self.stems)
+            self.project_summary_label.setText(
+                f"{count} spectrum{'s' if count != 1 else ''} · {self.current_stem} selected"
+            )
+
+    def _sync_history_list(self):
+        if not hasattr(self, "history_list"):
+            return
+        self.history_list.clear()
+        table_edits = len(getattr(getattr(self, "data_table", None), "undo_stack", []))
+        annotation_edits = len(
+            getattr(getattr(self, "annotation_mgr", None), "undo_stack", [])
+        )
+        if not self._state_undo and not table_edits and not annotation_edits:
+            self.history_list.addItem("Workspace opened — no edits yet")
+        else:
+            start = max(0, len(self._state_undo) - 49)
+            for index in range(start, len(self._state_undo)):
+                self.history_list.addItem(f"Workspace change {index + 1}")
+            if table_edits:
+                self.history_list.addItem(f"Data-table edits available to undo: {table_edits}")
+            if annotation_edits:
+                self.history_list.addItem(
+                    f"Annotation edits available to undo: {annotation_edits}"
+                )
+        if self._state_redo:
+            self.history_list.addItem(f"{len(self._state_redo)} change(s) available to redo")
 
     def _toggle_controls(self, hidden):
         self.controls_toggle.setChecked(bool(hidden))
@@ -564,7 +902,7 @@ class PlotViewer(QDialog):
         self.toolbar_toggle.setChecked(bool(hidden))
 
     def _build_menu_bar(self):
-        """Add desktop-standard menus while retaining the detailed side panel."""
+        """Add desktop-standard menus alongside the contextual inspector."""
         menu_bar = QMenuBar(self)
         menu_bar.setNativeMenuBar(True)
         self.root_layout.setMenuBar(menu_bar)
@@ -594,14 +932,20 @@ class PlotViewer(QDialog):
 
         edit_menu = menu_bar.addMenu("&Edit")
         apply_table = QAction("Apply &data table to plot", self)
-        apply_table.triggered.connect(self._apply_data_table)
+        apply_table.triggered.connect(
+            lambda: (self._activate_workflow("Prepare"), self._apply_data_table())
+        )
         edit_menu.addAction(apply_table)
         formula_action = QAction("Create calculated &column…", self)
-        formula_action.triggered.connect(self._create_formula_column)
+        formula_action.triggered.connect(
+            lambda: (self._activate_workflow("Prepare"), self._create_formula_column())
+        )
         edit_menu.addAction(formula_action)
         edit_menu.addSeparator()
         rename_legend = QAction("Edit selected &legend name", self)
-        rename_legend.triggered.connect(self._edit_selected_legend_name)
+        rename_legend.triggered.connect(
+            lambda: (self._activate_workflow("Style"), self._edit_selected_legend_name())
+        )
         edit_menu.addAction(rename_legend)
 
         history_menu = menu_bar.addMenu("&History")
@@ -615,18 +959,24 @@ class PlotViewer(QDialog):
         history_menu.addAction(redo_action)
 
         view_menu = menu_bar.addMenu("&View")
-        self.view_controls_action = QAction("Side control panel", self)
-        self.view_data_action = QAction("Editable data table", self)
+        self.view_project_action = QAction("Project and data sidebar", self)
+        self.view_controls_action = QAction("Contextual inspector", self)
+        self.view_data_action = QAction("Details drawer", self)
         self.view_toolbar_action = QAction("Plot navigation toolbar", self)
         for action in (
-            self.view_controls_action, self.view_data_action, self.view_toolbar_action
+            self.view_project_action, self.view_controls_action,
+            self.view_data_action, self.view_toolbar_action,
         ):
             action.setCheckable(True)
             action.setChecked(True)
             view_menu.addAction(action)
+        self.view_project_action.toggled.connect(self.project_toggle.set_panel_visible)
         self.view_controls_action.toggled.connect(self.controls_toggle.set_panel_visible)
         self.view_data_action.toggled.connect(self.data_toggle.set_panel_visible)
         self.view_toolbar_action.toggled.connect(self.toolbar_toggle.set_panel_visible)
+        self.project_toggle.toggled.connect(
+            lambda hidden: self.view_project_action.setChecked(not hidden)
+        )
         self.controls_toggle.toggled.connect(
             lambda hidden: self.view_controls_action.setChecked(not hidden)
         )
@@ -641,20 +991,29 @@ class PlotViewer(QDialog):
         for _glyph, label, value, _color, _background in self.click_mode.TOOLS:
             action = QAction(label, self)
             action.triggered.connect(
-                lambda _checked=False, mode=value: self.click_mode.setCurrentData(mode)
+                lambda _checked=False, mode=value: (
+                    self._activate_workflow("Analyze"),
+                    self.click_mode.setCurrentData(mode),
+                )
             )
             analysis_menu.addAction(action)
         analysis_menu.addSeparator()
         auto_peaks = QAction("Auto-find &peaks", self)
-        auto_peaks.triggered.connect(self.auto_find_peaks)
+        auto_peaks.triggered.connect(
+            lambda: (self._activate_workflow("Analyze"), self.auto_find_peaks())
+        )
         analysis_menu.addAction(auto_peaks)
         if state.technique == "UVVIS":
             advanced = QAction("Band-gap and &Urbach analysis…", self)
-            advanced.triggered.connect(self.show_uvvis_analysis)
+            advanced.triggered.connect(
+                lambda: (self._activate_workflow("Analyze"), self.show_uvvis_analysis())
+            )
             analysis_menu.addAction(advanced)
         elif state.technique == "RAMAN":
             advanced = QAction("Raman peak &measurements…", self)
-            advanced.triggered.connect(self.show_raman_analysis)
+            advanced.triggered.connect(
+                lambda: (self._activate_workflow("Analyze"), self.show_raman_analysis())
+            )
             analysis_menu.addAction(advanced)
 
         help_menu = menu_bar.addMenu("&Help")
@@ -676,14 +1035,20 @@ class PlotViewer(QDialog):
         self.delete_shortcut.activated.connect(self._delete_active)
         self.backspace_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Backspace), self)
         self.backspace_shortcut.activated.connect(self._delete_active)
+        self.command_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        self.command_shortcut.activated.connect(self.command_search.setFocus)
 
     def _build_controls(self):
         self.tabs = QTabWidget()
+        self.tabs.setObjectName("inspectorPages")
+        self.tabs.setDocumentMode(True)
         self.controls_layout.addWidget(self.tabs, 1)
         self._build_file_tab()
         self._build_axes_tab()
         self._build_annotation_tab()
         self._build_analysis_tab()
+        self._build_export_tab()
+        self.tabs.tabBar().hide()
 
         history = QHBoxLayout()
         undo = QPushButton("↶ Undo (Ctrl/Cmd+Z)")
@@ -699,6 +1064,7 @@ class PlotViewer(QDialog):
         self.finish_button.clicked.connect(self.finish_current)
         self.controls_layout.addWidget(self.finish_button)
         self._refresh_finish_button()
+        self._activate_workflow("Prepare")
 
     @staticmethod
     def _scroll_tab():
@@ -1101,12 +1467,33 @@ class PlotViewer(QDialog):
             advanced.clicked.connect(self.show_raman_analysis)
             layout.addWidget(advanced)
 
-        export = QPushButton("Export data, report and graph")
+    def _build_export_tab(self):
+        tab, layout = self._scroll_tab()
+        self.tabs.addTab(tab, "Export")
+        figure_group = QGroupBox("Export results")
+        figure_layout = QVBoxLayout(figure_group)
+        description = QLabel(
+            "Create a data table, analysis report and publication figure from the current spectrum."
+        )
+        description.setWordWrap(True)
+        figure_layout.addWidget(description)
+        export = QPushButton("Export data, report and graph…")
+        export.setObjectName("primary")
         export.clicked.connect(self.export_data)
-        save = QPushButton("Save workspace session")
+        figure_layout.addWidget(export)
+        layout.addWidget(figure_group)
+
+        session_group = QGroupBox("Continue later")
+        session_layout = QVBoxLayout(session_group)
+        session_hint = QLabel(
+            "Save the current spectra, processing choices, figure settings and annotations as a session."
+        )
+        session_hint.setWordWrap(True)
+        session_layout.addWidget(session_hint)
+        save = QPushButton("Save workspace session…")
         save.clicked.connect(lambda: self.save_session(save_as=True))
-        layout.addWidget(export)
-        layout.addWidget(save)
+        session_layout.addWidget(save)
+        layout.addWidget(session_group)
 
     def _connect_canvas(self):
         self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
@@ -1129,6 +1516,7 @@ class PlotViewer(QDialog):
         self._state_undo.append(snapshot)
         del self._state_undo[:-100]
         self._state_redo.clear()
+        self._sync_history_list()
 
     def _restore_state(self, snapshot):
         state.file_set = copy.deepcopy(snapshot["file_set"])
@@ -1155,22 +1543,28 @@ class PlotViewer(QDialog):
     def _undo_active(self):
         if self._focus_in_data_table() and self.data_table.undo_edit():
             self._table_dirty = True
+            self._sync_history_list()
             return
         if self.tabs.currentWidget() is self.tabs.widget(2) and self.annotation_mgr.undo():
+            self._sync_history_list()
             return
         if self._state_undo:
             self._state_redo.append(self._state_snapshot())
             self._restore_state(self._state_undo.pop())
+            self._sync_history_list()
 
     def _redo_active(self):
         if self._focus_in_data_table() and self.data_table.redo_edit():
             self._table_dirty = True
+            self._sync_history_list()
             return
         if self.tabs.currentWidget() is self.tabs.widget(2) and self.annotation_mgr.redo():
+            self._sync_history_list()
             return
         if self._state_redo:
             self._state_undo.append(self._state_snapshot())
             self._restore_state(self._state_redo.pop())
+            self._sync_history_list()
 
     def _focus_in_data_table(self):
         focus = self.focusWidget()
@@ -1252,6 +1646,7 @@ class PlotViewer(QDialog):
         self.legend_color.setText(str(state.global_set.get("legend_color", "#172033")))
         self._sync_legend_name_list()
         self.sync_peak_list()
+        self._sync_workspace_navigation()
 
     def _sync_legend_name_list(self):
         if not hasattr(self, "legend_name_list"):
@@ -1310,6 +1705,7 @@ class PlotViewer(QDialog):
         if stem == self.current_stem:
             self.name_edit.setText(new_name)
         item.setToolTip(f"Source: {stem}\nDouble-click to edit the displayed legend name.")
+        self._sync_workspace_navigation()
         self.update_plot()
 
     def _commit_display_name(self):
@@ -1320,6 +1716,7 @@ class PlotViewer(QDialog):
         self._checkpoint_state()
         state.file_set[self.current_stem]["custom_name"] = new_name
         self._sync_legend_name_list()
+        self._sync_workspace_navigation()
         self.update_plot()
 
     def save_and_update(self):
@@ -1427,6 +1824,7 @@ class PlotViewer(QDialog):
             return
         self._checkpoint_state()
         state.file_set[self.current_stem]["color"] = normalized
+        self._sync_workspace_navigation()
         self.update_plot()
 
     def choose_legend_color(self):
@@ -1516,6 +1914,7 @@ class PlotViewer(QDialog):
             restored.append(copy.deepcopy(metadata))
         self._table_columns = restored
         self._table_dirty = True
+        self._sync_history_list()
 
     def _rebuild_data_table(self):
         if not hasattr(self, "data_table"):
@@ -1565,6 +1964,7 @@ class PlotViewer(QDialog):
         self.data_table.reset_history()
         self._table_loading = False
         self._table_dirty = False
+        self._sync_history_list()
 
     @staticmethod
     def _unique_name_for_meta(requested, metadata):
@@ -1580,6 +1980,7 @@ class PlotViewer(QDialog):
     def _data_table_changed(self, _item=None):
         if not self._table_loading:
             self._table_dirty = True
+            self._sync_history_list()
 
     def _data_columns_inserted(self, _parent=None, _first=None, _last=None):
         if self._table_loading or self.data_table._history_suspended:
@@ -1593,6 +1994,7 @@ class PlotViewer(QDialog):
             })
         self._refresh_data_headers()
         self._table_dirty = True
+        self._sync_history_list()
 
     def _selected_data_columns(self):
         columns = sorted({index.column() for index in self.data_table.selectedIndexes()})
@@ -1608,6 +2010,7 @@ class PlotViewer(QDialog):
         self.data_table.insertRow(row)
         self.data_table.end_command()
         self._table_dirty = True
+        self._sync_history_list()
 
     def _delete_data_rows(self):
         rows = sorted({index.row() for index in self.data_table.selectedIndexes()}, reverse=True)
@@ -1620,6 +2023,7 @@ class PlotViewer(QDialog):
             self.data_table.removeRow(row)
         self.data_table.end_command()
         self._table_dirty = True
+        self._sync_history_list()
 
     def _insert_data_column(self):
         name, accepted = QInputDialog.getText(
@@ -1637,6 +2041,7 @@ class PlotViewer(QDialog):
         self._refresh_data_headers()
         self.data_table.end_command()
         self._table_dirty = True
+        self._sync_history_list()
 
     def _delete_data_columns(self):
         columns = self._selected_data_columns()
@@ -1652,6 +2057,7 @@ class PlotViewer(QDialog):
         self._refresh_data_headers()
         self.data_table.end_command()
         self._table_dirty = True
+        self._sync_history_list()
 
     def _rename_data_column(self):
         column = self.data_table.currentColumn()
@@ -1670,6 +2076,7 @@ class PlotViewer(QDialog):
         self._refresh_data_headers()
         self.data_table.end_command()
         self._table_dirty = True
+        self._sync_history_list()
 
     def _set_data_column_role(self, role):
         columns = self._selected_data_columns()
@@ -1682,6 +2089,7 @@ class PlotViewer(QDialog):
         self._refresh_data_headers()
         self.data_table.end_command()
         self._table_dirty = True
+        self._sync_history_list()
 
     def _numeric_table_columns(self):
         output = []
@@ -1731,6 +2139,7 @@ class PlotViewer(QDialog):
         self.data_table.end_command()
         self._table_dirty = True
         self.data_table.selectColumn(column)
+        self._sync_history_list()
 
     def _x_column_for_y(self, y_column, x_columns):
         preceding = [index for index in x_columns if index < y_column]
@@ -1942,6 +2351,7 @@ class PlotViewer(QDialog):
             self.file_combo.addItem(stem)
         self._rebuild_data_table()
         self._sync_legend_name_list()
+        self._sync_workspace_navigation()
         if failures:
             QMessageBox.warning(
                 self, "Some files skipped",
@@ -2030,6 +2440,7 @@ class PlotViewer(QDialog):
         self.file_combo.setCurrentText(self.current_stem)
         self.file_combo.blockSignals(False)
         self._sync_legend_name_list()
+        self._sync_workspace_navigation()
         self._rebuild_data_table()
         self.update_plot()
 
@@ -2537,18 +2948,29 @@ class PlotViewer(QDialog):
 
     def sync_peak_list(self):
         self.peak_list.clear()
+        result_lines = []
         fs = state.file_set.get(self.current_stem, {})
         if state.technique == "XRD":
             for px, _py, fwhm, size in fs.get("xrd_peaks", []):
-                self.peak_list.addItem(f"2θ {px:.2f}° | FWHM {fwhm:.2f}° | {size:.1f} nm")
+                result_lines.append(f"2θ {px:.2f}° | FWHM {fwhm:.2f}° | {size:.1f} nm")
         elif state.technique == "FTIR":
             for px, _py, text_value in fs.get("labels", []):
-                self.peak_list.addItem(f"Peak {px:.1f} cm⁻¹ ({text_value})")
+                result_lines.append(f"Peak {px:.1f} cm⁻¹ ({text_value})")
         else:
             for px, py, _text_value in fs.get("labels", []):
-                self.peak_list.addItem(f"Point ({px:.5g}, {py:.5g})")
+                result_lines.append(f"Point ({px:.5g}, {py:.5g})")
         for x1, x2, area in fs.get("areas", []):
-            self.peak_list.addItem(f"Area {area:.3g} ({x1:.2f}–{x2:.2f})")
+            result_lines.append(f"Area {area:.3g} ({x1:.2f}–{x2:.2f})")
+        self.peak_list.addItems(result_lines)
+        if hasattr(self, "results_list"):
+            self.results_list.clear()
+            if result_lines:
+                for line in result_lines:
+                    self.results_list.addItem(f"{self.current_stem}  ·  {line}")
+            else:
+                self.results_list.addItem(
+                    "No saved results for this spectrum. Open Analyze to find peaks or measure an area."
+                )
 
     def delete_selected_peak(self):
         row = self.peak_list.currentRow()
@@ -2615,7 +3037,11 @@ class PlotViewer(QDialog):
             return
         self.annotation_mgr.update_selected_properties(dialog.result)
         self._annotation_selected(artist, kind)
+        self._annotation_list_updated()
+
+    def _annotation_list_updated(self):
         self._sync_annotation_list()
+        self._sync_history_list()
 
     def _sync_annotation_list(self):
         self.annotation_list.blockSignals(True)
@@ -2669,11 +3095,11 @@ class PlotViewer(QDialog):
             "family": self.ann_family_combo.currentText(),
             "alpha": self.ann_alpha_spin.value(), "text_alpha": self.ann_alpha_spin.value(),
         })
-        self._sync_annotation_list()
+        self._annotation_list_updated()
 
     def _delete_annotation(self):
         self.annotation_mgr.delete_selected()
-        self._sync_annotation_list()
+        self._annotation_list_updated()
 
     def _clear_all_annotations(self):
         if not self.annotation_mgr.annotations:
@@ -2684,7 +3110,7 @@ class PlotViewer(QDialog):
         )
         if answer == QMessageBox.StandardButton.Yes:
             self.annotation_mgr.clear_all()
-            self._sync_annotation_list()
+            self._annotation_list_updated()
 
     def sync_annotations_to_state(self):
         state.global_set["annotations"] = self.annotation_mgr.get_serialized_data()

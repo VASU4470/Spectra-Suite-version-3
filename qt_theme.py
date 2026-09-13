@@ -102,6 +102,142 @@ QTabBar::tab {
 QTabBar::tab:selected { background-color: #2563eb; color: #ffffff; }
 QScrollArea, QSplitter { background-color: #f4f7fb; }
 QToolTip { background-color: #172033; color: #ffffff; border: 1px solid #334155; }
+
+/* Project–Canvas–Inspector spectroscopy workspace */
+QFrame#workspaceHeader {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+}
+QLabel#workspaceBrand {
+    color: #1d4ed8;
+    font-size: 18px;
+    font-weight: 800;
+    padding-right: 4px;
+}
+QLabel#techniqueBadge {
+    color: #1d4ed8;
+    background-color: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-weight: 700;
+}
+QLabel#projectTitle { color: #172033; font-size: 15px; font-weight: 750; }
+QLabel#inspectorTitle { color: #172033; font-size: 17px; font-weight: 800; }
+QLabel#mutedLabel { color: #64748b; font-size: 11px; }
+QLabel#sectionLabel {
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 750;
+    padding: 8px 3px 2px 3px;
+}
+QLineEdit#commandSearch {
+    background-color: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 7px 10px;
+}
+QFrame#projectSidebar {
+    background-color: #f8fafc;
+    border: 1px solid #d7e0ec;
+    border-radius: 8px;
+}
+QListWidget#projectDataList {
+    background-color: transparent;
+    border: none;
+    padding: 0;
+}
+QListWidget#projectDataList::item {
+    color: #334155;
+    border-radius: 6px;
+    padding: 8px 7px;
+    margin: 1px 0;
+}
+QListWidget#projectDataList::item:selected {
+    color: #1d4ed8;
+    background-color: #e8f0ff;
+    border: 1px solid #bfdbfe;
+}
+QPushButton#sidebarAction {
+    background-color: transparent;
+    border: none;
+    text-align: left;
+    padding: 7px 8px;
+}
+QPushButton#sidebarAction:hover { background-color: #e8f0ff; }
+QFrame#canvasPanel {
+    background-color: #ffffff;
+    border: 1px solid #d7e0ec;
+    border-radius: 8px;
+}
+QFrame#workflowBar {
+    background-color: #ffffff;
+    border: none;
+    border-bottom: 1px solid #d7e0ec;
+}
+QToolButton#workflowButton {
+    background-color: transparent;
+    color: #526178;
+    border: none;
+    border-radius: 0;
+    padding: 9px 13px;
+    font-size: 13px;
+}
+QToolButton#workflowButton:hover { color: #1d4ed8; background-color: #f4f7ff; }
+QToolButton#workflowButton:checked {
+    color: #1d4ed8;
+    background-color: #eff6ff;
+    border-bottom: 3px solid #2563eb;
+    font-weight: 700;
+}
+QFrame#seriesBar {
+    background-color: #ffffff;
+    border: none;
+    border-bottom: 1px solid #e2e8f0;
+}
+QScrollArea#seriesScroll { background-color: #ffffff; border: none; }
+QToolButton#seriesChip {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    padding: 6px 10px;
+}
+QToolButton#seriesChip:hover { background-color: #f8fafc; border-color: #93c5fd; }
+QToolButton#seriesChip:checked {
+    background-color: #eff6ff;
+    border: 1px solid #60a5fa;
+    font-weight: 700;
+}
+QFrame#contextInspector {
+    background-color: #f8fafc;
+    border: 1px solid #d7e0ec;
+    border-radius: 8px;
+}
+QTabWidget#inspectorPages::pane { border: none; background-color: transparent; }
+QTabWidget#inspectorPages QScrollArea { background-color: transparent; }
+QFrame#detailDrawer {
+    background-color: #ffffff;
+    border: 1px solid #d7e0ec;
+    border-radius: 8px;
+}
+QTabWidget#detailTabs::pane {
+    background-color: #ffffff;
+    border: none;
+    border-top: 1px solid #d7e0ec;
+}
+QTabWidget#detailTabs QTabBar::tab {
+    background-color: #f8fafc;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 7px 18px;
+}
+QTabWidget#detailTabs QTabBar::tab:selected {
+    color: #1d4ed8;
+    background-color: #ffffff;
+    border-bottom: 2px solid #2563eb;
+}
+QSplitter::handle { background-color: #e2e8f0; }
 """
 
 

@@ -214,12 +214,56 @@ class StartupTests(unittest.TestCase):
                 self.assertGreaterEqual(viewer.data_table.columnCount(), 2)
                 viewer.controls_toggle.click()
                 self.assertTrue(viewer.controls.isHidden())
-                self.assertEqual(viewer.controls_toggle.text(), "▶")
+                self.assertEqual(viewer.controls_toggle.text(), "◀")
                 viewer.controls_toggle.click()
                 self.assertFalse(viewer.controls.isHidden())
-                self.assertEqual(viewer.controls_toggle.text(), "◀")
+                self.assertEqual(viewer.controls_toggle.text(), "▶")
                 viewer._skip_close_prompt = True
                 viewer.close()
+
+    def test_spectroscopy_workspace_uses_project_canvas_inspector_shell(self):
+        reset_state("FTIR")
+        x = np.linspace(400.0, 4000.0, 101)
+        state.all_data = [
+            ("reference", x.copy(), np.sin(x / 180.0) + 2.0),
+            ("sample", x.copy(), np.sin(x / 160.0) + 2.2),
+        ]
+        state.settings["mode"] = "overlay"
+        state.init_file_settings()
+        viewer = PlotViewer(state.all_data, "Modern workspace test")
+        viewer.show()
+        self.app.processEvents()
+
+        self.assertEqual(viewer.splitter.count(), 3)
+        self.assertIs(viewer.splitter.widget(0), viewer.project_sidebar)
+        self.assertIs(viewer.splitter.widget(1), viewer.center_panel)
+        self.assertIs(viewer.splitter.widget(2), viewer.controls)
+        self.assertEqual(list(viewer.workflow_buttons), [
+            "Prepare", "Analyze", "Style", "Annotate", "Export",
+        ])
+        self.assertTrue(viewer.tabs.tabBar().isHidden())
+        self.assertEqual(viewer.tabs.count(), 5)
+        self.assertEqual(viewer.project_data_list.count(), 2)
+        self.assertEqual(len(viewer.series_chip_buttons), 2)
+        self.assertEqual(
+            [viewer.detail_tabs.tabText(index) for index in range(viewer.detail_tabs.count())],
+            ["Results", "Data table", "History"],
+        )
+
+        viewer.workflow_buttons["Analyze"].click()
+        self.assertEqual(viewer.tabs.currentIndex(), 3)
+        self.assertEqual(viewer.detail_tabs.currentIndex(), 0)
+        self.assertEqual(viewer.inspector_title.text(), "Analyze spectrum")
+        viewer.command_search.setText("edit legend")
+        viewer.command_search.returnPressed.emit()
+        self.assertEqual(viewer.tabs.currentIndex(), 1)
+        self.assertEqual(viewer.inspector_title.text(), "Style figure")
+
+        viewer.project_data_list.setCurrentRow(1)
+        self.assertEqual(viewer.current_stem, "sample")
+        self.assertTrue(viewer.series_chip_buttons["sample"].isChecked())
+        viewer._skip_close_prompt = True
+        viewer.close()
 
     def test_shared_x_spectra_use_one_editable_x_column_and_multiple_y_columns(self):
         reset_state("UVVIS")
