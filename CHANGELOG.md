@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Replaced the process-launching dashboard with one persistent application
+  window containing Home, inline Import, and closable analysis documents.
+- Added automatic opening for a single discovered spectrum and kept
+  multi-column dataset selection inside the Import document.
+- Embedded FT-IR, XRD, UV-Vis, Raman, General 2D, and General 3D workspaces in
+  the same application window.
+- Preserved independent state when switching between open spectroscopy tabs.
+- Moved Results and History from the bottom drawer into a full-height right
+  sidebar with vertically arranged Inspector, Results, and History tabs.
+- Kept the editable Data Table beside Plot as a full-height centre workspace.
+- Saved the technique identifier in new session files while retaining fallback
+  support for older session files.
+
 ## 3.1.0 — 2026-09-11
 
 - Added reversible UV-Vis absorbance/percent-transmittance display transforms.
@@ -18,4 +33,3 @@
 - Expanded the editable legend list to prevent compressed names.
 - Added a non-blocking, offline-safe GitHub release notification with a user
   setting to disable automatic checks.
-

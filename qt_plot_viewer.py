@@ -12,7 +12,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QAction, QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -408,8 +408,13 @@ class ExportOptionsDialog(QDialog):
 class PlotViewer(QDialog):
     """Qt-native data viewer retaining the existing processing state model."""
 
-    def __init__(self, data_tuples, title: str, out_dir=None, parent=None):
+    closeRequested = Signal(object)
+
+    def __init__(self, data_tuples, title: str, out_dir=None, parent=None, *, embedded=False):
         super().__init__(parent)
+        self.embedded = bool(embedded)
+        if self.embedded:
+            self.setWindowFlags(Qt.WindowType.Widget)
         self.setWindowTitle(title)
         self.resize(1450, 850)
         self.setMinimumSize(1000, 650)
@@ -518,8 +523,6 @@ class PlotViewer(QDialog):
         # attribute so existing session and GUI code keeps working.
         self.controls = QFrame()
         self.controls.setObjectName("contextInspector")
-        self.controls.setMinimumWidth(285)
-        self.controls.setMaximumWidth(440)
         self.controls_layout = QVBoxLayout(self.controls)
         self.controls_layout.setContentsMargins(10, 10, 10, 8)
         self.controls_layout.setSpacing(7)
@@ -538,17 +541,9 @@ class PlotViewer(QDialog):
         inspector_header.addWidget(inspector_titles, 1)
         self.controls_layout.addLayout(inspector_header)
 
-        self.controls_toggle = PanelToggleButton(self.controls, "right", self)
-        self.controls_toggle.setToolTip("Hide inspector")
-        header.addWidget(self.controls_toggle)
-
-        self.workspace_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.workspace_splitter.setChildrenCollapsible(True)
-        root.addWidget(self.workspace_splitter, 1)
-
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(True)
-        self.workspace_splitter.addWidget(self.splitter)
+        root.addWidget(self.splitter, 1)
 
         self.project_sidebar = QFrame()
         self.project_sidebar.setObjectName("projectSidebar")
@@ -557,7 +552,7 @@ class PlotViewer(QDialog):
         project_sidebar_layout = QVBoxLayout(self.project_sidebar)
         project_sidebar_layout.setContentsMargins(10, 10, 10, 10)
         project_sidebar_layout.setSpacing(7)
-        new_analysis = QPushButton("＋  New analysis")
+        new_analysis = QPushButton("+  New analysis")
         new_analysis.setObjectName("primary")
         new_analysis.setToolTip("Import another spectrum into this workspace")
         new_analysis.clicked.connect(self.add_files)
@@ -661,22 +656,6 @@ class PlotViewer(QDialog):
         self.canvas_tabs.setDocumentMode(True)
         self.canvas_tabs.addTab(self.plot_panel, "Plot")
         center_layout.addWidget(self.canvas_tabs, 1)
-        self.splitter.addWidget(self.center_panel)
-        self.splitter.addWidget(self.controls)
-        self.splitter.setStretchFactor(0, 0)
-        self.splitter.setStretchFactor(1, 1)
-        self.splitter.setStretchFactor(2, 0)
-        self.splitter.setSizes([225, 880, 330])
-
-        self.data_panel = QFrame()
-        self.data_panel.setObjectName("detailDrawer")
-        self.data_panel.setMinimumHeight(145)
-        data_layout = QVBoxLayout(self.data_panel)
-        data_layout.setContentsMargins(0, 0, 0, 0)
-        data_layout.setSpacing(0)
-        self.detail_tabs = QTabWidget()
-        self.detail_tabs.setObjectName("detailTabs")
-        data_layout.addWidget(self.detail_tabs)
 
         results_page = QWidget()
         results_layout = QVBoxLayout(results_page)
@@ -685,7 +664,6 @@ class PlotViewer(QDialog):
         self.results_list.setObjectName("resultsList")
         self.results_list.addItem("Analysis results will appear here.")
         results_layout.addWidget(self.results_list)
-        self.detail_tabs.addTab(results_page, "Results")
 
         table_page = QWidget()
         table_page.setObjectName("dataWorkspace")
@@ -732,24 +710,43 @@ class PlotViewer(QDialog):
         self.canvas_tabs.addTab(table_page, "Data table")
         self.canvas_tabs.currentChanged.connect(self._canvas_view_changed)
 
+        self.splitter.addWidget(self.center_panel)
+
+        # Inspector, results and history share one full-height right sidebar.
+        # A vertical tab rail avoids the old bottom drawer stealing height from
+        # both the plot and the spreadsheet-style data table.
+        self.right_sidebar = QTabWidget()
+        self.right_sidebar.setObjectName("rightSidebarTabs")
+        self.right_sidebar.setDocumentMode(True)
+        self.right_sidebar.setTabPosition(QTabWidget.TabPosition.West)
+        self.right_sidebar.setMinimumWidth(430)
+        self.right_sidebar.setMaximumWidth(620)
+        self.right_sidebar.addTab(self.controls, "Inspector")
+        self.right_sidebar.addTab(results_page, "Results")
+
         history_page = QWidget()
         history_layout = QVBoxLayout(history_page)
         history_layout.setContentsMargins(10, 8, 10, 8)
         self.history_list = QListWidget()
         self.history_list.setObjectName("historyList")
         history_layout.addWidget(self.history_list)
-        self.detail_tabs.addTab(history_page, "History")
+        self.right_sidebar.addTab(history_page, "History")
 
-        self.workspace_splitter.addWidget(self.data_panel)
-        self.workspace_splitter.setStretchFactor(0, 1)
-        self.workspace_splitter.setStretchFactor(1, 0)
-        self.workspace_splitter.setSizes([690, 140])
-        self.data_toggle = PanelToggleButton(self.data_panel, "bottom", self)
-        self.data_toggle.setToolTip("Hide results and history")
-        header.addWidget(self.data_toggle)
+        # Retain the historical attributes for lightweight extension code.
+        self.detail_tabs = self.right_sidebar
+        self.data_panel = self.right_sidebar
+        self.splitter.addWidget(self.right_sidebar)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 0)
+        self.splitter.setSizes([225, 800, 460])
+
+        self.controls_toggle = PanelToggleButton(self.right_sidebar, "right", self)
+        self.controls_toggle.setToolTip("Hide Inspector, Results and History")
+        header.addWidget(self.controls_toggle)
         self.project_toggle = PanelToggleButton(self.project_sidebar, "left", self)
         self.project_toggle.setToolTip("Hide project sidebar")
-        header.insertWidget(max(0, header.count() - 2), self.project_toggle)
+        header.insertWidget(max(0, header.count() - 1), self.project_toggle)
         self._sync_history_list()
 
     def _activate_workflow(self, name):
@@ -770,11 +767,11 @@ class PlotViewer(QDialog):
         title, subtitle = descriptions[name]
         self.inspector_title.setText(title)
         self.inspector_subtitle.setText(subtitle)
-        if self.controls.isHidden():
+        if self.right_sidebar.isHidden():
             self.controls_toggle.set_panel_visible(True)
+        self.right_sidebar.setCurrentIndex(0)
         if name == "Analyze":
             self.canvas_tabs.setCurrentIndex(0)
-            self.detail_tabs.setCurrentIndex(0)
 
     def _run_command_search(self):
         """Route a plain-language command search to the relevant workflow."""
@@ -916,7 +913,7 @@ class PlotViewer(QDialog):
     def _build_menu_bar(self):
         """Add desktop-standard menus alongside the contextual inspector."""
         menu_bar = QMenuBar(self)
-        menu_bar.setNativeMenuBar(True)
+        menu_bar.setNativeMenuBar(not self.embedded)
         self.root_layout.setMenuBar(menu_bar)
 
         file_menu = menu_bar.addMenu("&File")
@@ -939,7 +936,7 @@ class PlotViewer(QDialog):
         file_menu.addSeparator()
         close_action = QAction("&Close", self)
         close_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Close))
-        close_action.triggered.connect(self.close)
+        close_action.triggered.connect(self._request_close)
         file_menu.addAction(close_action)
 
         edit_menu = menu_bar.addMenu("&Edit")
@@ -972,28 +969,22 @@ class PlotViewer(QDialog):
 
         view_menu = menu_bar.addMenu("&View")
         self.view_project_action = QAction("Project and data sidebar", self)
-        self.view_controls_action = QAction("Contextual inspector", self)
-        self.view_data_action = QAction("Results and history drawer", self)
+        self.view_controls_action = QAction("Inspector, results and history sidebar", self)
         self.view_toolbar_action = QAction("Plot navigation toolbar", self)
         for action in (
-            self.view_project_action, self.view_controls_action,
-            self.view_data_action, self.view_toolbar_action,
+            self.view_project_action, self.view_controls_action, self.view_toolbar_action,
         ):
             action.setCheckable(True)
             action.setChecked(True)
             view_menu.addAction(action)
         self.view_project_action.toggled.connect(self.project_toggle.set_panel_visible)
         self.view_controls_action.toggled.connect(self.controls_toggle.set_panel_visible)
-        self.view_data_action.toggled.connect(self.data_toggle.set_panel_visible)
         self.view_toolbar_action.toggled.connect(self.toolbar_toggle.set_panel_visible)
         self.project_toggle.toggled.connect(
             lambda hidden: self.view_project_action.setChecked(not hidden)
         )
         self.controls_toggle.toggled.connect(
             lambda hidden: self.view_controls_action.setChecked(not hidden)
-        )
-        self.data_toggle.toggled.connect(
-            lambda hidden: self.view_data_action.setChecked(not hidden)
         )
         self.toolbar_toggle.toggled.connect(
             lambda hidden: self.view_toolbar_action.setChecked(not hidden)
@@ -1109,6 +1100,7 @@ class PlotViewer(QDialog):
         self.file_combo.currentTextChanged.connect(self._select_file)
         manage_layout.addWidget(self.file_combo)
         layout_form = QFormLayout()
+        layout_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.plot_layout_combo = QComboBox()
         for label, value in (
             ("Individual", "individual"), ("Overlay", "overlay"),
@@ -1150,6 +1142,7 @@ class PlotViewer(QDialog):
 
         appearance = QGroupBox("Line & Processing")
         form = QFormLayout(appearance)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.name_edit = QLineEdit()
         self.name_edit.setToolTip("Press Enter to update this series name in the legend")
         self.name_edit.returnPressed.connect(self._commit_display_name)
@@ -1222,6 +1215,7 @@ class PlotViewer(QDialog):
 
         reference = QGroupBox("Reference Spectrum Subtraction")
         reference_form = QFormLayout(reference)
+        reference_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.reference_check = QCheckBox("Subtract a reference file")
         reference_form.addRow(self.reference_check)
         reference_row = QWidget()
@@ -1259,6 +1253,7 @@ class PlotViewer(QDialog):
         self.tabs.addTab(tab, "Axes")
         group = QGroupBox("Global Axes")
         form = QFormLayout(group)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.xlabel_edit = QLineEdit()
         self.ylabel_edit = QLineEdit()
         self.title_edit = QLineEdit()
@@ -1280,6 +1275,7 @@ class PlotViewer(QDialog):
         layout.addWidget(group)
         legend = QGroupBox("Legend")
         legend_form = QFormLayout(legend)
+        legend_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.legend_check = QCheckBox("Show legend")
         self.legend_location = QComboBox()
         for label, value in LEGEND_LOCATIONS:
@@ -1335,6 +1331,7 @@ class PlotViewer(QDialog):
 
         props = QGroupBox("Selected Object")
         form = QFormLayout(props)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         text_widget = QWidget()
         text_layout = QHBoxLayout(text_widget)
         text_layout.setContentsMargins(0, 0, 0, 0)
@@ -1402,6 +1399,7 @@ class PlotViewer(QDialog):
         self.tabs.addTab(tab, "Analyze")
         interactive = QGroupBox("Interactive Tools")
         form = QFormLayout(interactive)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.click_mode = AnalysisToolBar(state.technique)
         self.click_mode.currentIndexChanged.connect(self._click_mode_changed)
         form.addRow(self.click_mode)
@@ -2860,12 +2858,14 @@ class PlotViewer(QDialog):
                 if result and not any(abs(item[0] - result[0]) < 0.01 for item in results):
                     results.append(result)
             self.update_plot()
+            self.right_sidebar.setCurrentIndex(1)
             return
         existing = fs.setdefault("labels", [])
         for index in peaks:
             if not any(abs(item[0] - x[index]) < 0.1 for item in existing):
                 existing.append((x[index], y[index], f"{x[index]:.1f}"))
         self.update_plot()
+        self.right_sidebar.setCurrentIndex(1)
 
     def calculate_xrd_peak(self, x_click, x, y):
         x_values = np.asarray(x, dtype=float)
@@ -3152,6 +3152,7 @@ class PlotViewer(QDialog):
                 filepath += ".json"
             state.current_session_file = filepath
         data = {
+            "technique": state.technique,
             "settings": state.settings,
             "all_data": [(stem, x.tolist(), y.tolist()) for stem, x, y in state.all_data],
             "master_folder": state.master_folder,
@@ -3374,11 +3375,23 @@ class PlotViewer(QDialog):
             return False
 
     def _refresh_finish_button(self):
-        label = "Next Spectrum" if self._has_next_individual_spectrum() else "Finish & Close"
+        if self.embedded:
+            label = "Close analysis"
+        else:
+            label = "Next Spectrum" if self._has_next_individual_spectrum() else "Finish & Close"
         self.finish_button.setText(label)
+
+    def _request_close(self):
+        if self.embedded:
+            self.closeRequested.emit(self)
+        else:
+            self.close()
 
     def finish_current(self):
         if self._table_dirty and not self._apply_data_table():
+            return
+        if self.embedded:
+            self.closeRequested.emit(self)
             return
         if not self._has_next_individual_spectrum():
             self.close()

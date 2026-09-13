@@ -235,26 +235,24 @@ QTabWidget#canvasTabs QTabBar::tab:selected {
     font-weight: 700;
 }
 QWidget#dataWorkspace { background-color: #ffffff; }
-QFrame#detailDrawer {
-    background-color: #ffffff;
+QTabWidget#rightSidebarTabs::pane {
+    background-color: #f8fafc;
     border: 1px solid #d7e0ec;
     border-radius: 8px;
 }
-QTabWidget#detailTabs::pane {
-    background-color: #ffffff;
-    border: none;
-    border-top: 1px solid #d7e0ec;
-}
-QTabWidget#detailTabs QTabBar::tab {
+QTabWidget#rightSidebarTabs QTabBar::tab {
     background-color: #f8fafc;
-    border: none;
-    border-bottom: 2px solid transparent;
-    padding: 7px 18px;
+    color: #526178;
+    border: 1px solid #d7e0ec;
+    border-right: none;
+    padding: 12px 7px;
+    min-width: 24px;
 }
-QTabWidget#detailTabs QTabBar::tab:selected {
+QTabWidget#rightSidebarTabs QTabBar::tab:selected {
     color: #1d4ed8;
-    background-color: #ffffff;
-    border-bottom: 2px solid #2563eb;
+    background-color: #eff6ff;
+    border-left: 3px solid #2563eb;
+    font-weight: 700;
 }
 QSplitter::handle { background-color: #e2e8f0; }
 """
