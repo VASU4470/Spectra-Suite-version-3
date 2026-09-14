@@ -915,6 +915,7 @@ class PlotViewer(QDialog):
         menu_bar = QMenuBar(self)
         menu_bar.setNativeMenuBar(not self.embedded)
         self.root_layout.setMenuBar(menu_bar)
+        self.desktop_menu_bar = menu_bar
 
         file_menu = menu_bar.addMenu("&File")
         add_action = QAction("&Add data…", self)
@@ -1000,6 +1001,7 @@ class PlotViewer(QDialog):
         view_menu.addAction(table_workspace)
 
         analysis_menu = menu_bar.addMenu("&Analysis")
+        analysis_actions = []
         for _glyph, label, value, _color, _background in self.click_mode.TOOLS:
             action = QAction(label, self)
             action.triggered.connect(
@@ -1009,12 +1011,14 @@ class PlotViewer(QDialog):
                 )
             )
             analysis_menu.addAction(action)
+            analysis_actions.append(action)
         analysis_menu.addSeparator()
         auto_peaks = QAction("Auto-find &peaks", self)
         auto_peaks.triggered.connect(
             lambda: (self._activate_workflow("Analyze"), self.auto_find_peaks())
         )
         analysis_menu.addAction(auto_peaks)
+        advanced = None
         if state.technique == "UVVIS":
             advanced = QAction("Band-gap and &Urbach analysis…", self)
             advanced.triggered.connect(
@@ -1041,6 +1045,27 @@ class PlotViewer(QDialog):
         about = QAction(f"About SpectraSuite {APP_VERSION}", self)
         about.triggered.connect(lambda: show_about(self))
         help_menu.addAction(about)
+
+        # Keep stable Python references to the leaf actions.  The single-window
+        # shell can place these actions in its native menus without re-parenting
+        # QMenu objects.  Moving QMenu objects between menu bars is unsafe on
+        # macOS because Cocoa may delete the underlying native menu while a
+        # Python wrapper still exists.
+        self.menu_action_groups = {
+            "File": [
+                add_action, replace_action, None, export_action, save_action,
+                None, close_action,
+            ],
+            "Edit": [apply_table, formula_action, None, rename_legend],
+            "History": [undo_action, redo_action],
+            "View": [
+                self.view_project_action, self.view_controls_action,
+                self.view_toolbar_action, None, plot_workspace, table_workspace,
+            ],
+            "Analysis": analysis_actions + [None, auto_peaks]
+            + ([advanced] if advanced is not None else []),
+            "Help": [check_updates, automatic_updates, None, about],
+        }
 
     def _install_shortcuts(self):
         self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self)

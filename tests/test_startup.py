@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MPLBACKEND", "QtAgg")
 
 import numpy as np
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QMenuBar, QPushButton, QScrollArea, QTabWidget, QTableWidgetItem,
 )
@@ -100,7 +101,14 @@ class StartupTests(unittest.TestCase):
             workspace = next(item for item in WORKSPACES if item.key == "uvvis")
             dashboard.launch_workspace(workspace)
         self.assertEqual(dashboard.document_tabs.count(), 2)
-        self.assertIsInstance(dashboard.document_tabs.currentWidget(), InlineImportPage)
+        page = dashboard.document_tabs.currentWidget()
+        self.assertIsInstance(page, InlineImportPage)
+        self.assertEqual(page.import_splitter.orientation(), Qt.Orientation.Horizontal)
+        self.assertIs(page.import_splitter.widget(0), page.import_sidebar)
+        self.assertIs(page.import_splitter.widget(1), page.settings_panel)
+        self.assertLessEqual(page.drop_zone.maximumHeight(), 180)
+        self.assertFalse(page.open_button.isEnabled())
+        self.assertIn("Open UV–Vis analysis", page.open_button.text())
         dashboard._skip_close_prompt = True
         dashboard.close()
 
@@ -125,7 +133,7 @@ class StartupTests(unittest.TestCase):
         self.assertTrue(viewer.findChild(QMenuBar).isHidden())
         self.assertEqual(
             [action.text().replace("&", "") for action in dashboard.menuBar().actions()],
-            ["File", "Edit", "History", "View", "Analysis", "Help"],
+            ["File", "Edit", "History", "View", "Analysis", "Account", "Help"],
         )
         self.assertEqual(dashboard.document_tabs.count(), 2)
         self.assertIs(dashboard.document_tabs.widget(0), dashboard.home_page)
@@ -152,11 +160,54 @@ class StartupTests(unittest.TestCase):
         self.assertIs(dashboard.document_tabs.currentWidget(), page)
         self.assertTrue(page.review_group.isVisible())
         self.assertEqual(page.dataset_list.count(), 2)
+        self.assertTrue(page.open_button.isEnabled())
+        self.assertEqual(page.open_button.text(), "Open Raman analysis")
         page.open_selected()
         viewer = dashboard.document_tabs.currentWidget()
         self.assertIsInstance(viewer, PlotViewer)
         self.assertEqual(viewer.stems, ["sample A", "sample B"])
         self.assertEqual(state.settings["mode"], "overlay")
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_native_menu_survives_repeated_document_switch_and_close(self):
+        dashboard = WelcomeDashboard()
+        dashboard.show()
+        x = np.linspace(200.0, 800.0, 31)
+        viewers = []
+        for key, technique in (("uvvis", "UVVIS"), ("xrd", "XRD"), ("ir", "FTIR")):
+            session = SessionState()
+            session.technique = technique
+            session.all_data = [(f"{key} sample", x.copy(), np.linspace(0.1, 0.8, 31))]
+            session.init_file_settings()
+            workspace = next(item for item in WORKSPACES if item.key == key)
+            dashboard._create_spectroscopy_document(session, workspace)
+            viewer = dashboard.document_tabs.currentWidget()
+            viewers.append(viewer)
+            self.app.processEvents()
+            self.assertEqual(
+                [action.text().replace("&", "") for action in dashboard.menuBar().actions()],
+                ["File", "Edit", "History", "View", "Analysis", "Account", "Help"],
+            )
+            self.assertTrue(viewer._embedded_menu_groups)
+            dashboard.show_home()
+            self.app.processEvents()
+            self.assertEqual(
+                [
+                    action.text().replace("&", "")
+                    for action in dashboard.menuBar().actions() if action.isVisible()
+                ],
+                ["File", "View", "Account", "Help"],
+            )
+
+        dashboard.document_tabs.setCurrentWidget(viewers[1])
+        self.app.processEvents()
+        dashboard._remove_tab(dashboard.document_tabs.indexOf(viewers[1]))
+        self.app.processEvents()
+        for action in dashboard.menuBar().actions():
+            self.assertTrue(action.text())
+            self.assertIsNotNone(action.menu())
+            self.assertTrue(action.menu().title())
         dashboard._skip_close_prompt = True
         dashboard.close()
 

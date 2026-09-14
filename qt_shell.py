@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QSpinBox,
     QTabBar,
     QTabWidget,
@@ -98,6 +99,16 @@ QFrame#dropZone {
     border-radius: 12px;
 }
 QFrame#dropZone[ready="true"] { border-color: #2563eb; background-color: #eff6ff; }
+QFrame#importSidebar, QFrame#importSettingsPanel {
+    background-color: #ffffff;
+    border: 1px solid #d7e0ec;
+    border-radius: 10px;
+}
+QFrame#importFooter {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+}
 QLabel#importTitle { color: #172033; font-size: 22px; font-weight: 800; }
 QTabWidget#documentTabs::pane { border: none; background-color: #f4f7fb; }
 QTabWidget#documentTabs > QTabBar::tab {
@@ -131,8 +142,8 @@ class InlineImportPage(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(34, 24, 34, 28)
-        root.setSpacing(14)
+        root.setContentsMargins(28, 20, 28, 18)
+        root.setSpacing(12)
 
         title_row = QHBoxLayout()
         back = QPushButton("← Home")
@@ -152,29 +163,44 @@ class InlineImportPage(QWidget):
         note.setWordWrap(True)
         root.addWidget(note)
 
+        self.import_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.import_splitter.setChildrenCollapsible(False)
+
+        self.import_sidebar = QFrame()
+        self.import_sidebar.setObjectName("importSidebar")
+        self.import_sidebar.setMinimumWidth(300)
+        self.import_sidebar.setMaximumWidth(440)
+        sidebar_layout = QVBoxLayout(self.import_sidebar)
+        sidebar_layout.setContentsMargins(14, 14, 14, 14)
+        sidebar_layout.setSpacing(10)
+
         self.drop_zone = QFrame()
         self.drop_zone.setObjectName("dropZone")
+        self.drop_zone.setMinimumHeight(145)
+        self.drop_zone.setMaximumHeight(180)
         drop_layout = QVBoxLayout(self.drop_zone)
-        drop_layout.setContentsMargins(18, 18, 18, 18)
+        drop_layout.setContentsMargins(14, 14, 14, 14)
+        drop_layout.setSpacing(6)
         drop_title = QLabel("Drop data files here")
         drop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_title.setStyleSheet("font-size:17px;font-weight:700;")
+        drop_title.setStyleSheet("font-size:15px;font-weight:700;")
         drop_layout.addWidget(drop_title)
-        drop_note = QLabel("CSV · TSV · TXT · DPT · XY · DAT · Excel")
+        drop_note = QLabel("CSV · TXT · DPT · XY · DAT · Excel")
         drop_note.setObjectName("homeSubtitle")
         drop_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        drop_note.setWordWrap(True)
         drop_layout.addWidget(drop_note)
         choose = QPushButton("Choose files…")
         choose.setObjectName("primary")
         choose.clicked.connect(self.choose_files)
         drop_layout.addWidget(choose, alignment=Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self.drop_zone)
+        sidebar_layout.addWidget(self.drop_zone)
 
         files_group = QGroupBox("Selected files")
         files_layout = QVBoxLayout(files_group)
         self.file_list = QListWidget()
         self.file_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.file_list.setMinimumHeight(100)
+        self.file_list.setMinimumHeight(180)
         files_layout.addWidget(self.file_list)
         file_actions = QHBoxLayout()
         add_files = QPushButton("+ Files")
@@ -187,12 +213,20 @@ class InlineImportPage(QWidget):
         clear.clicked.connect(self.clear_files)
         for button in (add_files, add_folder, remove, clear):
             file_actions.addWidget(button)
-        file_actions.addStretch()
         files_layout.addLayout(file_actions)
-        root.addWidget(files_group)
+        sidebar_layout.addWidget(files_group, 1)
+        self.import_splitter.addWidget(self.import_sidebar)
+
+        self.settings_panel = QFrame()
+        self.settings_panel.setObjectName("importSettingsPanel")
+        settings_layout = QVBoxLayout(self.settings_panel)
+        settings_layout.setContentsMargins(16, 14, 16, 14)
+        settings_layout.setSpacing(12)
 
         options = QGroupBox("Plot preparation")
         option_form = QFormLayout(options)
+        option_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        option_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.mode_combo = QComboBox()
         for label, value in (
             ("Overlay", "overlay"),
@@ -205,13 +239,19 @@ class InlineImportPage(QWidget):
         self.smoothing.setValue(15)
         option_form.addRow("Multiple-series layout", self.mode_combo)
         option_form.addRow("Default smoothing", self.smoothing)
-        root.addWidget(options)
+        settings_layout.addWidget(options)
+
+        status_group = QGroupBox("Import status")
+        status_layout = QVBoxLayout(status_group)
+        self.discovery_status = QLabel(
+            "Choose files or drop them onto the card. Supported numeric spectra are checked automatically."
+        )
+        self.discovery_status.setWordWrap(True)
+        status_layout.addWidget(self.discovery_status)
+        settings_layout.addWidget(status_group)
 
         self.review_group = QGroupBox("Choose datasets")
         review_layout = QVBoxLayout(self.review_group)
-        self.discovery_status = QLabel()
-        self.discovery_status.setWordWrap(True)
-        review_layout.addWidget(self.discovery_status)
         self.dataset_list = QListWidget()
         self.dataset_list.itemChanged.connect(self._update_selection_summary)
         review_layout.addWidget(self.dataset_list, 1)
@@ -220,12 +260,32 @@ class InlineImportPage(QWidget):
         self.reference_combo.currentIndexChanged.connect(self._reference_changed)
         reference_form.addRow("Baseline / reference", self.reference_combo)
         review_layout.addLayout(reference_form)
-        plot = QPushButton("Open selected data")
-        plot.setObjectName("primary")
-        plot.clicked.connect(self.open_selected)
-        review_layout.addWidget(plot)
         self.review_group.hide()
-        root.addWidget(self.review_group, 1)
+        settings_layout.addWidget(self.review_group, 1)
+        settings_layout.addStretch()
+        self.import_splitter.addWidget(self.settings_panel)
+        self.import_splitter.setStretchFactor(0, 0)
+        self.import_splitter.setStretchFactor(1, 1)
+        self.import_splitter.setSizes([360, 920])
+        root.addWidget(self.import_splitter, 1)
+
+        self.import_footer = QFrame()
+        self.import_footer.setObjectName("importFooter")
+        footer_layout = QHBoxLayout(self.import_footer)
+        footer_layout.setContentsMargins(14, 9, 10, 9)
+        self.footer_status = QLabel("No data selected")
+        self.footer_status.setObjectName("homeSubtitle")
+        footer_layout.addWidget(self.footer_status, 1)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(lambda: self.cancelRequested.emit(self))
+        footer_layout.addWidget(cancel)
+        technique_label = SPECTROSCOPY[self.workspace.key]["label"]
+        self.open_button = QPushButton(f"Open {technique_label} analysis")
+        self.open_button.setObjectName("primary")
+        self.open_button.setEnabled(False)
+        self.open_button.clicked.connect(self.open_ready)
+        footer_layout.addWidget(self.open_button)
+        root.addWidget(self.import_footer)
 
     def choose_files(self):
         paths, _ = QFileDialog.getOpenFileNames(
@@ -262,6 +322,11 @@ class InlineImportPage(QWidget):
         self.file_list.clear()
         for value in self.paths:
             self.file_list.addItem(Path(value).name)
+        count = len(self.paths)
+        self.footer_status.setText(
+            f"{count} file{'s' if count != 1 else ''} selected"
+            if count else "No data selected"
+        )
         self.drop_zone.setProperty("ready", bool(self.paths))
         self.drop_zone.style().unpolish(self.drop_zone)
         self.drop_zone.style().polish(self.drop_zone)
@@ -276,12 +341,22 @@ class InlineImportPage(QWidget):
         else:
             self.datasets = []
             self.review_group.hide()
+            self.open_button.setEnabled(False)
+            self.discovery_status.setText(
+                "Choose files or drop them onto the card. Supported numeric spectra "
+                "are checked automatically."
+            )
 
     def clear_files(self):
         self.paths.clear()
         self.datasets = []
         self._refresh_files()
         self.review_group.hide()
+        self.open_button.setEnabled(False)
+        self.discovery_status.setText(
+            "Choose files or drop them onto the card. Supported numeric spectra "
+            "are checked automatically."
+        )
 
     def inspect_files(self, *, automatic=True):
         self.datasets, self.failures = discover_many(self.paths, minimum_points=11)
@@ -289,7 +364,16 @@ class InlineImportPage(QWidget):
             details = "\n".join(f"{name}: {reason}" for name, reason in self.failures)
             QMessageBox.warning(self, "No plottable data", details or "No numeric X/Y datasets were found.")
             self.review_group.hide()
+            self.open_button.setEnabled(False)
+            self.discovery_status.setText("No supported numeric X/Y datasets were found.")
             return
+        self.open_button.setEnabled(True)
+        failed = f" · {len(self.failures)} file(s) skipped" if self.failures else ""
+        self.discovery_status.setText(
+            f"Found {len(self.datasets)} dataset(s){failed}. "
+            + ("Opening automatically…" if len(self.datasets) == 1 and automatic
+               else "Review the selection, then open the analysis.")
+        )
         if len(self.datasets) == 1 and automatic:
             self._emit_payload(self.datasets, None)
             return
@@ -329,6 +413,7 @@ class InlineImportPage(QWidget):
             self.dataset_list.item(candidate).setCheckState(Qt.CheckState.Unchecked)
             self._last_reference = candidate
         self.review_group.show()
+        self.open_button.setEnabled(True)
         self._update_selection_summary()
 
     def _reference_changed(self):
@@ -354,6 +439,14 @@ class InlineImportPage(QWidget):
         self.discovery_status.setText(
             f"Found {len(self.datasets)} dataset(s); {count} selected{failed}."
         )
+        self.open_button.setEnabled(count > 0)
+
+    def open_ready(self):
+        """Open parsed data from the fixed import footer."""
+        if len(self.datasets) == 1:
+            self._emit_payload(self.datasets, None)
+        else:
+            self.open_selected()
 
     def open_selected(self):
         selected = self._selected_datasets()
@@ -490,47 +583,82 @@ class SpectraSuiteWindow(QMainWindow):
         return page
 
     def _build_menu(self):
-        menu = self.menuBar()
-        menu.setNativeMenuBar(True)
-        file_menu = menu.addMenu("&File")
-        new_action = QAction("&New analysis", self)
-        new_action.setShortcut(QKeySequence.StandardKey.New)
-        new_action.triggered.connect(self.show_home)
-        file_menu.addAction(new_action)
-        open_session = QAction("Open &session…", self)
-        open_session.setShortcut(QKeySequence.StandardKey.Open)
-        open_session.triggered.connect(self.open_session)
-        file_menu.addAction(open_session)
-        file_menu.addSeparator()
-        close_action = QAction("&Close analysis", self)
-        close_action.setShortcut(QKeySequence.StandardKey.Close)
-        close_action.triggered.connect(self.close_current_document)
-        file_menu.addAction(close_action)
-        file_menu.addSeparator()
-        quit_action = QAction("&Quit SpectraSuite", self)
-        quit_action.setShortcut(QKeySequence.StandardKey.Quit)
-        quit_action.triggered.connect(self.close)
-        file_menu.addAction(quit_action)
+        menu_bar = self.menuBar()
+        menu_bar.setNativeMenuBar(True)
+        self._menu_order = (
+            "File", "Edit", "History", "View", "Analysis", "Account", "Help",
+        )
+        self._top_menus = {
+            name: menu_bar.addMenu(f"&{name}") for name in self._menu_order
+        }
 
-        view_menu = menu.addMenu("&View")
-        home_action = QAction("Show &Home", self)
-        home_action.setShortcut(QKeySequence("Ctrl+Shift+H"))
-        home_action.triggered.connect(self.show_home)
-        view_menu.addAction(home_action)
+        self.new_analysis_action = QAction("&New analysis", self)
+        self.new_analysis_action.setShortcut(QKeySequence.StandardKey.New)
+        self.new_analysis_action.triggered.connect(self.show_home)
+        self.open_session_action = QAction("Open &session…", self)
+        self.open_session_action.setShortcut(QKeySequence.StandardKey.Open)
+        self.open_session_action.triggered.connect(self.open_session)
+        self.close_analysis_action = QAction("&Close analysis", self)
+        self.close_analysis_action.setShortcut(QKeySequence.StandardKey.Close)
+        self.close_analysis_action.triggered.connect(self.close_current_document)
+        self.close_analysis_action.setEnabled(False)
+        self.quit_action = QAction("&Quit SpectraSuite", self)
+        self.quit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        self.quit_action.triggered.connect(self.close)
 
-        help_menu = menu.addMenu("&Help")
+        self.home_action = QAction("Show &Home", self)
+        self.home_action.setShortcut(QKeySequence("Ctrl+Shift+H"))
+        self.home_action.triggered.connect(self.show_home)
+
+        self.edition_action = QAction("Community edition · Offline-ready", self)
+        self.edition_action.setEnabled(False)
+        self.account_options_action = QAction("Account && &license options…", self)
+        self.account_options_action.triggered.connect(self._show_account_options)
+
         self.check_update_action = QAction("Check for &Updates…", self)
         self.check_update_action.triggered.connect(lambda: self.update_controller.check(silent=False))
-        help_menu.addAction(self.check_update_action)
         self.automatic_update_action = QAction("Automatically check for updates", self)
         self.automatic_update_action.setCheckable(True)
         self.automatic_update_action.toggled.connect(self._set_automatic_updates)
-        help_menu.addAction(self.automatic_update_action)
-        help_menu.addSeparator()
         about = QAction("&About SpectraSuite", self)
         about.triggered.connect(lambda: show_about(self))
-        help_menu.addAction(about)
-        self._shell_menu_actions = list(menu.actions())
+        self._shell_menu_groups = {
+            "File": [
+                self.new_analysis_action, self.open_session_action, None,
+                self.close_analysis_action, None, self.quit_action,
+            ],
+            "View": [self.home_action],
+            "Account": [self.edition_action, None, self.account_options_action],
+            "Help": [
+                self.check_update_action, self.automatic_update_action, None, about,
+            ],
+        }
+        self._apply_menu_groups(self._shell_menu_groups)
+
+    def _apply_menu_groups(self, groups):
+        """Populate permanent native menus without moving or deleting QMenus."""
+        for name in self._menu_order:
+            target = self._top_menus[name]
+            target.clear()
+            items = groups.get(name, ())
+            for item in items:
+                if item is None:
+                    target.addSeparator()
+                else:
+                    target.addAction(item)
+            target.menuAction().setVisible(bool(items))
+
+    def _show_account_options(self):
+        QMessageBox.information(
+            self,
+            "Account and licensing",
+            "<b>Current status: Community edition</b><br><br>"
+            "No account, login, or license key is required, and SpectraSuite remains "
+            "fully usable offline.<br><br>"
+            "This menu is the reserved home for optional sign-in and signed offline "
+            "licenses if a paid edition is introduced later. No user or installation "
+            "identifier is currently collected.",
+        )
 
     def _hide_home_close_button(self):
         bar = self.document_tabs.tabBar()
@@ -649,60 +777,36 @@ class SpectraSuiteWindow(QMainWindow):
             self._show_shell_menus()
 
     def _prepare_embedded_menus(self, viewer):
-        """Promote the active viewer's menus to the one top-level menu bar."""
-        child_bar = viewer.findChild(QMenuBar)
+        """Expose viewer actions without moving macOS-owned QMenu objects."""
+        child_bar = getattr(viewer, "desktop_menu_bar", None)
         if child_bar is None:
-            viewer._embedded_menu_actions = []
+            child_bar = viewer.findChild(QMenuBar)
+        if child_bar is None:
+            viewer._embedded_menu_groups = {}
             return
         child_bar.setNativeMenuBar(False)
         child_bar.hide()
-        menus = [action.menu() for action in child_bar.actions() if action.menu() is not None]
-        file_menu = next(
-            (menu for menu in menus if menu.title().replace("&", "") == "File"),
-            None,
-        )
-        if file_menu is not None:
-            first = file_menu.actions()[0] if file_menu.actions() else None
-            new_action = QAction("New &analysis", viewer)
-            new_action.setShortcut(QKeySequence.StandardKey.New)
-            new_action.triggered.connect(self.show_home)
-            open_action = QAction("Open another &session…", viewer)
-            open_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
-            open_action.triggered.connect(self.open_session)
-            file_menu.insertAction(first, open_action)
-            file_menu.insertAction(open_action, new_action)
-            file_menu.insertSeparator(first)
-            file_menu.addSeparator()
-            quit_action = QAction("Quit SpectraSuite", viewer)
-            quit_action.setShortcut(QKeySequence.StandardKey.Quit)
-            quit_action.triggered.connect(self.close)
-            file_menu.addAction(quit_action)
-        view_menu = next(
-            (menu for menu in menus if menu.title().replace("&", "") == "View"),
-            None,
-        )
-        if view_menu is not None:
-            view_menu.addSeparator()
-            home_action = QAction("Show &Home", viewer)
-            home_action.triggered.connect(self.show_home)
-            view_menu.addAction(home_action)
-        viewer._embedded_menu_actions = list(child_bar.actions())
+        viewer._embedded_menu_groups = {
+            name: list(items)
+            for name, items in getattr(viewer, "menu_action_groups", {}).items()
+        }
 
     def _show_document_menus(self, viewer):
-        menu = self.menuBar()
-        for action in list(menu.actions()):
-            menu.removeAction(action)
-        for action in getattr(viewer, "_embedded_menu_actions", []):
-            menu.addAction(action)
+        source = getattr(viewer, "_embedded_menu_groups", {})
+        groups = {name: list(items) for name, items in source.items()}
+        groups["File"] = [
+            self.new_analysis_action, self.open_session_action, None,
+        ] + groups.get("File", []) + [None, self.quit_action]
+        groups["View"] = groups.get("View", []) + [None, self.home_action]
+        groups["Account"] = list(self._shell_menu_groups["Account"])
+        groups["Help"] = list(self._shell_menu_groups["Help"])
+        self._apply_menu_groups(groups)
 
     def _show_shell_menus(self):
-        if not hasattr(self, "_shell_menu_actions"):
+        if not hasattr(self, "_shell_menu_groups"):
             return
-        menu = self.menuBar()
-        for action in list(menu.actions()):
-            menu.removeAction(action)
-        for action in self._shell_menu_actions:
-            menu.addAction(action)
+        self.close_analysis_action.setEnabled(self.document_tabs.currentIndex() > 0)
+        self._apply_menu_groups(self._shell_menu_groups)
 
     def _close_widget_request(self, widget):
         index = self.document_tabs.indexOf(widget)

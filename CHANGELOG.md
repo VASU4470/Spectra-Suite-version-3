@@ -14,6 +14,13 @@
 - Kept the editable Data Table beside Plot as a full-height centre workspace.
 - Saved the technique identifier in new session files while retaining fallback
   support for older session files.
+- Reworked Import into a compact two-column workspace with a small drag/drop
+  card and vertical file list on the left, settings and dataset selection on
+  the right, and an always-visible analysis button in a fixed footer.
+- Replaced cross-menu QMenu reuse with stable action groups, preventing deleted
+  native-menu objects when opening or closing analyses on macOS.
+- Added an Account menu showing the current offline Community-edition status
+  and reserving a clear location for optional future sign-in and licensing.
 
 ## 3.1.0 — 2026-09-11
 

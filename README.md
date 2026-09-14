@@ -16,6 +16,10 @@ sequence of separate application windows. A single detected spectrum opens
 immediately. When a file contains several sheets or Y columns, selection stays
 inside an Import tab before the chosen series opens.
 
+Import uses a compact left column for drag/drop and the selected-file list,
+with plot preparation and dataset selection on the right. A fixed footer keeps
+the **Open analysis** action visible even on shorter laptop screens.
+
 Open analyses remain available as document tabs. Closing an analysis returns
 to another open document or to Home instead of closing the application. The
 spectroscopy workspace uses a left project/data navigator, a full-height centre
@@ -34,7 +38,7 @@ FT-IR, XRD, UV-Vis, and Raman share a consistent plotting workspace with:
 - PNG, JPEG, TIFF, SVG, and PDF graph export
 - Processed-data and analysis-report export
 - Saved JSON sessions
-- Standard File, Edit, History, View, Analysis, and Help menus
+- Standard File, Edit, History, View, Analysis, Account, and Help menus
 - Compact analysis-mode icons with hover descriptions
 
 Version 3.1 added an editable spectroscopy spreadsheet; the development
@@ -101,6 +105,11 @@ shows a message when a newer version is available. The check is asynchronous,
 fails quietly without internet, and can be disabled from **Help → Automatically
 check for updates**. It does not send an installation identifier or scientific
 data. See [PRIVACY.md](PRIVACY.md).
+
+The **Account** menu currently reports **Community edition · Offline-ready**.
+No account or license key is required and no installation identifier is
+collected. The menu provides a stable interface location for optional sign-in
+or signed offline licenses if a commercial edition is introduced later.
 
 ## Run from source
 
