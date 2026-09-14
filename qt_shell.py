@@ -37,7 +37,13 @@ from config import SessionState, state
 from dataset_reader import discover_many
 from qt_plot_viewer import PlotViewer
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_updates import UpdateController, open_update_signup, show_about
+from qt_updates import (
+    PrivacyPreferencesDialog,
+    UpdateController,
+    open_release_page,
+    open_update_signup,
+    show_about,
+)
 
 
 SPECTROSCOPY = {
@@ -109,6 +115,20 @@ QFrame#importFooter {
     border: 1px solid #cbd5e1;
     border-radius: 9px;
 }
+QFrame#updateBanner {
+    background-color: #eaf3ff;
+    border-bottom: 1px solid #93c5fd;
+}
+QLabel#updateBannerBadge {
+    color: #ffffff;
+    background-color: #2563eb;
+    border-radius: 5px;
+    padding: 3px 7px;
+    font-size: 11px;
+    font-weight: 800;
+}
+QLabel#updateBannerTitle { color: #172033; font-weight: 800; }
+QLabel#updateBannerNote { color: #475569; }
 QLabel#importTitle { color: #172033; font-size: 22px; font-weight: 800; }
 QTabWidget#documentTabs::pane { border: none; background-color: #f4f7fb; }
 QTabWidget#documentTabs > QTabBar::tab {
@@ -498,11 +518,47 @@ class SpectraSuiteWindow(QMainWindow):
         apply_window_icon(self)
         self._build_ui()
         self._build_menu()
-        self.update_controller = UpdateController(self)
+        self.update_controller = UpdateController(
+            self, update_handler=self._show_update_banner
+        )
         self._sync_update_menu()
         self.update_controller.schedule_automatic_check()
 
     def _build_ui(self):
+        self.shell_central = QWidget()
+        central_layout = QVBoxLayout(self.shell_central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+
+        self.update_banner = QFrame()
+        self.update_banner.setObjectName("updateBanner")
+        banner_layout = QHBoxLayout(self.update_banner)
+        banner_layout.setContentsMargins(14, 8, 10, 8)
+        banner_layout.setSpacing(10)
+        badge = QLabel("UPDATE")
+        badge.setObjectName("updateBannerBadge")
+        banner_layout.addWidget(badge)
+        banner_text = QWidget()
+        banner_text_layout = QVBoxLayout(banner_text)
+        banner_text_layout.setContentsMargins(0, 0, 0, 0)
+        banner_text_layout.setSpacing(1)
+        self.update_banner_title = QLabel()
+        self.update_banner_title.setObjectName("updateBannerTitle")
+        self.update_banner_note = QLabel()
+        self.update_banner_note.setObjectName("updateBannerNote")
+        self.update_banner_note.setWordWrap(True)
+        banner_text_layout.addWidget(self.update_banner_title)
+        banner_text_layout.addWidget(self.update_banner_note)
+        banner_layout.addWidget(banner_text, 1)
+        self.update_download_button = QPushButton("View release")
+        self.update_download_button.clicked.connect(self._open_pending_update)
+        banner_layout.addWidget(self.update_download_button)
+        later = QPushButton("Later")
+        later.clicked.connect(self._dismiss_update_banner)
+        banner_layout.addWidget(later)
+        self.update_banner.hide()
+        central_layout.addWidget(self.update_banner)
+
         self.document_tabs = QTabWidget()
         self.document_tabs.setObjectName("documentTabs")
         self.document_tabs.setDocumentMode(True)
@@ -510,7 +566,8 @@ class SpectraSuiteWindow(QMainWindow):
         self.document_tabs.setTabsClosable(True)
         self.document_tabs.tabCloseRequested.connect(self.close_document)
         self.document_tabs.currentChanged.connect(self._document_activated)
-        self.setCentralWidget(self.document_tabs)
+        central_layout.addWidget(self.document_tabs, 1)
+        self.setCentralWidget(self.shell_central)
 
         self.home_page = self._build_home_page()
         self.document_tabs.addTab(self.home_page, "Home")
@@ -620,6 +677,12 @@ class SpectraSuiteWindow(QMainWindow):
         self.edition_action.setEnabled(False)
         self.email_updates_action = QAction("Get &update emails…", self)
         self.email_updates_action.triggered.connect(self._open_update_signup)
+        self.privacy_preferences_action = QAction(
+            "Privacy && update &preferences…", self
+        )
+        self.privacy_preferences_action.triggered.connect(
+            self._show_privacy_preferences
+        )
         self.account_options_action = QAction("Account && &license options…", self)
         self.account_options_action.triggered.connect(self._show_account_options)
 
@@ -637,7 +700,8 @@ class SpectraSuiteWindow(QMainWindow):
             ],
             "View": [self.home_action],
             "Account": [
-                self.edition_action, None, self.email_updates_action, None,
+                self.edition_action, None, self.email_updates_action,
+                self.privacy_preferences_action, None,
                 self.account_options_action,
             ],
             "Help": [
@@ -676,6 +740,31 @@ class SpectraSuiteWindow(QMainWindow):
 
     def _open_update_signup(self):
         open_update_signup(self)
+
+    def _show_privacy_preferences(self):
+        dialog = PrivacyPreferencesDialog(self.update_controller, self)
+        dialog.exec()
+        self._sync_update_menu()
+
+    def _show_update_banner(self, release):
+        """Present a release unobtrusively without interrupting active analysis."""
+        self._pending_update_release = dict(release)
+        self.update_banner_title.setText(
+            f"{release['name']} is available · You are using {APP_VERSION}"
+        )
+        note = " ".join(str(release.get("notes", "")).split())
+        if len(note) > 220:
+            note = note[:220].rstrip() + "…"
+        self.update_banner_note.setText(note or "A newer SpectraSuite release is ready.")
+        self.update_banner.show()
+
+    def _dismiss_update_banner(self):
+        self.update_banner.hide()
+
+    def _open_pending_update(self):
+        release = getattr(self, "_pending_update_release", None)
+        if release and open_release_page(release["url"], self):
+            self.update_banner.hide()
 
     def _hide_home_close_button(self):
         bar = self.document_tabs.tabBar()

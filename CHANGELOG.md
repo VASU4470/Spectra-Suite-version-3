@@ -24,6 +24,9 @@
 - Connected an optional double-opt-in SpectraSuite email-update form from the
   Home page and Account menu without storing mailing credentials or user data
   in the desktop application.
+- Replaced the interrupting new-release prompt in the project shell with a
+  dismissible in-window banner and added one privacy/update-preferences dialog
+  for automatic checks, manual checks, email signup, and the privacy policy.
 
 ## 3.1.0 — 2026-09-11
 

@@ -101,18 +101,20 @@ restricted calculated-column formulas described above.
 ## Updates and privacy
 
 SpectraSuite checks the public GitHub Releases API at most once per 24 hours and
-shows a message when a newer version is available. The check is asynchronous,
-fails quietly without internet, and can be disabled from **Help → Automatically
-check for updates**. It does not send an installation identifier or scientific
-data. See [PRIVACY.md](PRIVACY.md).
+shows a non-blocking banner inside the project window when a newer version is
+available. The check is asynchronous, fails quietly without internet, and can
+be disabled from **Help → Automatically check for updates** or the unified
+**Account → Privacy & update preferences** dialog. It does not send an
+installation identifier or scientific data. A temporary offline failure is
+retried quietly while the application remains open. See [PRIVACY.md](PRIVACY.md).
 
 The **Account** menu reports **Community edition · Offline-ready** and offers
 an optional **Get update emails** link. That command opens the public
 SpectraSuite Brevo subscription form in the system browser; the application
 does not receive or store the submitted address. No account or license key is
 required and no installation identifier is collected. The menu also provides
-a stable interface location for optional sign-in or signed offline licenses if
-a commercial edition is introduced later.
+a privacy/preferences dialog and a stable interface location for optional
+sign-in or signed offline licenses if a commercial edition is introduced later.
 
 ## Run from source
 

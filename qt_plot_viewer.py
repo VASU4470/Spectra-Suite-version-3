@@ -71,7 +71,12 @@ from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_updates import UpdateController, open_update_signup, show_about
+from qt_updates import (
+    PrivacyPreferencesDialog,
+    UpdateController,
+    open_update_signup,
+    show_about,
+)
 from qt_widgets import (
     AnalysisToolBar,
     AnnotationToolBar,
@@ -1040,6 +1045,9 @@ class PlotViewer(QDialog):
         email_updates = QAction("Get &update emails…", self)
         email_updates.triggered.connect(lambda: open_update_signup(self))
         account_menu.addAction(email_updates)
+        privacy_preferences = QAction("Privacy && update &preferences…", self)
+        privacy_preferences.triggered.connect(self._show_privacy_preferences)
+        account_menu.addAction(privacy_preferences)
 
         help_menu = menu_bar.addMenu("&Help")
         check_updates = QAction("Check for &updates…", self)
@@ -1073,9 +1081,13 @@ class PlotViewer(QDialog):
             ],
             "Analysis": analysis_actions + [None, auto_peaks]
             + ([advanced] if advanced is not None else []),
-            "Account": [edition, None, email_updates],
+            "Account": [edition, None, email_updates, privacy_preferences],
             "Help": [check_updates, automatic_updates, None, about],
         }
+
+    def _show_privacy_preferences(self):
+        dialog = PrivacyPreferencesDialog(self.update_controller, self)
+        dialog.exec()
 
     def _install_shortcuts(self):
         self.delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Delete), self)

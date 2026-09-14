@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from urllib.parse import urlparse
 
-from app_version import UPDATE_SIGNUP_URL
+from app_version import PRIVACY_POLICY_URL, UPDATE_SIGNUP_URL
 from update_logic import is_newer_release, release_summary, version_tuple
 
 
@@ -32,6 +32,11 @@ class UpdateTests(unittest.TestCase):
         self.assertTrue(parsed.path.startswith("/serve/"))
         self.assertFalse(parsed.username)
         self.assertFalse(parsed.password)
+
+        privacy = urlparse(PRIVACY_POLICY_URL)
+        self.assertEqual(privacy.scheme, "https")
+        self.assertEqual(privacy.hostname, "github.com")
+        self.assertTrue(privacy.path.endswith("/PRIVACY.md"))
 
 
 if __name__ == "__main__":

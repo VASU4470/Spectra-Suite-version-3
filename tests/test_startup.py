@@ -24,6 +24,7 @@ from qt_shell import InlineImportPage
 from qt_general_plotter import GeneralPlotter
 from qt_plot_viewer import ExportOptionsDialog, PlotViewer, TextAnnotationDialog
 from qt_setup import DatasetSelectionDialog, SetupDialog
+from qt_updates import PrivacyPreferencesDialog
 from qt_widgets import AnalysisToolBar, AnnotationToolBar
 
 
@@ -127,6 +128,39 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(opened_url.scheme(), "https")
         self.assertEqual(opened_url.host(), "3bf8234d.sibforms.com")
         self.assertEqual(opened_url.toString(), UPDATE_SIGNUP_URL)
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_update_banner_and_privacy_preferences_are_non_blocking(self):
+        dashboard = WelcomeDashboard()
+        dashboard.show()
+        release = {
+            "tag": "v3.2.0",
+            "name": "SpectraSuite 3.2.0",
+            "notes": "A concise list of new analysis and usability improvements.",
+            "url": "https://github.com/example/releases/tag/v3.2.0",
+        }
+        dashboard.update_controller.present_update(release)
+        self.app.processEvents()
+        self.assertTrue(dashboard.update_banner.isVisible())
+        self.assertIn("SpectraSuite 3.2.0", dashboard.update_banner_title.text())
+        self.assertIn("usability improvements", dashboard.update_banner_note.text())
+        with patch("qt_shell.open_release_page", return_value=True) as opener:
+            dashboard.update_download_button.click()
+        opener.assert_called_once_with(release["url"], dashboard)
+        self.assertFalse(dashboard.update_banner.isVisible())
+
+        dialog = PrivacyPreferencesDialog(dashboard.update_controller, dashboard)
+        self.assertGreaterEqual(dialog.minimumWidth(), 560)
+        self.assertEqual(
+            dialog.automatic_check.isChecked(),
+            dashboard.update_controller.automatic_enabled(),
+        )
+        self.assertIn(
+            dashboard.privacy_preferences_action,
+            dashboard._shell_menu_groups["Account"],
+        )
+        dialog.close()
         dashboard._skip_close_prompt = True
         dashboard.close()
 

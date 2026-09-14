@@ -5,6 +5,7 @@ APP_VERSION = "3.1.0"
 REPOSITORY = "VASU4470/Spectra-Suite-version-3"
 RELEASE_API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
 RELEASE_PAGE_URL = f"https://github.com/{REPOSITORY}/releases"
+PRIVACY_POLICY_URL = f"https://github.com/{REPOSITORY}/blob/main/PRIVACY.md"
 UPDATE_SIGNUP_URL = (
     "https://3bf8234d.sibforms.com/serve/"
     "MUIFAE3b5bFxXTG73Or6w9LRFwb5GdTCCC94n02XxdvP3ypKwmh2pOmZoGPqCnx7"

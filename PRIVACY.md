@@ -11,8 +11,12 @@ containing the application version. SpectraSuite does not attach a unique
 installation identifier, account, filename, spectrum, or analysis result.
 
 Automatic checks can be disabled from **Help → Automatically check for
-updates**. Manual checks remain available from **Help → Check for Updates**.
-The application and all scientific tools continue to work without internet.
+updates** or **Account → Privacy & update preferences**. Manual checks remain
+available from **Help → Check for Updates** and the same preferences dialog.
+When an update is found, a non-blocking in-window banner links to its GitHub
+release page. A failed automatic check is retried quietly while the application
+remains open. The application and all scientific tools continue to work without
+internet.
 
 Version 3.1.0 contains no user login, license activation, advertising, or usage
 analytics.
