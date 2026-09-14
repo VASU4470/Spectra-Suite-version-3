@@ -1,0 +1,25 @@
+name: Publish approved 3.2.0 test installers
+on:
+  push:
+    branches: [publish/3.2.0-test]
+    paths:
+      - .github/workflows/publish-test-installers.yml
+      - packaging/publish_test_installers.py
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-spectrasuite-3.2.0-rc1
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify and publish existing tested installers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 packaging/publish_test_installers.py
