@@ -11,16 +11,20 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MPLBACKEND", "QtAgg")
 
 import numpy as np
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QMenuBar, QPushButton, QScrollArea, QTableWidgetItem,
+    QApplication, QMenuBar, QPushButton, QScrollArea, QTabWidget, QTableWidgetItem,
 )
 
+from app_version import UPDATE_SIGNUP_URL
 from config import SessionState, state
 from dataset_reader import SpectrumDataset
-from launcher import WelcomeDashboard, startup_smoke_test, workspace_command
+from launcher import WORKSPACES, WelcomeDashboard, startup_smoke_test, workspace_command
+from qt_shell import InlineImportPage
 from qt_general_plotter import GeneralPlotter
 from qt_plot_viewer import ExportOptionsDialog, PlotViewer, TextAnnotationDialog
 from qt_setup import DatasetSelectionDialog, SetupDialog
+from qt_updates import PrivacyPreferencesDialog
 from qt_widgets import AnalysisToolBar, AnnotationToolBar
 
 
@@ -86,7 +90,220 @@ class StartupTests(unittest.TestCase):
         self.assertFalse(dashboard._buttons["multiaxis"].isEnabled())
         self.assertFalse(dashboard._buttons["fluid"].isEnabled())
         self.assertFalse(dashboard._buttons["xps"].isEnabled())
-        self.assertIn("COMING SOON", dashboard._buttons["fluid"].text())
+        self.assertIn("Coming soon", dashboard._buttons["fluid"].text())
+        dashboard.close()
+
+    def test_dashboard_is_one_persistent_document_window(self):
+        dashboard = WelcomeDashboard()
+        dashboard.show()
+        self.app.processEvents()
+        self.assertEqual(dashboard.document_tabs.count(), 1)
+        self.assertIs(dashboard.document_tabs.widget(0), dashboard.home_page)
+        with patch("qt_shell.QTimer.singleShot"):
+            workspace = next(item for item in WORKSPACES if item.key == "uvvis")
+            dashboard.launch_workspace(workspace)
+        self.assertEqual(dashboard.document_tabs.count(), 2)
+        page = dashboard.document_tabs.currentWidget()
+        self.assertIsInstance(page, InlineImportPage)
+        self.assertEqual(page.import_splitter.orientation(), Qt.Orientation.Horizontal)
+        self.assertIs(page.import_splitter.widget(0), page.import_sidebar)
+        self.assertIs(page.import_splitter.widget(1), page.settings_panel)
+        self.assertLessEqual(page.drop_zone.maximumHeight(), 180)
+        self.assertFalse(page.open_button.isEnabled())
+        self.assertIn("Open UV–Vis analysis", page.open_button.text())
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_optional_email_signup_opens_secure_public_form(self):
+        dashboard = WelcomeDashboard()
+        self.assertIn(
+            dashboard.email_updates_action,
+            dashboard._shell_menu_groups["Account"],
+        )
+        self.assertEqual(dashboard.email_updates_button.text(), "Get update emails…")
+        with patch("qt_updates.QDesktopServices.openUrl", return_value=True) as opener:
+            dashboard.email_updates_button.click()
+        opener.assert_called_once()
+        opened_url = opener.call_args.args[0]
+        self.assertEqual(opened_url.scheme(), "https")
+        self.assertEqual(opened_url.host(), "3bf8234d.sibforms.com")
+        self.assertEqual(opened_url.toString(), UPDATE_SIGNUP_URL)
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_update_banner_and_privacy_preferences_are_non_blocking(self):
+        dashboard = WelcomeDashboard()
+        dashboard.show()
+        release = {
+            "tag": "v3.2.0",
+            "name": "SpectraSuite 3.2.0",
+            "notes": "A concise list of new analysis and usability improvements.",
+            "url": "https://github.com/example/releases/tag/v3.2.0",
+        }
+        dashboard.update_controller.present_update(release)
+        self.app.processEvents()
+        self.assertTrue(dashboard.update_banner.isVisible())
+        self.assertIn("SpectraSuite 3.2.0", dashboard.update_banner_title.text())
+        self.assertIn("usability improvements", dashboard.update_banner_note.text())
+        with patch("qt_shell.open_release_page", return_value=True) as opener:
+            dashboard.update_download_button.click()
+        opener.assert_called_once_with(release["url"], dashboard)
+        self.assertFalse(dashboard.update_banner.isVisible())
+
+        dialog = PrivacyPreferencesDialog(dashboard.update_controller, dashboard)
+        self.assertGreaterEqual(dialog.minimumWidth(), 560)
+        self.assertEqual(
+            dialog.automatic_check.isChecked(),
+            dashboard.update_controller.automatic_enabled(),
+        )
+        self.assertIn(
+            dashboard.privacy_preferences_action,
+            dashboard._shell_menu_groups["Account"],
+        )
+        dialog.close()
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_single_dataset_moves_from_inline_import_to_embedded_analysis(self):
+        reset_state("UVVIS")
+        dashboard = WelcomeDashboard()
+        workspace = next(item for item in WORKSPACES if item.key == "uvvis")
+        with patch("qt_shell.QTimer.singleShot"):
+            dashboard.launch_workspace(workspace)
+        page = dashboard.document_tabs.currentWidget()
+        x = np.linspace(200.0, 800.0, 31)
+        dataset = SpectrumDataset("sample", x, np.linspace(0.1, 0.8, 31), "sample.csv")
+        with patch("qt_shell.Path.is_file", return_value=True), patch(
+            "qt_shell.discover_many", return_value=([dataset], [])
+        ):
+            page.add_paths(["sample.csv"])
+        viewer = dashboard.document_tabs.currentWidget()
+        self.assertIsInstance(viewer, PlotViewer)
+        self.assertTrue(viewer.embedded)
+        self.assertFalse(viewer.isWindow())
+        self.assertEqual(viewer.finish_button.text(), "Close analysis")
+        self.assertTrue(viewer.findChild(QMenuBar).isHidden())
+        self.assertEqual(
+            [action.text().replace("&", "") for action in dashboard.menuBar().actions()],
+            ["File", "Edit", "History", "View", "Analysis", "Account", "Help"],
+        )
+        self.assertEqual(dashboard.document_tabs.count(), 2)
+        self.assertIs(dashboard.document_tabs.widget(0), dashboard.home_page)
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_multiple_discovered_datasets_are_selected_inline(self):
+        dashboard = WelcomeDashboard()
+        dashboard.show()
+        workspace = next(item for item in WORKSPACES if item.key == "raman")
+        with patch("qt_shell.QTimer.singleShot"):
+            dashboard.launch_workspace(workspace)
+        page = dashboard.document_tabs.currentWidget()
+        x = np.linspace(100.0, 1800.0, 31)
+        datasets = [
+            SpectrumDataset("sample A", x, np.linspace(1.0, 2.0, 31), "multi.csv"),
+            SpectrumDataset("sample B", x, np.linspace(2.0, 3.0, 31), "multi.csv"),
+        ]
+        with patch("qt_shell.Path.is_file", return_value=True), patch(
+            "qt_shell.discover_many", return_value=(datasets, [])
+        ):
+            page.add_paths(["multi.csv"])
+        self.app.processEvents()
+        self.assertIs(dashboard.document_tabs.currentWidget(), page)
+        self.assertTrue(page.review_group.isVisible())
+        self.assertEqual(page.dataset_list.count(), 2)
+        self.assertTrue(page.open_button.isEnabled())
+        self.assertEqual(page.open_button.text(), "Open Raman analysis")
+        page.open_selected()
+        viewer = dashboard.document_tabs.currentWidget()
+        self.assertIsInstance(viewer, PlotViewer)
+        self.assertEqual(viewer.stems, ["sample A", "sample B"])
+        self.assertEqual(state.settings["mode"], "overlay")
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_native_menu_survives_repeated_document_switch_and_close(self):
+        dashboard = WelcomeDashboard()
+        dashboard.show()
+        x = np.linspace(200.0, 800.0, 31)
+        viewers = []
+        for key, technique in (("uvvis", "UVVIS"), ("xrd", "XRD"), ("ir", "FTIR")):
+            session = SessionState()
+            session.technique = technique
+            session.all_data = [(f"{key} sample", x.copy(), np.linspace(0.1, 0.8, 31))]
+            session.init_file_settings()
+            workspace = next(item for item in WORKSPACES if item.key == key)
+            dashboard._create_spectroscopy_document(session, workspace)
+            viewer = dashboard.document_tabs.currentWidget()
+            viewers.append(viewer)
+            self.app.processEvents()
+            self.assertEqual(
+                [action.text().replace("&", "") for action in dashboard.menuBar().actions()],
+                ["File", "Edit", "History", "View", "Analysis", "Account", "Help"],
+            )
+            self.assertTrue(viewer._embedded_menu_groups)
+            dashboard.show_home()
+            self.app.processEvents()
+            self.assertEqual(
+                [
+                    action.text().replace("&", "")
+                    for action in dashboard.menuBar().actions() if action.isVisible()
+                ],
+                ["File", "View", "Account", "Help"],
+            )
+
+        dashboard.document_tabs.setCurrentWidget(viewers[1])
+        self.app.processEvents()
+        dashboard._remove_tab(dashboard.document_tabs.indexOf(viewers[1]))
+        self.app.processEvents()
+        for action in dashboard.menuBar().actions():
+            self.assertTrue(action.text())
+            self.assertIsNotNone(action.menu())
+            self.assertTrue(action.menu().title())
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_open_analysis_tabs_restore_independent_scientific_state(self):
+        dashboard = WelcomeDashboard()
+        x = np.linspace(200.0, 800.0, 31)
+        sessions = []
+        for key, technique, label in (
+            ("uvvis", "UVVIS", "UV state"),
+            ("raman", "RAMAN", "Raman state"),
+        ):
+            session = SessionState()
+            session.technique = technique
+            session.settings["mode"] = "individual"
+            session.all_data = [(label, x.copy(), np.linspace(0.1, 0.8, 31))]
+            session.global_set["title"] = label
+            session.init_file_settings()
+            workspace = next(item for item in WORKSPACES if item.key == key)
+            dashboard._create_spectroscopy_document(session, workspace)
+            sessions.append(dashboard.document_tabs.currentWidget())
+
+        dashboard.document_tabs.setCurrentWidget(sessions[0])
+        self.app.processEvents()
+        self.assertEqual(state.technique, "UVVIS")
+        self.assertEqual(state.global_set["title"], "UV state")
+        dashboard.document_tabs.setCurrentWidget(sessions[1])
+        self.app.processEvents()
+        self.assertEqual(state.technique, "RAMAN")
+        self.assertEqual(state.global_set["title"], "Raman state")
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_general_2d_and_3d_open_as_documents_not_windows(self):
+        dashboard = WelcomeDashboard()
+        for key in ("general", "plot3d"):
+            workspace = next(item for item in WORKSPACES if item.key == key)
+            dashboard.launch_workspace(workspace)
+        self.assertEqual(dashboard.document_tabs.count(), 3)
+        self.assertIsInstance(dashboard.document_tabs.widget(1), GeneralPlotter)
+        self.assertFalse(dashboard.document_tabs.widget(1).isWindow())
+        from qt_3d_plotter import Plot3D
+        self.assertIsInstance(dashboard.document_tabs.widget(2), Plot3D)
+        self.assertFalse(dashboard.document_tabs.widget(2).isWindow())
+        dashboard._skip_close_prompt = True
         dashboard.close()
 
     def test_annotation_tool_selector_is_horizontal_and_accessible(self):
@@ -213,10 +430,10 @@ class StartupTests(unittest.TestCase):
                 ))
                 self.assertGreaterEqual(viewer.data_table.columnCount(), 2)
                 viewer.controls_toggle.click()
-                self.assertTrue(viewer.controls.isHidden())
+                self.assertTrue(viewer.right_sidebar.isHidden())
                 self.assertEqual(viewer.controls_toggle.text(), "◀")
                 viewer.controls_toggle.click()
-                self.assertFalse(viewer.controls.isHidden())
+                self.assertFalse(viewer.right_sidebar.isHidden())
                 self.assertEqual(viewer.controls_toggle.text(), "▶")
                 viewer._skip_close_prompt = True
                 viewer.close()
@@ -235,9 +452,10 @@ class StartupTests(unittest.TestCase):
         self.app.processEvents()
 
         self.assertEqual(viewer.splitter.count(), 3)
+        self.assertFalse(hasattr(viewer, "workspace_splitter"))
         self.assertIs(viewer.splitter.widget(0), viewer.project_sidebar)
         self.assertIs(viewer.splitter.widget(1), viewer.center_panel)
-        self.assertIs(viewer.splitter.widget(2), viewer.controls)
+        self.assertIs(viewer.splitter.widget(2), viewer.right_sidebar)
         self.assertEqual(list(viewer.workflow_buttons), [
             "Prepare", "Analyze", "Style", "Annotate", "Export",
         ])
@@ -252,8 +470,9 @@ class StartupTests(unittest.TestCase):
         self.assertTrue(viewer.canvas_tabs.widget(1).isAncestorOf(viewer.data_table))
         self.assertEqual(
             [viewer.detail_tabs.tabText(index) for index in range(viewer.detail_tabs.count())],
-            ["Results", "History"],
+            ["Inspector", "Results", "History"],
         )
+        self.assertEqual(viewer.detail_tabs.tabPosition(), QTabWidget.TabPosition.West)
 
         viewer.workflow_buttons["Analyze"].click()
         self.assertEqual(viewer.tabs.currentIndex(), 3)

@@ -8,15 +8,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QSize, QTimer, Qt
-from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (
-    QApplication, QGridLayout, QLabel, QMenuBar, QMessageBox, QPushButton,
-    QVBoxLayout, QWidget,
-)
-from app_version import APP_VERSION
-from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_updates import UpdateController, show_about
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
+from qt_shell import SpectraSuiteWindow
 
 
 def resource_path(relative_path: str) -> Path:
@@ -64,177 +58,11 @@ def set_windows_app_id(workspace="launcher") -> None:
         pass
 
 
-APP_STYLE = LIGHT_STYLE + """
-QLabel#title { color: #1d4ed8; font-size: 26px; font-weight: 700; }
-QLabel#subtitle, QLabel#footer { color: #526175; font-size: 14px; }
-QPushButton {
-    background-color: #ffffff; border: 2px solid #c5cfdd;
-    border-radius: 15px; font-size: 16px; font-weight: 700; padding: 15px;
-}
-QPushButton:hover { background-color: #eff6ff; border-color: #2563eb; }
-QPushButton:pressed { background-color: #dbeafe; }
-QPushButton:disabled { color: #8290a3; }
-QPushButton[experimental="true"] { border-color: #d97706; }
-QPushButton[comingSoon="true"] {
-    border-color: #94a3b8; background-color: #f8fafc; color: #64748b;
-}
-"""
-
-
-class WelcomeDashboard(QWidget):
+# ``WelcomeDashboard`` remains the public entry-point name used by existing
+# installations, while its implementation is now the persistent project shell.
+class WelcomeDashboard(SpectraSuiteWindow):
     def __init__(self) -> None:
-        super().__init__()
-        self.setWindowTitle("Analytical Spectroscopy Suite")
-        self.resize(820, 720)
-        self.setMinimumSize(720, 650)
-        self.setStyleSheet(APP_STYLE)
-
-        apply_window_icon(self)
-
-        self._processes: dict[str, QProcess] = {}
-        self._buttons: dict[str, QPushButton] = {}
-        self._setup_ui()
-        self.update_controller = UpdateController(self)
-        self._sync_update_menu()
-        self.update_controller.schedule_automatic_check()
-
-    def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 32)
-        layout.setSpacing(18)
-        self._build_menu_bar(layout)
-
-        title = QLabel("Analytical Spectroscopy Suite")
-        title.setObjectName("title")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-
-        subtitle = QLabel("Select a workspace to begin")
-        subtitle.setObjectName("subtitle")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(subtitle)
-
-        grid = QGridLayout()
-        grid.setSpacing(20)
-        for index, workspace in enumerate(WORKSPACES):
-            button = self._workspace_button(workspace)
-            grid.addWidget(button, index // 3, index % 3)
-            self._buttons[workspace.key] = button
-        layout.addLayout(grid, 1)
-
-        footer = QLabel(f"Version {APP_VERSION}")
-        footer.setObjectName("footer")
-        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(footer)
-
-    def _build_menu_bar(self, layout):
-        menu_bar = QMenuBar(self)
-        menu_bar.setNativeMenuBar(True)
-        file_menu = menu_bar.addMenu("&File")
-        exit_action = QAction("E&xit", self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-        help_menu = menu_bar.addMenu("&Help")
-        self.check_update_action = QAction("Check for &Updates…", self)
-        self.check_update_action.triggered.connect(self._check_for_updates)
-        help_menu.addAction(self.check_update_action)
-        self.automatic_update_action = QAction("Automatically check for updates", self)
-        self.automatic_update_action.setCheckable(True)
-        self.automatic_update_action.toggled.connect(self._set_automatic_updates)
-        help_menu.addAction(self.automatic_update_action)
-        help_menu.addSeparator()
-        about_action = QAction("&About SpectraSuite", self)
-        about_action.triggered.connect(lambda: show_about(self))
-        help_menu.addAction(about_action)
-        layout.setMenuBar(menu_bar)
-
-    def _sync_update_menu(self):
-        self.automatic_update_action.blockSignals(True)
-        self.automatic_update_action.setChecked(self.update_controller.automatic_enabled())
-        self.automatic_update_action.blockSignals(False)
-
-    def _set_automatic_updates(self, enabled):
-        self.update_controller.set_automatic_enabled(enabled)
-
-    def _check_for_updates(self):
-        self.update_controller.check(silent=False)
-
-    def _workspace_button(self, workspace: Workspace) -> QPushButton:
-        suffix = "\n\nCOMING SOON\nNEXT VERSION" if workspace.coming_soon else (
-            "\n\nEXPERIMENTAL" if workspace.experimental else ""
-        )
-        button = QPushButton(f"{workspace.title}{suffix}")
-        icon_path = resource_path(workspace.icon)
-        if icon_path.exists():
-            button.setIcon(QIcon(str(icon_path)))
-            button.setIconSize(QSize(52, 52))
-        button.setMinimumHeight(145)
-        button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setProperty("experimental", workspace.experimental)
-        button.setProperty("comingSoon", workspace.coming_soon)
-        button.clicked.connect(
-            lambda _checked=False, item=workspace: self.launch_workspace(item)
-        )
-        if workspace.coming_soon:
-            button.setEnabled(False)
-            button.setCursor(Qt.CursorShape.ArrowCursor)
-            button.setToolTip(f"{workspace.title.replace(chr(10), ' ')} is planned for the next version.")
-        return button
-
-    def launch_workspace(self, workspace: Workspace) -> None:
-        process = self._processes.get(workspace.key)
-        if process is not None and process.state() != QProcess.ProcessState.NotRunning:
-            QMessageBox.warning(
-                self, "Already Running",
-                f"{workspace.title.replace(chr(10), ' ')} is already open.",
-            )
-            return
-
-        button = self._buttons[workspace.key]
-        original_text = button.text()
-        button.setText("⏳\n\nStarting…")
-        button.setEnabled(False)
-
-        process = QProcess(self)
-        program, arguments = workspace_command(workspace.key)
-        process.setProgram(program)
-        process.setArguments(arguments)
-        process.setWorkingDirectory(str(Path(__file__).resolve().parent))
-        process.errorOccurred.connect(
-            lambda _error, item=workspace, proc=process: self._show_process_error(item, proc)
-        )
-        process.finished.connect(
-            lambda exit_code, _status, item=workspace, proc=process:
-                self._process_finished(item, proc, exit_code)
-        )
-        self._processes[workspace.key] = process
-        process.start()
-        QTimer.singleShot(3000, lambda: self._reset_button(button, original_text))
-
-    def _show_process_error(self, workspace: Workspace, process: QProcess) -> None:
-        QMessageBox.critical(
-            self, "Launch Error",
-            f"Could not start {workspace.title.replace(chr(10), ' ')}.\n{process.errorString()}",
-        )
-
-    def _process_finished(
-        self, workspace: Workspace, process: QProcess, exit_code: int
-    ) -> None:
-        if self._processes.get(workspace.key) is process:
-            self._processes.pop(workspace.key, None)
-        if exit_code:
-            QMessageBox.critical(
-                self,
-                "Workspace Error",
-                f"{workspace.title.replace(chr(10), ' ')} stopped during startup.\n\n"
-                "A crash report was written to your Desktop when possible.",
-            )
-
-    @staticmethod
-    def _reset_button(button: QPushButton, original_text: str) -> None:
-        button.setText(original_text)
-        button.setEnabled(True)
+        super().__init__(WORKSPACES, resource_path)
 
 
 def run_workspace(key: str) -> int:
@@ -288,6 +116,8 @@ def startup_smoke_test() -> int:
     window = WelcomeDashboard()
     window.show()
     app.processEvents()
+    if window.document_tabs.count() != 1 or window.document_tabs.widget(0) is not window.home_page:
+        raise RuntimeError("The persistent Home document did not initialize")
     if set(window._buttons) != {
         "ir", "xrd", "uvvis", "raman", "general", "plot3d",
         "multiaxis", "fluid", "xps",

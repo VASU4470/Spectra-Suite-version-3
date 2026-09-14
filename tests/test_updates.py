@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import unittest
+from urllib.parse import urlparse
 
+from app_version import PRIVACY_POLICY_URL, UPDATE_SIGNUP_URL
 from update_logic import is_newer_release, release_summary, version_tuple
 
 
@@ -22,6 +24,19 @@ class UpdateTests(unittest.TestCase):
         })
         self.assertEqual(release["tag"], "v3.1.1")
         self.assertEqual(release["notes"], "Fixes")
+
+    def test_optional_email_signup_uses_secure_brevo_form(self):
+        parsed = urlparse(UPDATE_SIGNUP_URL)
+        self.assertEqual(parsed.scheme, "https")
+        self.assertEqual(parsed.hostname, "3bf8234d.sibforms.com")
+        self.assertTrue(parsed.path.startswith("/serve/"))
+        self.assertFalse(parsed.username)
+        self.assertFalse(parsed.password)
+
+        privacy = urlparse(PRIVACY_POLICY_URL)
+        self.assertEqual(privacy.scheme, "https")
+        self.assertEqual(privacy.hostname, "github.com")
+        self.assertTrue(privacy.path.endswith("/PRIVACY.md"))
 
 
 if __name__ == "__main__":

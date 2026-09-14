@@ -1,12 +1,30 @@
-# SpectraSuite 3.1.0
+# SpectraSuite 3.2.0
 
 SpectraSuite is a free desktop application for scientific data plotting and
 analysis. It includes working FT-IR, XRD, UV-Vis, Raman, General 2D, and General
 3D workspaces. Multi-X/Multi-Y, Fluid Dynamics, and XPS remain visible in the
-last launcher row as disabled previews for a future release.
+last Home row as disabled previews for a future release.
 
 The application is designed to work offline. Scientific data stays on the
 computer unless the user explicitly saves or exports it.
+
+## Single-window workflow
+
+The development interface uses one persistent project window. Home, file
+import, plots, editable tables, and analysis documents no longer open as a
+sequence of separate application windows. A single detected spectrum opens
+immediately. When a file contains several sheets or Y columns, selection stays
+inside an Import tab before the chosen series opens.
+
+Import uses a compact left column for drag/drop and the selected-file list,
+with plot preparation and dataset selection on the right. A fixed footer keeps
+the **Open analysis** action visible even on shorter laptop screens.
+
+Open analyses remain available as document tabs. Closing an analysis returns
+to another open document or to Home instead of closing the application. The
+spectroscopy workspace uses a left project/data navigator, a full-height centre
+Plot/Data Table area, and one collapsible right sidebar containing Inspector,
+Results, and History tabs.
 
 ## Spectroscopy workspaces
 
@@ -20,10 +38,11 @@ FT-IR, XRD, UV-Vis, and Raman share a consistent plotting workspace with:
 - PNG, JPEG, TIFF, SVG, and PDF graph export
 - Processed-data and analysis-report export
 - Saved JSON sessions
-- Standard File, Edit, History, View, Analysis, and Help menus
+- Standard File, Edit, History, View, Analysis, Account, and Help menus
 - Compact analysis-mode icons with hover descriptions
 
-Version 3.1 adds a collapsible spreadsheet below every spectroscopy graph.
+Version 3.1 added an editable spectroscopy spreadsheet; the development
+interface now presents it as a full-height **Data Table** tab beside **Plot**.
 Columns are visibly assigned as `[X]`, `[Y]`, or `[Ignore]`. Users can edit
 cells, copy/paste from a spreadsheet, insert or delete rows and columns, rename
 columns, change column roles, and rebuild the plot from the edited table.
@@ -82,10 +101,30 @@ restricted calculated-column formulas described above.
 ## Updates and privacy
 
 SpectraSuite checks the public GitHub Releases API at most once per 24 hours and
-shows a message when a newer version is available. The check is asynchronous,
-fails quietly without internet, and can be disabled from **Help → Automatically
-check for updates**. It does not send an installation identifier or scientific
-data. See [PRIVACY.md](PRIVACY.md).
+shows a non-blocking banner inside the project window when a newer version is
+available. The check is asynchronous, fails quietly without internet, and can
+be disabled from **Help → Automatically check for updates** or the unified
+**Account → Privacy & update preferences** dialog. It does not send an
+installation identifier or scientific data. A temporary offline failure is
+retried quietly while the application remains open. See [PRIVACY.md](PRIVACY.md).
+
+The **Account** menu reports **Community edition · Offline-ready** and offers
+an optional **Get update emails** link. That command opens the public
+SpectraSuite Brevo subscription form in the system browser; the application
+does not receive or store the submitted address. No account or license key is
+required and no installation identifier is collected. The menu also provides
+a privacy/preferences dialog and a stable interface location for optional
+sign-in or signed offline licenses if a commercial edition is introduced later.
+
+## Installer candidates
+
+Version 3.2.0 is feature-frozen and being prepared for distribution. Native
+Windows setup, Apple Silicon/Intel Mac disk images, and Ubuntu/Debian packages
+are built by the **Installer candidates** workflow. Candidates bundle Python
+and application dependencies, include checksums, and are startup-tested after
+installation. Windows/Mac candidates are not publisher-signed or notarized.
+See [release preparation](packaging/RELEASE.md) for download formats and remaining
+release gates. A finished public installer release has not yet been published.
 
 ## Run from source
 
@@ -111,6 +150,6 @@ Python 3.11 and 3.12.
 
 ## License
 
-SpectraSuite 3.1.0 is distributed under the [MIT License](LICENSE). A signed
+SpectraSuite 3.2.0 is distributed under the [MIT License](LICENSE). A signed
 installer has not yet been published; the source workflow above remains the
 recommended testing path.
