@@ -18,7 +18,7 @@ release page. A failed automatic check is retried quietly while the application
 remains open. The application and all scientific tools continue to work without
 internet.
 
-Version 3.1.0 contains no user login, license activation, advertising, or usage
+Version 3.2.0 contains no user login, license activation, advertising, or usage
 analytics.
 
 ## Optional email updates
@@ -28,6 +28,6 @@ form in the user's normal web browser. SpectraSuite does not open this page
 automatically and does not send an email address, installation identifier,
 filename, spectrum, or analysis result to the form. If the user voluntarily
 submits the external form, Brevo processes the submitted email address and
-consent for SpectraSuite release, security, and feature-update messages. Each
-message provides an unsubscribe mechanism. Declining or cancelling a
+consent for SpectraSuite release, security, and feature-update messages. Email campaigns must include an unsubscribe mechanism; the publisher must
+verify the hosted form's consent and double-opt-in settings before sending. Declining or cancelling a
 subscription has no effect on application features or offline use.

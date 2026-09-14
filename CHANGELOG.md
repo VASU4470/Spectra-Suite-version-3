@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 3.2.0 — Release candidate
+
+- Added Windows setup, Apple Silicon/Intel macOS disk images, and an
+  Ubuntu/Debian package build, with installed-application startup checks and
+  SHA-256 manifests. Candidates remain unsigned until signing is configured.
 
 - Replaced the process-launching dashboard with one persistent application
   window containing Home, inline Import, and closable analysis documents.
@@ -21,7 +25,7 @@
   native-menu objects when opening or closing analyses on macOS.
 - Added an Account menu showing the current offline Community-edition status
   and reserving a clear location for optional future sign-in and licensing.
-- Connected an optional double-opt-in SpectraSuite email-update form from the
+- Connected an optional hosted SpectraSuite email-update form from the
   Home page and Account menu without storing mailing credentials or user data
   in the desktop application.
 - Replaced the interrupting new-release prompt in the project shell with a

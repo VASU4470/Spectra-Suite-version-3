@@ -1,4 +1,4 @@
-# SpectraSuite 3.1.0
+# SpectraSuite 3.2.0
 
 SpectraSuite is a free desktop application for scientific data plotting and
 analysis. It includes working FT-IR, XRD, UV-Vis, Raman, General 2D, and General
@@ -116,6 +116,16 @@ required and no installation identifier is collected. The menu also provides
 a privacy/preferences dialog and a stable interface location for optional
 sign-in or signed offline licenses if a commercial edition is introduced later.
 
+## Installer candidates
+
+Version 3.2.0 is feature-frozen and being prepared for distribution. Native
+Windows setup, Apple Silicon/Intel Mac disk images, and Ubuntu/Debian packages
+are built by the **Installer candidates** workflow. Candidates bundle Python
+and application dependencies, include checksums, and are startup-tested after
+installation. Windows/Mac candidates are not publisher-signed or notarized.
+See [release preparation](packaging/RELEASE.md) for download formats and remaining
+release gates. A finished public installer release has not yet been published.
+
 ## Run from source
 
 Use Python 3.11 or 3.12 in a virtual environment:
@@ -140,6 +150,6 @@ Python 3.11 and 3.12.
 
 ## License
 
-SpectraSuite 3.1.0 is distributed under the [MIT License](LICENSE). A signed
+SpectraSuite 3.2.0 is distributed under the [MIT License](LICENSE). A signed
 installer has not yet been published; the source workflow above remains the
 recommended testing path.
