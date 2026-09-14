@@ -21,6 +21,9 @@
   native-menu objects when opening or closing analyses on macOS.
 - Added an Account menu showing the current offline Community-edition status
   and reserving a clear location for optional future sign-in and licensing.
+- Connected an optional double-opt-in SpectraSuite email-update form from the
+  Home page and Account menu without storing mailing credentials or user data
+  in the desktop application.
 
 ## 3.1.0 — 2026-09-11
 

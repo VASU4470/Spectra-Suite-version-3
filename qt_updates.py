@@ -11,8 +11,29 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QMessageBox
 
-from app_version import APP_NAME, APP_VERSION, RELEASE_API_URL
+from app_version import APP_NAME, APP_VERSION, RELEASE_API_URL, UPDATE_SIGNUP_URL
 from update_logic import is_newer_release, release_summary
+
+
+def open_update_signup(parent=None):
+    """Open the optional email-update form without sharing application data."""
+    url = QUrl(UPDATE_SIGNUP_URL)
+    if not url.isValid() or url.scheme().casefold() != "https":
+        QMessageBox.warning(
+            parent,
+            "Email updates",
+            "The email-update page is not configured with a valid secure address.",
+        )
+        return False
+    if QDesktopServices.openUrl(url):
+        return True
+    QMessageBox.information(
+        parent,
+        "Email updates",
+        "SpectraSuite could not open your web browser. The application remains "
+        "fully usable without signing up.",
+    )
+    return False
 
 
 class UpdateController(QObject):

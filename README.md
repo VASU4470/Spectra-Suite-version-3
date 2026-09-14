@@ -106,10 +106,13 @@ fails quietly without internet, and can be disabled from **Help → Automaticall
 check for updates**. It does not send an installation identifier or scientific
 data. See [PRIVACY.md](PRIVACY.md).
 
-The **Account** menu currently reports **Community edition · Offline-ready**.
-No account or license key is required and no installation identifier is
-collected. The menu provides a stable interface location for optional sign-in
-or signed offline licenses if a commercial edition is introduced later.
+The **Account** menu reports **Community edition · Offline-ready** and offers
+an optional **Get update emails** link. That command opens the public
+SpectraSuite Brevo subscription form in the system browser; the application
+does not receive or store the submitted address. No account or license key is
+required and no installation identifier is collected. The menu also provides
+a stable interface location for optional sign-in or signed offline licenses if
+a commercial edition is introduced later.
 
 ## Run from source
 

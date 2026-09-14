@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QApplication, QMenuBar, QPushButton, QScrollArea, QTabWidget, QTableWidgetItem,
 )
 
+from app_version import UPDATE_SIGNUP_URL
 from config import SessionState, state
 from dataset_reader import SpectrumDataset
 from launcher import WORKSPACES, WelcomeDashboard, startup_smoke_test, workspace_command
@@ -109,6 +110,23 @@ class StartupTests(unittest.TestCase):
         self.assertLessEqual(page.drop_zone.maximumHeight(), 180)
         self.assertFalse(page.open_button.isEnabled())
         self.assertIn("Open UV–Vis analysis", page.open_button.text())
+        dashboard._skip_close_prompt = True
+        dashboard.close()
+
+    def test_optional_email_signup_opens_secure_public_form(self):
+        dashboard = WelcomeDashboard()
+        self.assertIn(
+            dashboard.email_updates_action,
+            dashboard._shell_menu_groups["Account"],
+        )
+        self.assertEqual(dashboard.email_updates_button.text(), "Get update emails…")
+        with patch("qt_updates.QDesktopServices.openUrl", return_value=True) as opener:
+            dashboard.email_updates_button.click()
+        opener.assert_called_once()
+        opened_url = opener.call_args.args[0]
+        self.assertEqual(opened_url.scheme(), "https")
+        self.assertEqual(opened_url.host(), "3bf8234d.sibforms.com")
+        self.assertEqual(opened_url.toString(), UPDATE_SIGNUP_URL)
         dashboard._skip_close_prompt = True
         dashboard.close()
 

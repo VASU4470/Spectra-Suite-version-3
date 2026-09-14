@@ -37,7 +37,7 @@ from config import SessionState, state
 from dataset_reader import discover_many
 from qt_plot_viewer import PlotViewer
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_updates import UpdateController, show_about
+from qt_updates import UpdateController, open_update_signup, show_about
 
 
 SPECTROSCOPY = {
@@ -546,6 +546,12 @@ class SpectraSuiteWindow(QMainWindow):
         open_session.clicked.connect(self.open_session)
         actions.addWidget(open_session)
         actions.addStretch()
+        self.email_updates_button = QPushButton("Get update emails…")
+        self.email_updates_button.setToolTip(
+            "Open the optional SpectraSuite email-update form in your web browser"
+        )
+        self.email_updates_button.clicked.connect(self._open_update_signup)
+        actions.addWidget(self.email_updates_button)
         hero_layout.addLayout(actions)
         outer.addWidget(hero)
 
@@ -612,6 +618,8 @@ class SpectraSuiteWindow(QMainWindow):
 
         self.edition_action = QAction("Community edition · Offline-ready", self)
         self.edition_action.setEnabled(False)
+        self.email_updates_action = QAction("Get &update emails…", self)
+        self.email_updates_action.triggered.connect(self._open_update_signup)
         self.account_options_action = QAction("Account && &license options…", self)
         self.account_options_action.triggered.connect(self._show_account_options)
 
@@ -628,7 +636,10 @@ class SpectraSuiteWindow(QMainWindow):
                 self.close_analysis_action, None, self.quit_action,
             ],
             "View": [self.home_action],
-            "Account": [self.edition_action, None, self.account_options_action],
+            "Account": [
+                self.edition_action, None, self.email_updates_action, None,
+                self.account_options_action,
+            ],
             "Help": [
                 self.check_update_action, self.automatic_update_action, None, about,
             ],
@@ -655,10 +666,16 @@ class SpectraSuiteWindow(QMainWindow):
             "<b>Current status: Community edition</b><br><br>"
             "No account, login, or license key is required, and SpectraSuite remains "
             "fully usable offline.<br><br>"
+            "Email update registration is optional and is kept separate from app "
+            "access. SpectraSuite opens the secure subscription form only when you "
+            "choose <b>Get update emails</b>.<br><br>"
             "This menu is the reserved home for optional sign-in and signed offline "
             "licenses if a paid edition is introduced later. No user or installation "
             "identifier is currently collected.",
         )
+
+    def _open_update_signup(self):
+        open_update_signup(self)
 
     def _hide_home_close_button(self):
         bar = self.document_tabs.tabBar()

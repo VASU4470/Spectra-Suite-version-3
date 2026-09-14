@@ -71,7 +71,7 @@ from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_updates import UpdateController, show_about
+from qt_updates import UpdateController, open_update_signup, show_about
 from qt_widgets import (
     AnalysisToolBar,
     AnnotationToolBar,
@@ -1032,6 +1032,15 @@ class PlotViewer(QDialog):
             )
             analysis_menu.addAction(advanced)
 
+        account_menu = menu_bar.addMenu("&Account")
+        edition = QAction("Community edition · Offline-ready", self)
+        edition.setEnabled(False)
+        account_menu.addAction(edition)
+        account_menu.addSeparator()
+        email_updates = QAction("Get &update emails…", self)
+        email_updates.triggered.connect(lambda: open_update_signup(self))
+        account_menu.addAction(email_updates)
+
         help_menu = menu_bar.addMenu("&Help")
         check_updates = QAction("Check for &updates…", self)
         check_updates.triggered.connect(lambda: self.update_controller.check(silent=False))
@@ -1064,6 +1073,7 @@ class PlotViewer(QDialog):
             ],
             "Analysis": analysis_actions + [None, auto_peaks]
             + ([advanced] if advanced is not None else []),
+            "Account": [edition, None, email_updates],
             "Help": [check_updates, automatic_updates, None, about],
         }
 
