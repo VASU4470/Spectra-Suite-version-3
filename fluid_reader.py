@@ -73,8 +73,22 @@ def read_tecplot(path):
         raise ValueError(f"ZONE dimensions expect {expected} points, but {len(data)} were found.")
     if data.shape[1] != len(variables):
         raise ValueError(f"The file defines {len(variables)} variables but has {data.shape[1]} columns.")
-    # In POINT files the first index changes slowest in the supplied examples.
-    values = data.reshape(dims["I"], dims["J"] * dims["K"], len(variables))
+    if dims["K"] != 1:
+        raise ValueError("This workspace plots 2D zones (K=1). Export a 2D slice of the volume first.")
+    if not np.all(np.isfinite(data)):
+        raise ValueError("Tecplot coordinates and field values must be finite.")
+    # Cartesian files from different exporters may use either point ordering.
+    # Reconstruct from coordinates, retaining the workspace's [x, y] convention.
+    x_values, xi = np.unique(data[:, 0], return_inverse=True)
+    y_values, yi = np.unique(data[:, 1], return_inverse=True)
+    if len(x_values) * len(y_values) == expected:
+        if len(np.unique(xi * len(y_values) + yi)) != expected:
+            raise ValueError("The structured grid contains duplicate coordinate pairs.")
+        values = np.empty((len(x_values), len(y_values), len(variables)))
+        values[xi, yi] = data
+    else:
+        # Ordered curvilinear Tecplot POINT zones use I as the fastest index.
+        values = data.reshape(dims["J"], dims["I"], len(variables)).transpose(1, 0, 2)
     return TecplotField(path, title, zone, tuple(variables), dims["I"], dims["J"], dims["K"], values)
 
 
@@ -84,6 +98,11 @@ def aligned_difference(first, second, variable):
     if first.values.shape[:2] == second.values.shape[:2] and np.allclose(first.x, second.x) and np.allclose(first.y, second.y):
         return first.x, first.y, second_value - first_value
     second_x = second.x[:, 0]; second_y = second.y[0, :]
+    if not (np.allclose(second.x, second_x[:, None]) and
+            np.allclose(second.y, second_y[None, :]) and
+            np.allclose(first.x, first.x[:, :1]) and
+            np.allclose(first.y, first.y[:1, :])):
+        raise ValueError("Different-grid interpolation requires rectilinear X/Y grids.")
     if np.any(np.diff(second_x) <= 0) or np.any(np.diff(second_y) <= 0):
         raise ValueError("Shifted-grid differences require increasing structured X/Y coordinates.")
     row_mask = (first.x[:, 0] >= second_x.min()) & (first.x[:, 0] <= second_x.max())

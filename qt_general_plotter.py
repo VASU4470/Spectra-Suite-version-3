@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 from annotations import AnnotationManager
 from column_math import FormulaError, evaluate_column_formula
-from plot_export import save_figure
+from qt_export import export_figure_dialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import (
     AnnotationToolBar, ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton,
@@ -893,10 +893,7 @@ class GeneralPlotter(QWidget):
         except Exception as error: QMessageBox.critical(self, "Save error", str(error))
 
     def export_graph(self):
-        filename, selected = QFileDialog.getSaveFileName(self, "Export graph", "graph.png", "PNG (*.png);;PDF (*.pdf);;SVG (*.svg)")
-        if filename:
-            try: save_figure(self.figure, filename, selected_filter=selected, dpi=300)
-            except Exception as error: QMessageBox.critical(self, "Export error", str(error))
+        export_figure_dialog(self, self.figure, "graph")
 
     def save_project(self):
         filename, _ = QFileDialog.getSaveFileName(self, "Save plotter project", "plot_project.json", "Plot projects (*.json)")

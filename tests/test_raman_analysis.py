@@ -18,6 +18,18 @@ class RamanAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(peaks[0].fwhm_cm1, 2.35482 * sigma, places=2)
         self.assertGreater(peaks[0].area, 0)
 
+    def test_missing_and_identical_ratio_bands_rejected(self):
+        x = np.linspace(1200, 1700, 501)
+        peaks = measure_raman_peaks(x, np.exp(-((x-1350)/5)**2), prominence=.1)
+        with self.assertRaisesRegex(ValueError, "tolerance"):
+            nearest_peak_ratio(peaks, 1350, 1580)
+        with self.assertRaisesRegex(ValueError, "same band"):
+            nearest_peak_ratio(peaks, 1350, 1351)
+
+    def test_duplicate_shifts_rejected(self):
+        with self.assertRaisesRegex(ValueError, "unique"):
+            measure_raman_peaks([1, 2, 2, 3], [0, 1, 1, 0])
+
     def test_nearest_peak_ratio(self):
         x = np.linspace(1200, 1700, 5001)
         y = 10*np.exp(-0.5*((x-1350)/6)**2) + 5*np.exp(-0.5*((x-1580)/7)**2)

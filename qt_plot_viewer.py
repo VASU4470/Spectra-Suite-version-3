@@ -85,6 +85,7 @@ from qt_widgets import (
     PanelToggleButton,
 )
 from plot_export import save_figure
+from qt_export import export_figure_dialog
 from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
 from spectral_preprocessing import subtract_reference, trim_noisy_edges
 
@@ -361,9 +362,9 @@ class ExportOptionsDialog(QDialog):
         apply_window_icon(self, state.technique)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Select items to export:"))
-        self.data_check = QCheckBox("Processed data (.csv)")
-        self.report_check = QCheckBox("Peaks and areas report (.txt)")
-        self.image_check = QCheckBox("Graph image")
+        self.data_check = QCheckBox("Processed data — active spectrum (.csv)")
+        self.report_check = QCheckBox("Peaks and areas — active spectrum (.txt)")
+        self.image_check = QCheckBox("Graph — current figure, including plotted series")
         for widget in (self.data_check, self.report_check, self.image_check):
             widget.setChecked(True)
             layout.addWidget(widget)
@@ -931,6 +932,9 @@ class PlotViewer(QDialog):
         replace_action.triggered.connect(self.replace_current)
         file_menu.addAction(replace_action)
         file_menu.addSeparator()
+        figure_action = QAction("Save &figure…", self)
+        figure_action.triggered.connect(self.export_figure)
+        file_menu.addAction(figure_action)
         export_action = QAction("&Export data and graph…", self)
         export_action.setShortcut(QKeySequence("Ctrl+E"))
         export_action.triggered.connect(self.export_data)
@@ -1070,7 +1074,7 @@ class PlotViewer(QDialog):
         # Python wrapper still exists.
         self.menu_action_groups = {
             "File": [
-                add_action, replace_action, None, export_action, save_action,
+                add_action, replace_action, None, figure_action, export_action, save_action,
                 None, close_action,
             ],
             "Edit": [apply_table, formula_action, None, rename_legend],
@@ -1505,6 +1509,17 @@ class PlotViewer(QDialog):
             clear_fit.clicked.connect(self.clear_deconvolution)
             layout.addWidget(clear_fit)
 
+        if state.technique in {"XPS", "LIBS"}:
+            scope = QLabel(
+                "XPS preview: import binding-energy data in eV. Peak labels are user assignments; "
+                "chemical-state fitting and atomic percentages are not available yet."
+                if state.technique == "XPS" else
+                "LIBS preview: import wavelength data in nm. Smoothing starts off. "
+                "Peak positions alone do not confirm an element; automatic line assignment is not available yet."
+            )
+            scope.setWordWrap(True)
+            layout.addWidget(scope)
+
         self.peak_list = QListWidget()
         layout.addWidget(self.peak_list)
         peak_row = QHBoxLayout()
@@ -1543,7 +1558,11 @@ class PlotViewer(QDialog):
         )
         description.setWordWrap(True)
         figure_layout.addWidget(description)
-        export = QPushButton("Export data, report and graph…")
+        save_figure_button = QPushButton("Save figure…")
+        save_figure_button.setObjectName("primary")
+        save_figure_button.clicked.connect(self.export_figure)
+        figure_layout.addWidget(save_figure_button)
+        export = QPushButton("Export data / results bundle…")
         export.setObjectName("primary")
         export.clicked.connect(self.export_data)
         figure_layout.addWidget(export)
@@ -1834,7 +1853,7 @@ class PlotViewer(QDialog):
 
     def reset_file_settings(self):
         self.offset_spin.setValue(0)
-        self.smooth_spin.setValue(15)
+        self.smooth_spin.setValue(0 if state.technique in {"XPS", "LIBS"} else 15)
         self.normalize_check.setChecked(False)
         self.t2a_check.setChecked(False)
         self.uv_transform_combo.setCurrentIndex(0)
@@ -2697,7 +2716,7 @@ class PlotViewer(QDialog):
         if span <= 0:
             return "center", 0
         fraction = (float(x_value) - low) / span
-        if state.technique == "FTIR":
+        if state.technique in {"FTIR", "XPS"}:
             fraction = 1.0 - fraction
         if fraction <= 0.08:
             return "left", 4
@@ -2712,7 +2731,7 @@ class PlotViewer(QDialog):
         min_y = min(item[2] for item in extents)
         max_y = max(item[3] for item in extents)
         xlim = gs.get("xlim") or [min_x, max_x]
-        if state.technique == "FTIR":
+        if state.technique in {"FTIR", "XPS"}:
             ax.set_xlim(max(xlim), min(xlim))
         else:
             ax.set_xlim(min(xlim), max(xlim))
@@ -2798,7 +2817,7 @@ class PlotViewer(QDialog):
             return
         x, y = self.get_processed_data_for_stem(self.current_stem)
         index = int(np.abs(x - event.xdata).argmin())
-        if mode == "peak" and state.technique in {"FTIR", "UVVIS", "RAMAN"}:
+        if mode == "peak" and state.technique in {"FTIR", "UVVIS", "RAMAN", "XPS", "LIBS"}:
             direction = peak_polarity(
                 state.technique,
                 bool(state.file_set[self.current_stem].get("t2a", False)),
@@ -2808,7 +2827,7 @@ class PlotViewer(QDialog):
         fs = state.file_set[self.current_stem]
         if mode == "peak":
             self._checkpoint_state()
-            fs.setdefault("labels", []).append((closest_x, closest_y, f"{closest_x:.1f}"))
+            fs.setdefault("labels", []).append((closest_x, closest_y, (f"{closest_x:.3f}" if state.technique == "LIBS" else f"{closest_x:.1f}")))
             self.update_plot()
         elif mode == "xrd_peak":
             result = self.calculate_xrd_peak(event.xdata, x, y)
@@ -2909,8 +2928,8 @@ class PlotViewer(QDialog):
             return
         existing = fs.setdefault("labels", [])
         for index in peaks:
-            if not any(abs(item[0] - x[index]) < 0.1 for item in existing):
-                existing.append((x[index], y[index], f"{x[index]:.1f}"))
+            if not any(abs(item[0] - x[index]) < (0.001 if state.technique == "LIBS" else 0.1) for item in existing):
+                existing.append((x[index], y[index], (f"{x[index]:.3f}" if state.technique == "LIBS" else f"{x[index]:.1f}")))
         self.update_plot()
         self.right_sidebar.setCurrentIndex(1)
 
@@ -3215,6 +3234,11 @@ class PlotViewer(QDialog):
             QMessageBox.information(self, "Session Saved", f"Saved to:\n{filepath}")
         return True
 
+    def export_figure(self):
+        if self._table_dirty and not self._apply_data_table():
+            return
+        export_figure_dialog(self, self.figure, f"{self.current_stem}_plot")
+
     def export_data(self):
         if self._table_dirty and not self._apply_data_table():
             return
@@ -3232,7 +3256,8 @@ class PlotViewer(QDialog):
             header = {
                 "FTIR": "Wavenumber,Intensity", "XRD": "2-Theta,Intensity",
                 "UVVIS": "Wavelength,Signal", "RAMAN": "Raman Shift,Intensity",
-                "GENERAL": "X,Y",
+                "GENERAL": "X,Y", "XPS": "Binding energy (eV),Intensity",
+                "LIBS": "Wavelength (nm),Intensity",
             }.get(state.technique, "X,Y")
             if options["data"]:
                 np.savetxt(

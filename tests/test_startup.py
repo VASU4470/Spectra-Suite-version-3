@@ -79,18 +79,19 @@ class StartupTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(set(dashboard._buttons), {
             "ir", "xrd", "uvvis", "raman", "general", "plot3d",
-            "multiaxis", "fluid", "xps",
+            "multiaxis", "fluid", "xps", "libs",
         })
         self.assertEqual(
             list(dashboard._buttons),
             ["ir", "xrd", "uvvis", "raman", "general", "plot3d",
-             "multiaxis", "fluid", "xps"],
+             "xps", "libs", "fluid", "multiaxis"],
         )
         self.assertTrue(all(not button.icon().isNull() for button in dashboard._buttons.values()))
         self.assertFalse(dashboard._buttons["multiaxis"].isEnabled())
-        self.assertFalse(dashboard._buttons["fluid"].isEnabled())
-        self.assertFalse(dashboard._buttons["xps"].isEnabled())
-        self.assertIn("Coming soon", dashboard._buttons["fluid"].text())
+        self.assertTrue(dashboard._buttons["fluid"].isEnabled())
+        self.assertTrue(dashboard._buttons["xps"].isEnabled())
+        self.assertTrue(dashboard._buttons["libs"].isEnabled())
+        self.assertIn("Preview", dashboard._buttons["fluid"].text())
         dashboard.close()
 
     def test_dashboard_is_one_persistent_document_window(self):

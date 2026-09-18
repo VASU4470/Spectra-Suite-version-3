@@ -35,9 +35,10 @@ WORKSPACES = (
     Workspace("raman", "Raman\nAnalysis", "raman_icon.svg"),
     Workspace("general", "General\n2D Plotter", "plot_icon.svg"),
     Workspace("plot3d", "General\n3D Plotter", "plot3d_icon.svg"),
+    Workspace("xps", "XPS\nAnalysis", "xps_icon.svg", experimental=True),
+    Workspace("libs", "LIBS\nSpectroscopy", "libs_icon.svg", experimental=True),
+    Workspace("fluid", "Fluid Dynamics\nPlotter", "fluid_icon.svg", experimental=True),
     Workspace("multiaxis", "Multi-X / Multi-Y\nPlotter", "multiaxis_icon.svg", coming_soon=True),
-    Workspace("fluid", "Fluid Dynamics\nPlotter", "fluid_icon.svg", coming_soon=True),
-    Workspace("xps", "XPS\nAnalysis", "xps_icon.svg", coming_soon=True),
 )
 
 
@@ -83,6 +84,12 @@ def run_workspace(key: str) -> int:
         from plot3d import run
     elif key == "fluid":
         from fluid import run
+    elif key in {"xps", "libs"}:
+        app = QApplication.instance() or QApplication([])
+        window = WelcomeDashboard()
+        window.show()
+        window.launch_workspace(next(item for item in WORKSPACES if item.key == key))
+        return app.exec()
     else:
         raise ValueError(f"Unknown workspace: {key}")
     run()
@@ -120,12 +127,27 @@ def startup_smoke_test() -> int:
         raise RuntimeError("The persistent Home document did not initialize")
     if set(window._buttons) != {
         "ir", "xrd", "uvvis", "raman", "general", "plot3d",
-        "multiaxis", "fluid", "xps",
+        "multiaxis", "fluid", "xps", "libs",
     }:
         raise RuntimeError("The dashboard did not create every workspace button")
+    # Exercise the real export path inside every installed/frozen build.
+    from tempfile import TemporaryDirectory
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+    from plot_export import save_figure
+    figure = Figure(figsize=(4, 3))
+    canvas = FigureCanvasQTAgg(figure)
+    axis = figure.add_subplot()
+    axis.plot([1, 2, 3], [2, 5, 3], label="Spectrum")
+    axis.set_xlabel("Wavenumber (cm⁻¹)")
+    axis.legend()
+    with TemporaryDirectory() as folder:
+        for extension in ("pdf", "svg", "png", "jpg", "tiff"):
+            save_figure(figure, Path(folder) / f"spectrum.{extension}", dpi=150)
+    canvas.close()
     window.close()
     app.processEvents()
-    print("SpectraSuite startup smoke test passed")
+    print("SpectraSuite startup and figure-export smoke test passed")
     return 0
 
 

@@ -263,6 +263,8 @@ ICON_FILES = {
     "XRD": "xrd_icon_taskbar.png",
     "UVVIS": "uvvis_icon_taskbar.png",
     "RAMAN": "raman_icon_taskbar.png",
+    "XPS": "xps_icon.svg",
+    "LIBS": "libs_icon.svg",
     "GENERAL": "plot_icon_taskbar.png",
     "MULTIAXIS": "multiaxis_icon_taskbar.png",
     "PLOT3D": "plot3d_icon_taskbar.png",

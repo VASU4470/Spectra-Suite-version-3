@@ -2,11 +2,55 @@
 
 SpectraSuite is a free desktop application for scientific data plotting and
 analysis. It includes working FT-IR, XRD, UV-Vis, Raman, General 2D, and General
-3D workspaces. Multi-X/Multi-Y, Fluid Dynamics, and XPS remain visible in the
-last Home row as disabled previews for a future release.
+3D workspaces. This review branch also includes preview XPS, LIBS, and Fluid
+Dynamics workspaces. Multi-X/Multi-Y remains disabled. The published 3.2.0
+release candidate does not contain these unreleased changes.
 
 The application is designed to work offline. Scientific data stays on the
 computer unless the user explicitly saves or exports it.
+
+## Export and new-workspace preview (unreleased)
+
+**Save figure** is available in the spectroscopy File menu and Export inspector,
+and through **Export graph** in the general and fluid plotters. Choose PDF/SVG
+for vector output or PNG/JPEG/TIFF for raster output. Set width/height in mm,
+DPI, transparency, and optional tight cropping. Cropping off preserves the
+specified canvas size; cropping on changes the final dimensions. The live
+figure size is restored after export. Failed rendering preserves existing files.
+
+**Export data / results bundle** retains the existing current-spectrum CSV,
+peak/area text report and optional current-figure export. Its graph can contain
+multiple plotted series; its data/report are explicitly for the active spectrum.
+**Save workspace session** saves editable spectroscopy data and settings as JSON.
+Batch exports, reusable journal presets, live export preview and multi-page PDF
+reports are suggested follow-ups, not implemented features.
+
+- **XPS preview:** import text/CSV/Excel binding-energy spectra in eV; decreasing
+  binding-energy axis; manual/automatic upward peak selection; overlays, areas,
+  generic baseline tools, annotations, figure export and session reopening.
+  Smoothing starts off. No VAMAS parser, charge referencing, Shirley/Tougaard
+  background, constrained chemical-state fitting or atomic quantification yet.
+- **LIBS preview:** wavelength in nm versus intensity; raw signal by default;
+  peak selection (three-decimal wavelength labels), manual baseline, reference
+  subtraction, overlays/stacking, areas, export and session reopening. It does
+  not infer elements, concentrations, electron density or plasma temperature.
+  A future line-reference workflow should retain wavelength medium (air/vacuum),
+  tolerance, ion stage and data provenance; NIST ASD is a reference candidate:
+  https://physics.nist.gov/PhysRefData/ASD/lines_form.html
+- **Fluid preview:** opens in the same shell. Supports a single ASCII Tecplot
+  POINT zone with X/Y as the first two columns and K=1. Cartesian coordinates
+  reconstruct either point ordering; ordered curvilinear data uses I-fast
+  ordering. Shifted-grid subtraction requires rectilinear grids. Binary,
+  BLOCK-packed, multi-zone and volume files are not supported. Import a 2D
+  slice for volume results. Plot rendering is tested with synthetic fields;
+  real instrument/solver examples are still needed.
+- **Raman:** intensity ratios require two distinct detected bands within a
+  configurable tolerance (default 10 cm⁻¹). The reported local FWHM area is
+  explicitly not the full integrated band area. Duplicate shift coordinates
+  are rejected rather than measured ambiguously.
+
+Frozen builds now export PDF, SVG, PNG, JPEG and TIFF during `--smoke-test`,
+including after installation, to catch missing dynamically loaded renderers.
 
 ## Single-window workflow
 

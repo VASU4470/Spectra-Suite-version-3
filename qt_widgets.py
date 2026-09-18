@@ -132,6 +132,8 @@ class AnalysisToolBar(QWidget):
             "XRD": ("◆", "Pick XRD peak", "xrd_peak", "#b45309", "#fffbeb"),
             "UVVIS": ("⌃", "Pick upward UV-Vis peak", "peak", "#0369a1", "#f0f9ff"),
             "RAMAN": ("⌃", "Pick upward Raman peak", "peak", "#7c3aed", "#f5f3ff"),
+            "XPS": ("⌃", "Pick upward XPS peak", "peak", "#0369a1", "#f0f9ff"),
+            "LIBS": ("⌃", "Pick upward LIBS line", "peak", "#0369a1", "#f0f9ff"),
             "GENERAL": ("•", "Pick data point", "peak", "#0369a1", "#f0f9ff"),
         }.get(technique, ("⌄", "Pick FT-IR valley", "peak", "#059669", "#ecfdf5"))
         tools = [

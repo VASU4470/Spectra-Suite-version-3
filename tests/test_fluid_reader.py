@@ -33,6 +33,26 @@ class FluidReaderTests(unittest.TestCase):
         self.assertEqual(field.values.shape, (2, 3, 3))
         np.testing.assert_allclose(field.variable("U"), [[1, 2, 3], [4, 5, 6]])
 
+    def test_standard_i_fast_and_shuffled_cartesian_order(self):
+        header = 'VARIABLES="X" "Y" "U"\nZONE I=2,J=3,F=POINT\n'
+        rows = ['0 0 1', '1 0 4', '0 1 2', '1 1 5', '0 2 3', '1 2 6']
+        with TemporaryDirectory() as folder:
+            for order in (rows, list(reversed(rows))):
+                path = Path(folder)/"standard.dat"
+                path.write_text(header + "\n".join(order))
+                field = read_tecplot(path)
+                np.testing.assert_allclose(field.variable("U"), [[1, 2, 3], [4, 5, 6]])
+                np.testing.assert_allclose(field.x[:, 0], [0, 1])
+                np.testing.assert_allclose(field.y[0, :], [0, 1, 2])
+
+    def test_volume_rejected_instead_of_flattening(self):
+        text = TEC.replace("I=2 J=3 K=1", "I=1 J=3 K=2")
+        with TemporaryDirectory() as folder:
+            path = Path(folder)/"volume.dat"
+            path.write_text(text)
+            with self.assertRaisesRegex(ValueError, "2D slice"):
+                read_tecplot(path)
+
     def test_dimension_mismatch_is_reported(self):
         with TemporaryDirectory() as folder:
             path = Path(folder) / "bad.plt"; path.write_text(TEC.rsplit("\n", 2)[0] + "\n", encoding="utf-8")

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from annotations import AnnotationManager
-from plot_export import save_figure
+from qt_export import export_figure_dialog
 from qt_general_plotter import DataTable, read_table
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
@@ -348,11 +348,7 @@ class MultiAxisPlotter(QWidget):
         except Exception as error: QMessageBox.critical(self, "Save error", str(error))
 
     def export_graph(self):
-        name, selected = QFileDialog.getSaveFileName(self, "Export graph", "multi_axis.png",
-                                                     "PNG (*.png);;PDF (*.pdf);;SVG (*.svg);;TIFF (*.tiff)")
-        if name:
-            try: save_figure(self.figure, name, selected_filter=selected)
-            except Exception as error: QMessageBox.critical(self, "Export error", str(error))
+        export_figure_dialog(self, self.figure, "multi_axis")
 
     def _table_changed(self, _item):
         if not self._loading: self.plot_data()

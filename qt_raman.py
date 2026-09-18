@@ -33,9 +33,12 @@ class RamanAnalysisDialog(QDialog):
         self.prominence.setValue(max(0.0, float(np.nanmax(self.y)-np.nanmin(self.y))*0.05))
         self.first_shift = self._shift_spin(1350.0)
         self.second_shift = self._shift_spin(1580.0)
+        self.tolerance = self._shift_spin(10.0)
+        self.tolerance.setMinimum(0.001)
         form.addRow("Peak prominence", self.prominence)
         form.addRow("Ratio numerator target", self.first_shift)
         form.addRow("Ratio denominator target", self.second_shift)
+        form.addRow("Peak matching tolerance", self.tolerance)
         root.addLayout(form)
         row = QHBoxLayout()
         detect = QPushButton("Detect and measure peaks")
@@ -49,7 +52,7 @@ class RamanAnalysisDialog(QDialog):
         self.result.setWordWrap(True)
         root.addWidget(self.result)
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Raman shift (cm⁻¹)", "Intensity", "FWHM (cm⁻¹)", "Area"])
+        self.table.setHorizontalHeaderLabels(["Raman shift (cm⁻¹)", "Intensity", "FWHM (cm⁻¹)", "Local FWHM area"])
         self.table.horizontalHeader().setStretchLastSection(True)
         root.addWidget(self.table, 1)
         bottom = QHBoxLayout()
@@ -72,19 +75,26 @@ class RamanAnalysisDialog(QDialog):
         return spin
 
     def calculate(self):
-        self.peaks = measure_raman_peaks(self.x, self.y, self.prominence.value())
+        try:
+            self.peaks = measure_raman_peaks(self.x, self.y, self.prominence.value())
+        except ValueError as error:
+            self.peaks = []
+            self.table.setRowCount(0)
+            QMessageBox.warning(self, "Raman measurements", str(error))
+            return
         self.table.setRowCount(len(self.peaks))
         for row, peak in enumerate(self.peaks):
             for column, value in enumerate((peak.shift_cm1, peak.intensity, peak.fwhm_cm1, peak.area)):
                 self.table.setItem(row, column, QTableWidgetItem(f"{value:.7g}"))
-        self.result.setText(f"Detected {len(self.peaks)} upward Raman band(s).")
+        self.result.setText(f"Detected {len(self.peaks)} upward Raman band(s). "
+                            "Area covers only the FWHM interval above its endpoint baseline, not the full band.")
 
     def calculate_ratio(self):
         if not self.peaks:
             self.calculate()
         try:
             first, second, ratio = nearest_peak_ratio(
-                self.peaks, self.first_shift.value(), self.second_shift.value()
+                self.peaks, self.first_shift.value(), self.second_shift.value(), self.tolerance.value()
             )
         except ValueError as error:
             QMessageBox.warning(self, "Raman ratio", str(error))
@@ -103,9 +113,10 @@ class RamanAnalysisDialog(QDialog):
         if not filename:
             return
         try:
+            filename = str(Path(filename).with_suffix(".csv"))
             with Path(filename).open("w", newline="", encoding="utf-8") as stream:
                 writer = csv.writer(stream)
-                writer.writerow(["Raman shift (cm^-1)", "Intensity", "FWHM (cm^-1)", "Area"])
+                writer.writerow(["Raman shift (cm^-1)", "Intensity", "FWHM (cm^-1)", "Local FWHM area"])
                 for peak in self.peaks:
                     writer.writerow([peak.shift_cm1, peak.intensity, peak.fwhm_cm1, peak.area])
         except OSError as error:

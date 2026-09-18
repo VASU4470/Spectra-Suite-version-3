@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — export repair and spectroscopy previews
+
+- Explicitly bundle PDF/SVG renderers and exercise real figure export in the
+  installed-application smoke check; reproduced the former missing-PDF-backend failure.
+- Add shared Save figure controls for format, millimetre dimensions, resolution,
+  transparency and cropping, with atomic replacement and live-figure restoration.
+- Add XPS/LIBS plotting previews with unit-aware axes, peak selection and saved
+  sessions; preserve unsmoothed data on import. Specialized analysis remains pending.
+- Enable the fluid preview inside the shell, correct Cartesian grid ordering,
+  reject flattened 3D volumes and protect multi-file removal from stale selection.
+- Restrict Raman intensity ratios to distinct bands within a user-selected
+  tolerance; clarify local FWHM area and handle duplicate shifts.
+- Keep all workspace tiles accessible through a scrolling Home grid.
+
 ## 3.2.0 — Release candidate
 
 - Added Windows setup, Apple Silicon/Intel macOS disk images, and an

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from fluid_reader import TecplotField, aligned_difference, read_tecplot
-from plot_export import save_figure
+from qt_export import export_figure_dialog
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 
@@ -32,7 +32,7 @@ class FluidPlotter(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SpectraSuite Fluid Dynamics Plotter")
-        self.resize(1550, 900); self.setMinimumSize(1100, 700)
+        self.resize(1550, 900); self.setMinimumSize(800, 550)
         self.setStyleSheet(LIGHT_STYLE); apply_window_icon(self, "FLUID")
         self.fields: list[TecplotField] = []
         self._build_ui()
@@ -100,13 +100,22 @@ class FluidPlotter(QWidget):
         if self.fields:
             self.file_list.clearSelection(); self.file_list.item(self.file_list.count()-1).setSelected(True)
             self._refresh_variables(); self._selection_changed()
+            self.plot_selected()
 
     def remove_selected(self):
+        self.file_list.blockSignals(True)
         for row in sorted({self.file_list.row(item) for item in self.file_list.selectedItems()},reverse=True):
             self.file_list.takeItem(row); self.fields.pop(row)
+        self.file_list.blockSignals(False)
         self._refresh_variables(); self._selection_changed()
+        self.plot_selected()
 
-    def clear_files(self): self.fields.clear(); self.file_list.clear(); self.figure.clear(); self.canvas.draw_idle(); self._refresh_variables()
+    def clear_files(self):
+        self.file_list.blockSignals(True)
+        self.fields.clear(); self.file_list.clear()
+        self.file_list.blockSignals(False)
+        self.summary.setRowCount(0)
+        self.figure.clear(); self.canvas.draw_idle(); self._refresh_variables()
 
     def _selected_indices(self): return sorted({self.file_list.row(item) for item in self.file_list.selectedItems()})
     def _selected_fields(self): return [self.fields[i] for i in self._selected_indices()]
@@ -129,7 +138,8 @@ class FluidPlotter(QWidget):
                                    ("Y range",f"{np.nanmin(field.y):.5g} to {np.nanmax(field.y):.5g}"))
         for row,(key,value) in enumerate(details):
             self.summary.insertRow(row); self.summary.setItem(row,0,QTableWidgetItem(key)); self.summary.setItem(row,1,QTableWidgetItem(value))
-        midpoint=(float(np.nanmin(field.y))+float(np.nanmax(field.y)))/2
+        coordinates = field.x if self.plot_type.currentText() == "Profile along Y" else field.y
+        midpoint=(float(np.nanmin(coordinates))+float(np.nanmax(coordinates)))/2
         self.slice_coordinate.setValue(midpoint)
 
     def _value(self,field):
@@ -145,7 +155,8 @@ class FluidPlotter(QWidget):
 
     def plot_selected(self,*_args):
         fields=self._selected_fields()
-        if not fields:return
+        if not fields:
+            self.figure.clear(); self.canvas.draw_idle(); return
         kind=self.plot_type.currentText(); cmap=self.colormap.currentText(); levels=self.levels.value(); self.figure.clear()
         try:
             if kind != "Mesh geometry":
@@ -212,10 +223,7 @@ class FluidPlotter(QWidget):
             QMessageBox.warning(self,"Fluid plot",str(error)); self.figure.clear(); self.canvas.draw_idle()
 
     def export_graph(self):
-        name,selected=QFileDialog.getSaveFileName(self,"Export fluid graph","fluid_plot.png","PNG (*.png);;PDF (*.pdf);;SVG (*.svg);;TIFF (*.tiff)")
-        if name:
-            try:save_figure(self.figure,name,selected_filter=selected)
-            except Exception as error:QMessageBox.critical(self,"Export error",str(error))
+        export_figure_dialog(self, self.figure, "fluid_plot")
 
     def export_data(self):
         fields=self._selected_fields()

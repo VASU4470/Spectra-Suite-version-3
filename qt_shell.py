@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QSpinBox,
     QTabBar,
@@ -47,6 +48,10 @@ from qt_updates import (
 
 
 SPECTROSCOPY = {
+    "xps": {"technique": "XPS", "label": "XPS",
+            "xlabel": "Binding energy (eV)", "ylabel": "Intensity (a.u.)"},
+    "libs": {"technique": "LIBS", "label": "LIBS",
+             "xlabel": "Wavelength (nm)", "ylabel": "Intensity (a.u.)"},
     "ir": {
         "technique": "FTIR",
         "label": "FT–IR",
@@ -255,8 +260,9 @@ class InlineImportPage(QWidget):
         ):
             self.mode_combo.addItem(label, value)
         self.smoothing = QSpinBox()
-        self.smoothing.setRange(1, 999)
-        self.smoothing.setValue(15)
+        self.smoothing.setRange(0, 999)
+        self.smoothing.setSpecialValueText("Off")
+        self.smoothing.setValue(0 if self.technique in {"XPS", "LIBS"} else 15)
         option_form.addRow("Multiple-series layout", self.mode_combo)
         option_form.addRow("Default smoothing", self.smoothing)
         settings_layout.addWidget(options)
@@ -625,7 +631,8 @@ class SpectraSuiteWindow(QMainWindow):
             title_text = workspace.title.replace("\n", " ")
             button.setText(
                 f"{title_text}\n"
-                + ("Coming soon" if workspace.coming_soon else "Open workspace")
+                + ("Coming soon" if workspace.coming_soon else
+                   "Preview workspace" if workspace.experimental else "Open workspace")
             )
             icon_path = self.resource_path(workspace.icon)
             if icon_path.exists():
@@ -638,8 +645,13 @@ class SpectraSuiteWindow(QMainWindow):
             )
             self._buttons[workspace.key] = button
             grid.addWidget(button, index // 3, index % 3)
-        outer.addLayout(grid)
-        outer.addStretch()
+        workspace_panel = QWidget()
+        workspace_panel.setLayout(grid)
+        workspace_scroll = QScrollArea()
+        workspace_scroll.setWidgetResizable(True)
+        workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        workspace_scroll.setWidget(workspace_panel)
+        outer.addWidget(workspace_scroll, 1)
         footer = QLabel(f"SpectraSuite {APP_VERSION} · One project window")
         footer.setObjectName("homeSubtitle")
         outer.addWidget(footer, alignment=Qt.AlignmentFlag.AlignRight)
@@ -801,6 +813,11 @@ class SpectraSuiteWindow(QMainWindow):
             from qt_general_plotter import GeneralPlotter
 
             self._add_widget_document(GeneralPlotter(), workspace, "2D Plot")
+            return
+        if workspace.key == "fluid":
+            from qt_fluid_plotter import FluidPlotter
+
+            self._add_widget_document(FluidPlotter(), workspace, "Fluid dynamics")
             return
         if workspace.key == "plot3d":
             from qt_3d_plotter import Plot3D
@@ -973,6 +990,7 @@ class SpectraSuiteWindow(QMainWindow):
             technique = data.get("technique") or self._infer_session_technique(data)
             workspace_key = {
                 "FTIR": "ir", "XRD": "xrd", "UVVIS": "uvvis", "RAMAN": "raman",
+                "XPS": "xps", "LIBS": "libs",
             }[technique]
             workspace = next(item for item in self.workspaces if item.key == workspace_key)
             fresh = SessionState()

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QSlider, QSplitter, QSpinBox, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from plot_export import save_figure
+from qt_export import export_figure_dialog
 from column_math import FormulaError, evaluate_column_formula
 from fluid_reader import read_tecplot
 from qt_general_plotter import DataTable, parse_axis_limits, read_table
@@ -528,7 +528,4 @@ class Plot3D(QWidget):
             else:self._dataframe().to_csv(name,index=False)
         except Exception as error:QMessageBox.critical(self,"Save error",str(error))
     def export_graph(self):
-        name,selected=QFileDialog.getSaveFileName(self,"Export 3D graph","plot3d.png","PNG (*.png);;PDF (*.pdf);;SVG (*.svg);;TIFF (*.tiff)")
-        if name:
-            try:save_figure(self.figure,name,selected_filter=selected)
-            except Exception as error:QMessageBox.critical(self,"Export error",str(error))
+        export_figure_dialog(self, self.figure, "plot3d")
