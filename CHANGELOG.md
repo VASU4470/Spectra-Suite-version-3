@@ -13,6 +13,10 @@
 - Restrict Raman intensity ratios to distinct bands within a user-selected
   tolerance; clarify local FWHM area and handle duplicate shifts.
 - Keep all workspace tiles accessible through a scrolling Home grid.
+- Add LIBS ZIP and recursive folder discovery, filename filtering, checkboxes,
+  actual wavelength ranges and raw previews before plotting selected spectra.
+  Recognize the headerless wavelength/constant-1/intensity format on import,
+  addition and replacement; preserve ZIP/member provenance in saved sessions.
 
 ## 3.2.0 — Release candidate
 

@@ -144,10 +144,18 @@ def startup_smoke_test() -> int:
     with TemporaryDirectory() as folder:
         for extension in ("pdf", "svg", "png", "jpg", "tiff"):
             save_figure(figure, Path(folder) / f"spectrum.{extension}", dpi=150)
+        from zipfile import ZipFile
+        from dataset_reader import discover_many
+        archive_path = Path(folder) / "spectra.zip"
+        with ZipFile(archive_path, "w") as archive:
+            archive.writestr("sample.txt", "300,1,2\n301,1,5\n302,1,3\n")
+        datasets, failures = discover_many([archive_path], technique="LIBS")
+        if failures or len(datasets) != 1 or datasets[0].y.tolist() != [2, 5, 3]:
+            raise RuntimeError("LIBS ZIP spectrum import failed")
     canvas.close()
     window.close()
     app.processEvents()
-    print("SpectraSuite startup and figure-export smoke test passed")
+    print("SpectraSuite startup, figure-export and LIBS ZIP smoke test passed")
     return 0
 
 

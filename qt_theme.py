@@ -92,6 +92,7 @@ QPushButton#primary, QPushButton#launch {
     font-weight: 700;
 }
 QPushButton#primary:hover, QPushButton#launch:hover { background-color: #1d4ed8; }
+QPushButton#primary:disabled { color: #8290a3; background-color: #edf1f6; border-color: #cbd5e1; }
 QTabWidget::pane { border: 1px solid #b8c4d6; background-color: #f8fafc; }
 QTabBar::tab {
     background-color: #e8eef7;

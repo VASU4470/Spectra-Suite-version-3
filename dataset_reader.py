@@ -126,7 +126,12 @@ def datasets_from_frame(frame: pd.DataFrame, base: str, *, sheet: str | None = N
 
 
 def _read_text_frame(path: Path) -> pd.DataFrame:
-    lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    return text_frame(path.read_text(encoding="utf-8-sig", errors="ignore"))
+
+
+def text_frame(text: str) -> pd.DataFrame:
+    """Parse delimited text already read from a file or an archive member."""
+    lines = text.splitlines()
     nonempty = [line for line in lines if line.strip()]
     if not nonempty:
         raise ValueError("The file is empty.")
@@ -167,8 +172,11 @@ def discover_spectra(path, *, minimum_points: int = 3) -> list[SpectrumDataset]:
     return found
 
 
-def discover_many(paths, *, minimum_points: int = 3):
+def discover_many(paths, *, minimum_points: int = 3, technique=None):
     """Discover datasets from several files and return non-fatal read errors."""
+    if technique == "LIBS":
+        from libs_reader import discover_libs_many
+        return discover_libs_many(paths, minimum_points=minimum_points)
     datasets, failures = [], []
     for value in paths:
         path = Path(value)

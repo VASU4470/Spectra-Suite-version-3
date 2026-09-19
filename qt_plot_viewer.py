@@ -129,16 +129,6 @@ def _format_limits(value) -> str:
     return ", ".join(str(item) for item in value)
 
 
-def _unique_stem(path: Path, existing: list[str]) -> str:
-    stem = path.stem
-    if stem not in existing:
-        return stem
-    index = 2
-    while f"{stem}_{index}" in existing:
-        index += 1
-    return f"{stem}_{index}"
-
-
 def _unique_label(label: str, existing: list[str]) -> str:
     base = str(label).strip() or "Series"
     if base not in existing:
@@ -2395,11 +2385,14 @@ class PlotViewer(QDialog):
         if self._table_dirty and not self._apply_data_table():
             return
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Add data files", "", "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.xlsx *.xls);;All files (*)"
+            self, "Add data files", "",
+            ("LIBS files (*.zip *.txt *.csv *.tsv *.dat *.xy *.asc *.xlsx *.xls);;All files (*)"
+             if state.technique == "LIBS" else
+             "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.xlsx *.xls);;All files (*)")
         )
         if not paths:
             return
-        datasets, failures = discover_many(paths, minimum_points=11)
+        datasets, failures = discover_many(paths, minimum_points=11, technique=state.technique)
         if not datasets:
             details = "\n".join(f"{name}: {reason}" for name, reason in failures)
             QMessageBox.warning(self, "Files skipped", details or "No X/Y datasets were found.")
@@ -2421,11 +2414,12 @@ class PlotViewer(QDialog):
             self._refresh_finish_button()
         for dataset in picker.selected:
             x, y = dataset.x, dataset.y
-            stem = _unique_stem(Path(dataset.name), self.stems)
+            stem = _unique_label(dataset.name, self.stems)
             self.stems.append(stem)
             self.data_dict[stem] = (x, y)
             state.all_data.append((stem, x, y))
             self._init_file_settings(stem)
+            state.file_set[stem]["source"] = dataset.source
             if picker.reference_dataset is not None:
                 state.file_set[stem].update(
                     bg_sub=True,
@@ -2467,12 +2461,21 @@ class PlotViewer(QDialog):
             for item in state.all_data
         ]
         fs = state.file_set[self.current_stem]
+        fs["source"] = str(path)
         for key in ("labels", "areas", "deconvs", "xrd_peaks", "manual_baseline_pts"):
             fs[key] = []
         self._rebuild_data_table()
         self.update_plot()
 
     def _read_data_file(self, path):
+        if state.technique == "LIBS":
+            datasets, failures = discover_many([path], minimum_points=11, technique="LIBS")
+            if failures:
+                raise ValueError("\n".join(f"{name}: {reason}" for name, reason in failures))
+            if len(datasets) != 1:
+                raise ValueError("Choose a file containing one spectrum to replace the current data. "
+                                 "Use Add files to select spectra from a ZIP or multi-series file.")
+            return datasets[0].x, datasets[0].y
         if state.technique != "GENERAL":
             return robust_read_spectrum(path)
         configuration = state.general_format or state.settings.get("general_format")

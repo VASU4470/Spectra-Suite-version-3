@@ -51,6 +51,33 @@ reports are suggested follow-ups, not implemented features.
 
 Frozen builds now export PDF, SVG, PNG, JPEG and TIFF during `--smoke-test`,
 including after installation, to catch missing dynamically loaded renderers.
+The same check imports a small synthetic LIBS ZIP.
+
+### LIBS ZIP and folder import
+
+Open **LIBS → Choose files** and select a ZIP, or use **+ Folder** to scan its
+subfolders. Supported ZIP members are TXT, CSV, TSV, DAT, XY and ASC text files.
+ZIP imports stay on the selection page, including archives with one spectrum.
+Each entry shows its filename, actual wavelength range and number of points.
+
+Click an entry to preview its raw signal; check the spectra you want to plot.
+Filter by filename or folder, use **Select visible** to check the filtered list,
+or **Clear selection** to uncheck everything. Filtering preserves checked files,
+including files hidden by the filter; the status shows the total selection.
+One selected spectrum opens individually. For several spectra, choose Overlay,
+Vertical stack or Grid subplots. **Add files** also supports ZIPs and previews.
+
+The supplied headerless format with three numeric columns and a middle column
+of constant `1` is read as wavelength (column 1) and intensity (column 3),
+specifically in LIBS. Two-column spectra and named shared-X tables retain their
+usual interpretation. No model training is required. The reader does not infer
+element identities or assign an air spectrum as a background automatically.
+
+Archives are read without extraction. Unsupported and hidden entries are
+ignored; malformed spectra are reported while valid spectra remain available.
+Limits are 5,000 archive entries, 16 MiB per text file, and 256 MiB of supported
+uncompressed archive content. Saved sessions retain the source ZIP/member path
+and the selected numeric data, so they reopen without the original ZIP.
 
 ## Single-window workflow
 

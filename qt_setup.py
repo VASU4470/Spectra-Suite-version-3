@@ -18,7 +18,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -266,7 +268,8 @@ class SetupDialog(QDialog):
             state.general_format = picker.result
             state.settings["general_format"] = picker.result
         else:
-            datasets, failures = discover_many(state.settings["files"], minimum_points=11)
+            datasets, failures = discover_many(state.settings["files"], minimum_points=11,
+                                                technique=state.technique)
             if failures:
                 details = "\n".join(f"• {name}: {reason}" for name, reason in failures)
                 QMessageBox.warning(self, "Some files could not be read", details)
@@ -469,6 +472,7 @@ class DatasetSelectionDialog(QDialog):
         self.selected = []
         self.reference_dataset = None
         self.mode = "individual"
+        self.is_libs = state.technique == "LIBS"
         self.setWindowTitle(f"Select {state.technique} datasets to plot")
         self.resize(720, 560)
         self.setStyleSheet(STYLE)
@@ -478,22 +482,56 @@ class DatasetSelectionDialog(QDialog):
         heading.setObjectName("heading")
         layout.addWidget(heading)
         note = QLabel(
+            "Click a spectrum to preview its raw signal. Check the spectra to add."
+            if self.is_libs else
             "Select one or more datasets. Use Ctrl on Windows/Linux or Cmd on macOS "
             "to select multiple entries."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
+        if self.is_libs:
+            self.resize(800, 700)
+            self.search = QLineEdit()
+            self.search.setPlaceholderText("Filter filename, folder or sample…")
+            layout.addWidget(self.search)
+            selection_row = QHBoxLayout()
+            for label, checked in (("Select visible", True), ("Clear selection", False)):
+                button = QPushButton(label)
+                button.clicked.connect(lambda _=False, value=checked: self._check_visible(value))
+                selection_row.addWidget(button)
+            layout.addLayout(selection_row)
         self.list_widget = QListWidget()
-        self.list_widget.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.list_widget.setSelectionMode(QListWidget.SelectionMode.SingleSelection if self.is_libs
+                                         else QListWidget.SelectionMode.ExtendedSelection)
         for dataset in self.datasets:
             source = Path(dataset.source).name
             sheet = f" · sheet: {dataset.sheet}" if dataset.sheet else ""
-            self.list_widget.addItem(
-                f"{dataset.name}  ({len(dataset.x):,} points · {source}{sheet})"
-            )
-        if self.datasets:
+            label = (f"{dataset.name}\n{np.min(dataset.x):.3f}–{np.max(dataset.x):.3f} nm"
+                     f" · {len(dataset.x):,} points" if self.is_libs else
+                     f"{dataset.name}  ({len(dataset.x):,} points · {source}{sheet})")
+            item = QListWidgetItem(label)
+            item.setToolTip(dataset.source)
+            if self.is_libs:
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked)
+            self.list_widget.addItem(item)
+        if self.datasets and not self.is_libs:
             self.list_widget.item(0).setSelected(True)
         layout.addWidget(self.list_widget, 1)
+        if self.is_libs:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            self.preview_figure = Figure(figsize=(6, 2), layout="constrained")
+            self.preview_canvas = FigureCanvasQTAgg(self.preview_figure)
+            self.preview_canvas.setMinimumHeight(160)
+            self.preview_canvas.setMaximumHeight(210)
+            layout.addWidget(self.preview_canvas)
+            self.list_widget.currentRowChanged.connect(self._preview_libs)
+            self.search.textChanged.connect(self._filter_libs)
+            self.list_widget.setCurrentRow(0)
+            self.selection_status = QLabel()
+            layout.addWidget(self.selection_status)
+            self.list_widget.itemChanged.connect(self._update_libs_selection)
         self.reference_combo = QComboBox()
         self.reference_combo.addItem("None — do not subtract a baseline/reference", -1)
         for index, dataset in enumerate(self.datasets):
@@ -526,6 +564,7 @@ class DatasetSelectionDialog(QDialog):
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
         selected = QPushButton("Plot Selected")
+        self.plot_selected_button = selected
         selected.setObjectName("primary")
         selected.clicked.connect(lambda: self._choose(False))
         all_button = QPushButton("Plot All")
@@ -534,8 +573,49 @@ class DatasetSelectionDialog(QDialog):
         row.addWidget(cancel)
         row.addStretch()
         row.addWidget(selected)
-        row.addWidget(all_button)
+        if not self.is_libs:
+            row.addWidget(all_button)
         layout.addLayout(row)
+        if self.is_libs:
+            self._update_libs_selection()
+
+    def _filter_libs(self, text):
+        query = text.strip().casefold()
+        first = -1
+        for index, dataset in enumerate(self.datasets):
+            visible = query in (dataset.name + " " + dataset.source).casefold()
+            self.list_widget.item(index).setHidden(not visible)
+            if visible and first < 0:
+                first = index
+        self.list_widget.setCurrentRow(first)
+        self._update_libs_selection()
+
+    def _update_libs_selection(self, *_args):
+        count = sum(self.list_widget.item(i).checkState() == Qt.CheckState.Checked
+                    for i in range(self.list_widget.count()))
+        visible = sum(not self.list_widget.item(i).isHidden()
+                      for i in range(self.list_widget.count()))
+        self.selection_status.setText(f"{count} selected · {visible} visible · {len(self.datasets)} total")
+        self.plot_selected_button.setEnabled(count > 0)
+
+    def _check_visible(self, checked):
+        self.list_widget.blockSignals(True)
+        for index in range(self.list_widget.count()):
+            item = self.list_widget.item(index)
+            if not checked or not item.isHidden():
+                item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        self.list_widget.blockSignals(False)
+        self._update_libs_selection()
+
+    def _preview_libs(self, index):
+        self.preview_figure.clear()
+        if 0 <= index < len(self.datasets):
+            dataset = self.datasets[index]
+            axis = self.preview_figure.add_subplot()
+            axis.plot(dataset.x, dataset.y, color="#0284c7", linewidth=.8)
+            axis.set_xlabel("Wavelength (nm)")
+            axis.set_ylabel("Intensity (a.u.)")
+        self.preview_canvas.draw_idle()
 
     def _choose(self, use_all):
         reference_index = int(self.reference_combo.currentData())
@@ -545,6 +625,9 @@ class DatasetSelectionDialog(QDialog):
         rows = list(range(len(self.datasets))) if use_all else sorted({
             self.list_widget.row(item) for item in self.list_widget.selectedItems()
         })
+        if self.is_libs:
+            rows = [index for index in range(self.list_widget.count())
+                    if self.list_widget.item(index).checkState() == Qt.CheckState.Checked]
         if reference_index >= 0:
             rows = [row for row in rows if row != reference_index]
         if not rows:

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -167,8 +168,9 @@ class InlineImportPage(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 20, 28, 18)
-        root.setSpacing(12)
+        margins = (20, 14, 20, 12) if self.technique == "LIBS" else (28, 20, 28, 18)
+        root.setContentsMargins(*margins)
+        root.setSpacing(8 if self.technique == "LIBS" else 12)
 
         title_row = QHBoxLayout()
         back = QPushButton("← Home")
@@ -181,6 +183,9 @@ class InlineImportPage(QWidget):
         root.addLayout(title_row)
 
         note = QLabel(
+            "Open a ZIP, folder or data files. Click a spectrum to preview, then check the "
+            "spectra to plot. A single data file opens immediately."
+            if self.technique == "LIBS" else
             "Drop one or more files here. A single detected spectrum opens immediately; "
             "multi-column files stay here so you can choose the required series."
         )
@@ -210,7 +215,8 @@ class InlineImportPage(QWidget):
         drop_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         drop_title.setStyleSheet("font-size:15px;font-weight:700;")
         drop_layout.addWidget(drop_title)
-        drop_note = QLabel("CSV · TXT · DPT · XY · DAT · Excel")
+        drop_note = QLabel("ZIP · TXT · CSV · Excel" if self.technique == "LIBS"
+                          else "CSV · TXT · DPT · XY · DAT · Excel")
         drop_note.setObjectName("homeSubtitle")
         drop_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         drop_note.setWordWrap(True)
@@ -240,6 +246,20 @@ class InlineImportPage(QWidget):
             file_actions.addWidget(button)
         files_layout.addLayout(file_actions)
         sidebar_layout.addWidget(files_group, 1)
+        if self.technique == "LIBS":
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            self.drop_zone.setMinimumHeight(100)
+            self.drop_zone.setMaximumHeight(120)
+            self.file_list.setMinimumHeight(55)
+            self.file_list.setMaximumHeight(85)
+            self.preview_figure = Figure(figsize=(3.5, 2.0))
+            self.preview_canvas = FigureCanvasQTAgg(self.preview_figure)
+            self.preview_canvas.setMinimumHeight(150)
+            sidebar_layout.addWidget(self.preview_canvas, 2)
+            self.preview_info = QLabel("Click a spectrum in the list to preview its raw signal.")
+            self.preview_info.setWordWrap(True)
+            sidebar_layout.addWidget(self.preview_info)
         self.import_splitter.addWidget(self.import_sidebar)
 
         self.settings_panel = QFrame()
@@ -278,8 +298,23 @@ class InlineImportPage(QWidget):
 
         self.review_group = QGroupBox("Choose datasets")
         review_layout = QVBoxLayout(self.review_group)
+        if self.technique == "LIBS":
+            self.dataset_search = QLineEdit()
+            self.dataset_search.setPlaceholderText("Filter filename, folder or sample…")
+            self.dataset_search.textChanged.connect(self._filter_datasets)
+            review_layout.addWidget(self.dataset_search)
+            selection_row = QHBoxLayout()
+            select_visible = QPushButton("Select visible")
+            select_visible.clicked.connect(lambda: self._check_visible_datasets(True))
+            clear_selection = QPushButton("Clear selection")
+            clear_selection.clicked.connect(lambda: self._check_visible_datasets(False))
+            selection_row.addWidget(select_visible)
+            selection_row.addWidget(clear_selection)
+            review_layout.addLayout(selection_row)
         self.dataset_list = QListWidget()
         self.dataset_list.itemChanged.connect(self._update_selection_summary)
+        if self.technique == "LIBS":
+            self.dataset_list.currentRowChanged.connect(self._preview_dataset)
         review_layout.addWidget(self.dataset_list, 1)
         reference_form = QFormLayout()
         self.reference_combo = QComboBox()
@@ -288,7 +323,8 @@ class InlineImportPage(QWidget):
         review_layout.addLayout(reference_form)
         self.review_group.hide()
         settings_layout.addWidget(self.review_group, 1)
-        settings_layout.addStretch()
+        if self.technique != "LIBS":
+            settings_layout.addStretch()
         self.import_splitter.addWidget(self.settings_panel)
         self.import_splitter.setStretchFactor(0, 0)
         self.import_splitter.setStretchFactor(1, 1)
@@ -318,7 +354,9 @@ class InlineImportPage(QWidget):
             self,
             f"Open {SPECTROSCOPY[self.workspace.key]['label']} data",
             "",
-            "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.asr *.raw *.xlsx *.xls);;All files (*)",
+            ("LIBS files (*.zip *.txt *.csv *.tsv *.dat *.xy *.asc *.xlsx *.xls);;All files (*)"
+             if self.technique == "LIBS" else
+             "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.asr *.raw *.xlsx *.xls);;All files (*)"),
         )
         if paths:
             self.add_paths(paths)
@@ -328,7 +366,12 @@ class InlineImportPage(QWidget):
         if not folder:
             return
         allowed = {".dpt", ".csv", ".tsv", ".txt", ".xy", ".dat", ".asr", ".raw", ".xlsx", ".xls"}
-        paths = sorted(str(path) for path in Path(folder).iterdir() if path.suffix.lower() in allowed)
+        if self.technique == "LIBS":
+            allowed.update({".zip", ".asc"})
+        entries = Path(folder).rglob("*") if self.technique == "LIBS" else Path(folder).iterdir()
+        paths = sorted(str(path) for path in entries if path.is_file() and path.suffix.lower() in allowed
+                       and not any(part.startswith(".") or part == "__MACOSX"
+                                   for part in path.relative_to(folder).parts))
         if not paths:
             QMessageBox.information(self, "No data", "No supported data files were found in that folder.")
             return
@@ -366,16 +409,23 @@ class InlineImportPage(QWidget):
             self.inspect_files(automatic=False)
         else:
             self.datasets = []
+            self.failures = []
+            self.dataset_list.clear()
+            self._preview_dataset(-1)
             self.review_group.hide()
             self.open_button.setEnabled(False)
             self.discovery_status.setText(
                 "Choose files or drop them onto the card. Supported numeric spectra "
                 "are checked automatically."
             )
+            self.discovery_status.setToolTip("")
 
     def clear_files(self):
         self.paths.clear()
         self.datasets = []
+        self.failures = []
+        self.dataset_list.clear()
+        self._preview_dataset(-1)
         self._refresh_files()
         self.review_group.hide()
         self.open_button.setEnabled(False)
@@ -383,17 +433,24 @@ class InlineImportPage(QWidget):
             "Choose files or drop them onto the card. Supported numeric spectra "
             "are checked automatically."
         )
+        self.discovery_status.setToolTip("")
 
     def inspect_files(self, *, automatic=True):
-        self.datasets, self.failures = discover_many(self.paths, minimum_points=11)
+        self.datasets, self.failures = discover_many(self.paths, minimum_points=11,
+                                                    technique=self.technique)
+        self.discovery_status.setToolTip("\n".join(f"{name}: {reason}" for name, reason in self.failures))
         if not self.datasets:
             details = "\n".join(f"{name}: {reason}" for name, reason in self.failures)
             QMessageBox.warning(self, "No plottable data", details or "No numeric X/Y datasets were found.")
             self.review_group.hide()
+            self.dataset_list.clear()
+            self._preview_dataset(-1)
             self.open_button.setEnabled(False)
             self.discovery_status.setText("No supported numeric X/Y datasets were found.")
             return
         self.open_button.setEnabled(True)
+        # ZIP imports always stay in review, even when they contain one spectrum.
+        automatic = automatic and not any(Path(path).suffix.lower() == ".zip" for path in self.paths)
         failed = f" · {len(self.failures)} file(s) skipped" if self.failures else ""
         self.discovery_status.setText(
             f"Found {len(self.datasets)} dataset(s){failed}. "
@@ -411,11 +468,17 @@ class InlineImportPage(QWidget):
         for dataset in self.datasets:
             source = Path(dataset.source).name
             sheet = f" · {dataset.sheet}" if dataset.sheet else ""
-            item = QListWidgetItem(
-                f"{dataset.name}  ·  {len(dataset.x):,} points  ·  {source}{sheet}"
-            )
+            if self.technique == "LIBS":
+                text = (f"{dataset.name}\n"
+                        f"{float(np.min(dataset.x)):.3f}–{float(np.max(dataset.x)):.3f} nm"
+                        f"  ·  {len(dataset.x):,} points")
+            else:
+                text = f"{dataset.name}  ·  {len(dataset.x):,} points  ·  {source}{sheet}"
+            item = QListWidgetItem(text)
+            item.setToolTip(dataset.source)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
+            item.setCheckState(Qt.CheckState.Unchecked if self.technique == "LIBS"
+                               else Qt.CheckState.Checked)
             self.dataset_list.addItem(item)
         self.dataset_list.blockSignals(False)
 
@@ -441,10 +504,58 @@ class InlineImportPage(QWidget):
         self.review_group.show()
         self.open_button.setEnabled(True)
         self._update_selection_summary()
+        if self.technique == "LIBS":
+            self._filter_datasets(self.dataset_search.text())
+
+    def _filter_datasets(self, text):
+        text = text.casefold().strip()
+        first = -1
+        for index, dataset in enumerate(self.datasets):
+            item = self.dataset_list.item(index)
+            visible = text in (dataset.name + " " + dataset.source).casefold()
+            item.setHidden(not visible)
+            if visible and first < 0:
+                first = index
+        self.dataset_list.setCurrentRow(first)
+        self._preview_dataset(first)
+        self._update_selection_summary()
+
+    def _check_visible_datasets(self, checked):
+        self.dataset_list.blockSignals(True)
+        reference = self.reference_combo.currentData()
+        for index in range(self.dataset_list.count()):
+            item = self.dataset_list.item(index)
+            if not checked or not item.isHidden():
+                item.setCheckState(Qt.CheckState.Checked if checked and index != reference
+                                   else Qt.CheckState.Unchecked)
+        self.dataset_list.blockSignals(False)
+        self._update_selection_summary()
+
+    def _preview_dataset(self, index):
+        if not hasattr(self, "preview_figure"):
+            return
+        self.preview_figure.clear()
+        # Figure.clear resets subplot margins; keep labels inside the small canvas.
+        self.preview_figure.subplots_adjust(left=.20, right=.97, bottom=.30, top=.95)
+        if 0 <= index < len(self.datasets):
+            dataset = self.datasets[index]
+            ax = self.preview_figure.add_subplot()
+            ax.plot(dataset.x, dataset.y, color="#0284c7", linewidth=.8)
+            ax.set_xlabel("Wavelength (nm)", fontsize=8)
+            ax.set_ylabel("Intensity (a.u.)", fontsize=8)
+            ax.tick_params(labelsize=7)
+            self.preview_info.setText(
+                f"{len(dataset.x):,} points · "
+                f"{float(np.min(dataset.x)):.3f}–{float(np.max(dataset.x)):.3f} nm")
+            self.preview_info.setToolTip(dataset.source)
+        else:
+            self.preview_info.setText("Click a spectrum in the list to preview its raw signal.")
+            self.preview_info.setToolTip("")
+        self.preview_canvas.draw_idle()
 
     def _reference_changed(self):
         current = int(self.reference_combo.currentData())
-        if 0 <= self._last_reference < self.dataset_list.count():
+        if self.technique != "LIBS" and 0 <= self._last_reference < self.dataset_list.count():
             self.dataset_list.item(self._last_reference).setCheckState(Qt.CheckState.Checked)
         if 0 <= current < self.dataset_list.count():
             self.dataset_list.item(current).setCheckState(Qt.CheckState.Unchecked)
@@ -464,12 +575,14 @@ class InlineImportPage(QWidget):
         failed = f" · {len(self.failures)} file(s) skipped" if self.failures else ""
         self.discovery_status.setText(
             f"Found {len(self.datasets)} dataset(s); {count} selected{failed}."
+            + (f" {sum(not self.dataset_list.item(i).isHidden() for i in range(self.dataset_list.count()))} visible."
+               if self.technique == "LIBS" else "")
         )
         self.open_button.setEnabled(count > 0)
 
     def open_ready(self):
         """Open parsed data from the fixed import footer."""
-        if len(self.datasets) == 1:
+        if len(self.datasets) == 1 and self.dataset_list.count() == 0:
             self._emit_payload(self.datasets, None)
         else:
             self.open_selected()
@@ -854,6 +967,8 @@ class SpectraSuiteWindow(QMainWindow):
                 np.asarray(reference.y),
             )
         fresh.init_file_settings()
+        for item in payload["datasets"]:
+            fresh.file_set[item.name]["source"] = item.source
         self._create_spectroscopy_document(fresh, workspace, source_page=self.sender())
 
     def _create_spectroscopy_document(self, session, workspace, *, source_page=None, title=None):
