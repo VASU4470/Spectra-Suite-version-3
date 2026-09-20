@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 from annotations import AnnotationManager
 from column_math import FormulaError, evaluate_column_formula
 from qt_export import export_figure_dialog
+from report_export import ExportItem
+from qt_import_support import install_import_support, open_curve_in_2d
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import (
     AnnotationToolBar, ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton,
@@ -245,6 +247,7 @@ class GeneralPlotter(QWidget):
         self.setStyleSheet(STYLE)
         apply_window_icon(self, "GENERAL")
         self.loaded_files, self.series_styles = [], {}
+        self.digitized_sources = {}
         self._artist_to_series = {}
         self._loading_table = False
         self._build_ui()
@@ -257,6 +260,8 @@ class GeneralPlotter(QWidget):
         self.canvas.mpl_connect("pick_event", self._series_picked)
         self._install_shortcuts()
         self.new_table(confirm=False)
+        install_import_support(self, self.load_paths, self.import_digitized,
+                               suffixes={".csv", ".tsv", ".txt", ".dat", ".xy", ".xlsx", ".xls"})
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -566,6 +571,7 @@ class GeneralPlotter(QWidget):
             self.annotation_mgr.undo_stack.clear()
             self.annotation_mgr.redo_stack.clear()
         self.loaded_files, self.series_styles = [], {}
+        self.digitized_sources = {}
         self._set_dataframe(pd.DataFrame({"X": [""]*25, "Y": [""]*25}))
         self.file_label.setText("Manual data — type values below or paste from Excel")
         self.title_edit.clear(); self.xlabel_edit.setText("X"); self.ylabel_edit.setText("Y")
@@ -595,6 +601,7 @@ class GeneralPlotter(QWidget):
         if replace:
             self.loaded_files = []
             self.series_styles = {}
+            self.digitized_sources = {}
             if hasattr(self, "annotation_mgr"):
                 self.annotation_mgr._clear_artists()
                 self.annotation_mgr.undo_stack.clear()
@@ -822,8 +829,20 @@ class GeneralPlotter(QWidget):
             self.annotation_mgr._remove_handles()
             self.annotation_mgr.annotations = []
             self.annotation_mgr.selected_artist = None
-        chart = self.chart_type.currentText(); self.figure.clear(); ax = self.figure.add_subplot(111)
-        self._artist_to_series = {}
+        try:
+            ax, self._artist_to_series = self._draw_plot(self.figure, frame, x_name, y_names, x_limits, y_limits)
+        except ValueError as error:
+            QMessageBox.warning(self, "Plot", str(error))
+            return
+        if hasattr(self, "annotation_mgr"):
+            self.annotation_mgr.active_ax = ax
+            if annotations:
+                self.annotation_mgr.load_serialized_data(annotations, ax)
+        self.canvas.draw_idle()
+
+    def _draw_plot(self, figure, frame, x_name, y_names, x_limits=None, y_limits=None):
+        chart = self.chart_type.currentText(); figure.clear(); ax = figure.add_subplot(111)
+        artists = {}
         x_raw = frame[x_name]; x_numeric = pd.to_numeric(x_raw, errors="coerce")
         x_is_numeric = x_numeric.notna().sum() == x_raw.replace("", np.nan).notna().sum()
         x_plot = x_numeric.to_numpy(float) if x_is_numeric else np.arange(len(frame), dtype=float)
@@ -833,7 +852,7 @@ class GeneralPlotter(QWidget):
         for series_index, y_name in enumerate(y_names):
             y = pd.to_numeric(frame[y_name], errors="coerce").to_numpy(float); valid = np.isfinite(y) & np.isfinite(x_plot)
             if not np.any(valid): continue
-            xv, yv = x_plot[valid], y[valid]; style = self.series_styles.setdefault(y_name, self._default_style(y_name))
+            xv, yv = x_plot[valid], y[valid]; style = self.series_styles.get(y_name, self._default_style(y_name))
             common = {"label": style.get("name", y_name), "color": style["color"]}; artist = None
             if chart == "Line": artist = ax.plot(xv, yv, linestyle=line_map[style["line"]], marker=marker_map[style["marker"]], linewidth=style["line_width"], picker=6, **common)[0]
             elif chart == "Scatter": artist = ax.scatter(xv, yv, picker=True, **common)
@@ -849,19 +868,18 @@ class GeneralPlotter(QWidget):
                 if series_index: continue
                 pie_values = np.clip(yv, 0, None)
                 if not np.any(pie_values > 0):
-                    QMessageBox.warning(self, "Pie chart", "A pie chart requires at least one positive Y value.")
-                    self.figure.clear(); self.canvas.draw_idle(); return
+                    raise ValueError("A pie chart requires at least one positive Y value.")
                 ax.pie(pie_values, labels=x_raw[valid].astype(str).to_numpy(), autopct="%1.1f%%" if self.data_labels_check.isChecked() else None)
             plotted += 1
             if artist is not None:
                 if isinstance(artist, dict):
-                    for item in artist.get("boxes", []): item.set_picker(True); self._artist_to_series[item] = y_name
+                    for item in artist.get("boxes", []): item.set_picker(True); artists[item] = y_name
                 elif hasattr(artist, "patches"):
-                    for item in artist.patches: item.set_picker(True); self._artist_to_series[item] = y_name
+                    for item in artist.patches: item.set_picker(True); artists[item] = y_name
                 elif isinstance(artist, (list, tuple)):
-                    for item in artist: item.set_picker(True); self._artist_to_series[item] = y_name
+                    for item in artist: item.set_picker(True); artists[item] = y_name
                 else:
-                    self._artist_to_series[artist] = y_name
+                    artists[artist] = y_name
             if self.data_labels_check.isChecked() and chart not in {"Pie", "Histogram", "Box"}:
                 for px, py in zip(xv, yv): ax.annotate(f"{py:.4g}", (px, py), xytext=(0,5), textcoords="offset points", ha="center", fontsize=8)
         if not x_is_numeric and chart not in {"Histogram", "Box", "Pie"}:
@@ -877,11 +895,63 @@ class GeneralPlotter(QWidget):
             legend = ax.legend(loc=self.legend_location.currentData() or "best", fontsize=self.legend_size.value())
             legend.set_draggable(True)
             for text_artist in legend.get_texts(): text_artist.set_color(self.legend_color.text() or "#172033")
-        if hasattr(self, "annotation_mgr"):
-            self.annotation_mgr.active_ax = ax
-            if annotations:
-                self.annotation_mgr.load_serialized_data(annotations, ax)
-        self.canvas.draw_idle()
+        return ax, artists
+
+    def import_digitized(self, curve):
+        current = self._dataframe(False)
+        x_name = self.x_column.currentText()
+        name = curve.name
+        while name in current.columns:
+            name += " (image)"
+        metadata = dict(curve.metadata)
+        metadata["original_x"] = curve.x.tolist(); metadata["original_y"] = curve.y.tolist()
+        if not current.empty:
+            choice, ok = QInputDialog.getItem(self, "Compare digitized data",
+                "Choose how to use the curve. Comparison requires matching X units and interpolates only within the image's X range.",
+                ["Compare on the current X grid", "Open as a separate 2D plot"], 0, False)
+            if not ok:
+                return
+            if choice.startswith("Open"):
+                open_curve_in_2d(self, curve); return
+            if len(np.unique(curve.x)) != len(curve.x):
+                QMessageBox.warning(self, "Comparison", "The curve contains duplicate X values. Open it separately or remove duplicate points first.")
+                return
+            x = pd.to_numeric(current[x_name], errors="coerce").to_numpy(float)
+            if np.count_nonzero(np.isfinite(x)) < 2:
+                QMessageBox.warning(self, "Comparison", "Choose a numeric X column before comparing image data.")
+                return
+            current[name] = np.interp(x, curve.x, curve.y, left=np.nan, right=np.nan)
+            metadata["comparison"] = "Linear interpolation onto current X grid; no extrapolation"
+            selected = {item.text() for item in self.y_columns.selectedItems()} | {name}
+        else:
+            x_name = curve.xlabel
+            if x_name == name:
+                x_name += " (X)"
+            current = pd.DataFrame({x_name: curve.x, name: curve.y}); selected = {name}
+            self.xlabel_edit.setText(curve.xlabel); self.ylabel_edit.setText(curve.ylabel)
+        self.digitized_sources[name] = metadata
+        self._set_dataframe(current); self.x_column.setCurrentText(x_name)
+        self.y_columns.blockSignals(True)
+        for index in range(self.y_columns.count()):
+            item = self.y_columns.item(index); item.setSelected(item.text() in selected)
+        self.y_columns.blockSignals(False); self._mapping_changed(); self.plot_data()
+        self.file_label.setText("Includes digitized image data (approximate)")
+
+    def _series_export_figure(self, frame, x_name, y_name):
+        figure = Figure(figsize=self.figure.get_size_inches(), constrained_layout=True)
+        self._draw_plot(figure, frame, x_name, [y_name], parse_axis_limits(self.xlim_edit.text()), parse_axis_limits(self.ylim_edit.text()))
+        return figure
+
+    def export_items(self):
+        frame = self._dataframe(False); x_name = self.x_column.currentText()
+        return [ExportItem(self.series_styles.get(name, {}).get("name", name),
+                           lambda key=name: self._series_export_figure(frame, x_name, key),
+                           frame.loc[:, list(dict.fromkeys([x_name, name]))].copy(), [],
+                           {"chart": self.chart_type.currentText(), "X": x_name, "Y": name,
+                            "style": self.series_styles.get(name, {}), "x_limits": self.xlim_edit.text(),
+                            "y_limits": self.ylim_edit.text(), "digitization": self.digitized_sources.get(name, {})},
+                           "; ".join(self.loaded_files) or "Manual / digitized data")
+                for name in [item.text() for item in self.y_columns.selectedItems()] if name in frame]
 
     def save_data(self):
         filename, selected = QFileDialog.getSaveFileName(self, "Save edited data", "plot_data.csv", "CSV (*.csv);;Excel (*.xlsx)")
@@ -906,7 +976,7 @@ class GeneralPlotter(QWidget):
             "legend":self.legend_check.isChecked(), "legend_location":self.legend_location.currentData(),
             "legend_size":self.legend_size.value(), "legend_color":self.legend_color.text(),
             "grid":self.grid_check.isChecked(), "data_labels":self.data_labels_check.isChecked(),
-            "annotations":self.annotation_mgr.get_serialized_data()}
+            "annotations":self.annotation_mgr.get_serialized_data(), "digitized_sources":self.digitized_sources}
         try: Path(filename).write_text(json.dumps(data, indent=2), encoding="utf-8")
         except OSError as error: QMessageBox.critical(self, "Save error", str(error))
 
@@ -914,7 +984,7 @@ class GeneralPlotter(QWidget):
         filename, _ = QFileDialog.getOpenFileName(self, "Open plotter project", "", "Plot projects (*.json)")
         if not filename: return
         try:
-            data = json.loads(Path(filename).read_text(encoding="utf-8")); self.loaded_files = data.get("files", []); self.series_styles = data.get("styles", {})
+            data = json.loads(Path(filename).read_text(encoding="utf-8")); self.digitized_sources = data.get("digitized_sources", {}); self.loaded_files = data.get("files", []); self.series_styles = data.get("styles", {})
             self.annotation_mgr._clear_artists()
             self.annotation_mgr.undo_stack.clear(); self.annotation_mgr.redo_stack.clear()
             self._set_dataframe(pd.DataFrame(data["rows"], columns=data["columns"])); self.x_column.setCurrentText(data.get("x", ""))

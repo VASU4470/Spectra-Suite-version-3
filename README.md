@@ -14,16 +14,27 @@ computer unless the user explicitly saves or exports it.
 **Save figure** is available in the spectroscopy File menu and Export inspector,
 and through **Export graph** in the general and fluid plotters. Choose PDF/SVG
 for vector output or PNG/JPEG/TIFF for raster output. Set width/height in mm,
-DPI, transparency, and optional tight cropping. Cropping off preserves the
-specified canvas size; cropping on changes the final dimensions. The live
-figure size is restored after export. Failed rendering preserves existing files.
+DPI, transparency, and optional tight cropping. A live preview updates before
+saving. Publication-size presets include 85 mm single-column, 120 mm intermediate,
+180 mm double-column, and A4 dimensions; custom presets can be named and saved.
+These are convenient starting sizes: check the target journal's requirements.
+Cropping off preserves the specified canvas size; cropping on changes the final
+dimensions. The live figure size and axes layout are restored after export.
+Failed rendering preserves existing files.
 
-**Export data / results bundle** retains the existing current-spectrum CSV,
-peak/area text report and optional current-figure export. Its graph can contain
-multiple plotted series; its data/report are explicitly for the active spectrum.
+**Batch / PDF report…** in the Save figure dialog, or spectroscopy's **Export
+data / results bundle**, opens a dataset selection list. Export any checked
+spectra, selected 2D series, 3D layers, or fluid fields as individual figures,
+CSV data, and/or a multi-page PDF report. Each new export folder also contains
+stored results, processing/settings JSON, and a file manifest. The whole bundle
+is published only after every requested output succeeds.
+
+**Preview complete PDF report** provides a page selector for the actual report.
+A4 report pages contain vector figures fitted to the page, followed by all
+stored results and processing settings, with automatic pagination. Reports do
+not run new analyses. Per-dataset figures retain stored analysis markers;
+freehand workspace drawings are included when saving the current figure.
 **Save workspace session** saves editable spectroscopy data and settings as JSON.
-Batch exports, reusable journal presets, live export preview and multi-page PDF
-reports are suggested follow-ups, not implemented features.
 
 - **XPS preview:** import text/CSV/Excel binding-energy spectra in eV; decreasing
   binding-energy axis; manual/automatic upward peak selection; overlays, areas,
@@ -51,7 +62,50 @@ reports are suggested follow-ups, not implemented features.
 
 Frozen builds now export PDF, SVG, PNG, JPEG and TIFF during `--smoke-test`,
 including after installation, to catch missing dynamically loaded renderers.
-The same check imports a small synthetic LIBS ZIP.
+The same check generates a report, renders its PDF preview, opens the image
+digitizer, and imports a small synthetic LIBS ZIP.
+
+### Drag and drop, and image-to-data
+
+All enabled plotting workspaces accept supported local files dropped onto their
+canvas, table, or import page. A dropped folder is searched recursively for
+supported files. Existing file pickers remain available.
+
+| Workspace | Data drop support | Digitized image use |
+| --- | --- | --- |
+| FT-IR, XRD, UV-Vis, Raman, XPS | Text/CSV/Excel spectra | Add an approximate reference spectrum |
+| LIBS | Text/CSV/Excel spectra, folders and ZIP archives | Add an approximate reference spectrum |
+| General 2D | Numeric tables | New curve or comparison on the current X grid |
+| General 3D | Supported numeric/XYZ tables | XY reference curve on a user-specified constant Z plane |
+| Fluid Dynamics preview | Supported ASCII Tecplot fields | Comparison against an X/Y line profile |
+
+Multi-X/Multi-Y also uses the shared importer internally, but its Home tile
+remains marked Coming soon.
+
+**Image to data…** is one shared digitizer accessible from Home, the File menu,
+and plotter toolbars. Paste a clipboard image with Ctrl/Cmd+V, drop an image,
+or open PNG/JPEG/TIFF/BMP/WebP. Normal text/table paste remains available.
+
+1. Click three calibration points: the axis origin corner `(X0, Y0)`, a point
+   along X at `(X1, Y0)`, and a point along Y at `(X0, Y1)`.
+2. Enter their numeric axis values, labels and units; enable logarithmic axes
+   where appropriate. Reversed and rotated axes are supported.
+3. Click curve points manually or sample a curve's color and trace its largest
+   connected segment. Review the red markers and adjust with undo/manual points.
+4. Use the data in the current workspace or export CSV plus calibration JSON.
+
+Digitized values are approximate. Their metadata records image source/hash,
+calibration, tracing method and pixel points. Imported image spectra start with
+smoothing, baseline correction and automatic edge cleaning disabled. Existing
+spectra waiting in import review remain available when adding an image curve.
+For 2D comparisons, the user explicitly chooses interpolation onto the current
+X grid; no values are extrapolated, and original digitized points are retained.
+Check that units match before comparing.
+
+This feature handles flat XY graphs. It does not infer axis values, identify
+elements, reconstruct 3D surfaces, or recover a numerical field from a contour
+image. Dashed, overlapping, low-resolution or same-color curves may need manual
+points; perspective photographs need correction before digitizing.
 
 ### LIBS ZIP and folder import
 

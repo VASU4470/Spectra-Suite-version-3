@@ -12,12 +12,14 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMessageBox,
-    QPushButton, QScrollArea, QSpinBox, QSplitter, QTableWidget,
+    QPushButton, QInputDialog, QScrollArea, QSpinBox, QSplitter, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from fluid_reader import TecplotField, aligned_difference, read_tecplot
 from qt_export import export_figure_dialog
+from report_export import ExportItem
+from qt_import_support import install_import_support, open_curve_in_2d
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 
@@ -35,7 +37,9 @@ class FluidPlotter(QWidget):
         self.resize(1550, 900); self.setMinimumSize(800, 550)
         self.setStyleSheet(LIGHT_STYLE); apply_window_icon(self, "FLUID")
         self.fields: list[TecplotField] = []
+        self.digitized_curves = []
         self._build_ui()
+        install_import_support(self, self.load_paths, self.import_digitized, suffixes={".plt", ".dat"})
 
     def _build_ui(self):
         root=QVBoxLayout(self); top=QHBoxLayout()
@@ -111,6 +115,7 @@ class FluidPlotter(QWidget):
         self.plot_selected()
 
     def clear_files(self):
+        self.digitized_curves = []
         self.file_list.blockSignals(True)
         self.fields.clear(); self.file_list.clear()
         self.file_list.blockSignals(False)
@@ -157,7 +162,14 @@ class FluidPlotter(QWidget):
         fields=self._selected_fields()
         if not fields:
             self.figure.clear(); self.canvas.draw_idle(); return
-        kind=self.plot_type.currentText(); cmap=self.colormap.currentText(); levels=self.levels.value(); self.figure.clear()
+        try:
+            self._draw_fields(self.figure, fields)
+        except (ValueError, KeyError, RuntimeError) as error:
+            QMessageBox.warning(self, "Fluid plot", str(error))
+        self.canvas.draw_idle()
+
+    def _draw_fields(self, figure, fields):
+        kind=self.plot_type.currentText(); cmap=self.colormap.currentText(); levels=self.levels.value(); figure.clear()
         try:
             if kind != "Mesh geometry":
                 variable = self.variable.currentText()
@@ -168,12 +180,12 @@ class FluidPlotter(QWidget):
             if kind=="Grid of fields":
                 cols=min(3,max(1,ceil(sqrt(len(fields))))); rows=ceil(len(fields)/cols)
                 for index,field in enumerate(fields,1):
-                    ax=self.figure.add_subplot(rows,cols,index); scalar=self._value(field)
+                    ax=figure.add_subplot(rows,cols,index); scalar=self._value(field)
                     artist=ax.contourf(field.x,field.y,scalar,levels=levels,cmap=cmap)
                     ax.set_title(field.path.stem); ax.set_xlabel(self.xlabel_edit.text()); ax.set_ylabel(self.ylabel_edit.text())
-                    self.figure.colorbar(artist,ax=ax,shrink=.8)
+                    figure.colorbar(artist,ax=ax,shrink=.8)
             elif kind in {"Profile along X","Profile along Y"}:
-                ax=self.figure.add_subplot(111); coordinate=self.slice_coordinate.value()
+                ax=figure.add_subplot(111); coordinate=self.slice_coordinate.value()
                 for field in fields:
                     scalar=self._value(field)
                     if kind=="Profile along X":
@@ -183,27 +195,29 @@ class FluidPlotter(QWidget):
                         distances=np.nanmean(abs(field.x-coordinate),axis=1); row=int(np.nanargmin(distances))
                         axis_values=field.y[row,:]; values=scalar[row,:]; axis_label=self.ylabel_edit.text()
                     ax.plot(axis_values,values,linewidth=1.8,label=field.path.stem)
+                for curve in self.digitized_curves:
+                    ax.plot(curve.x, curve.y, "--", linewidth=1.3, label=curve.name)
                 ax.set_xlabel(axis_label); ax.set_ylabel(self.value_label_edit.text()); ax.grid(True,alpha=.3); ax.legend()
             elif kind=="Field difference":
                 if len(fields)<2: raise ValueError("Select at least two compatible field datasets for a difference plot.")
                 first,second=fields[:2]
                 x_grid,y_grid,difference=aligned_difference(first,second,self.variable.currentText())
-                ax=self.figure.add_subplot(111)
+                ax=figure.add_subplot(111)
                 limit=float(np.nanmax(abs(difference))) or 1.0
                 artist=ax.contourf(x_grid,y_grid,difference,levels=levels,cmap="coolwarm",vmin=-limit,vmax=limit)
-                self.figure.colorbar(artist,ax=ax,label=f"{second.path.stem} - {first.path.stem}")
+                figure.colorbar(artist,ax=ax,label=f"{second.path.stem} - {first.path.stem}")
                 ax.set_xlabel(self.xlabel_edit.text()); ax.set_ylabel(self.ylabel_edit.text())
             else:
                 field=fields[0]
                 if kind in {"3D surface","3D wireframe"}:
-                    ax=self.figure.add_subplot(111,projection="3d"); scalar=self._value(field)
+                    ax=figure.add_subplot(111,projection="3d"); scalar=self._value(field)
                     if kind=="3D surface":
                         artist=ax.plot_surface(field.x,field.y,scalar,cmap=cmap,linewidth=0,antialiased=True)
-                        self.figure.colorbar(artist,ax=ax,shrink=.65,pad=.1)
+                        figure.colorbar(artist,ax=ax,shrink=.65,pad=.1)
                     else: ax.plot_wireframe(field.x,field.y,scalar,rstride=max(1,field.i//40),cstride=max(1,field.j//40),color="#2563eb",linewidth=.55)
                     ax.set_zlabel(self.value_label_edit.text())
                 else:
-                    ax=self.figure.add_subplot(111)
+                    ax=figure.add_subplot(111)
                     if kind=="Mesh geometry":
                         stride_i=max(1,field.i//35);stride_j=max(1,field.j//35)
                         ax.plot(field.x[::stride_i,:].T,field.y[::stride_i,:].T,color="#64748b",linewidth=.4)
@@ -214,13 +228,51 @@ class FluidPlotter(QWidget):
                         if kind=="Filled contour": artist=ax.contourf(field.x,field.y,scalar,levels=levels,cmap=cmap)
                         elif kind=="Contour lines": artist=ax.contour(field.x,field.y,scalar,levels=levels,cmap=cmap); ax.clabel(artist,fontsize=7)
                         else: artist=ax.pcolormesh(field.x,field.y,scalar,shading="auto",cmap=cmap)
-                        self.figure.colorbar(artist,ax=ax,label=self.value_label_edit.text())
+                        figure.colorbar(artist,ax=ax,label=self.value_label_edit.text())
                     ax.set_xlabel(self.xlabel_edit.text()); ax.set_ylabel(self.ylabel_edit.text())
             title=self.title_edit.text() or (fields[0].path.stem if len(fields)==1 else f"{self.variable.currentText()} comparison")
-            if self.figure.axes:self.figure.axes[0].set_title(title)
-            self.canvas.draw_idle()
-        except (ValueError,KeyError,RuntimeError) as error:
-            QMessageBox.warning(self,"Fluid plot",str(error)); self.figure.clear(); self.canvas.draw_idle()
+            if figure.axes:figure.axes[0].set_title(title)
+            return figure
+        except (ValueError,KeyError,RuntimeError):
+            figure.clear()
+            raise
+
+    def import_digitized(self, curve):
+        if not self.fields:
+            open_curve_in_2d(self, curve); return
+        if self.plot_type.currentText() not in {"Profile along X", "Profile along Y"}:
+            choice, ok = QInputDialog.getItem(self, "Compare an image curve",
+                "The digitizer extracts an XY curve. Choose a profile comparison or a separate plot; it does not reconstruct a color-mapped field.",
+                ["Profile along X", "Profile along Y", "Open as a separate 2D plot"], 0, False)
+            if not ok:
+                return
+            if choice.startswith("Open"):
+                open_curve_in_2d(self, curve); return
+            self.plot_type.setCurrentText(choice)
+        self.digitized_curves.append(curve); self.plot_selected()
+
+    def _field_export_figure(self, fields):
+        figure = Figure(figsize=self.figure.get_size_inches(), constrained_layout=True)
+        return self._draw_fields(figure, fields)
+
+    def export_items(self):
+        from pandas import DataFrame
+        fields = self._selected_fields()
+        settings = {"plot_type": self.plot_type.currentText(), "variable": self.variable.currentText(),
+                    "colormap": self.colormap.currentText(), "levels": self.levels.value(),
+                    "profile_coordinate": self.slice_coordinate.value(),
+                    "digitized_comparisons": [curve.metadata for curve in self.digitized_curves]}
+        if self.plot_type.currentText() == "Field difference":
+            if len(fields) < 2:
+                raise ValueError("Select two fields for a difference export.")
+            x, y, values = aligned_difference(fields[0], fields[1], self.variable.currentText())
+            return [ExportItem("Field difference", lambda: self._field_export_figure(fields[:2]),
+                    DataFrame({"X": x.ravel(), "Y": y.ravel(), "Difference": values.ravel()}), [],
+                    dict(settings, subtraction="second field minus first field"), "; ".join(str(f.path) for f in fields[:2]))]
+        return [ExportItem(field.path.stem, lambda item=field: self._field_export_figure([item]),
+                           DataFrame(field.values.reshape(-1, len(field.variables)), columns=field.variables), [],
+                           dict(settings, I=field.i, J=field.j, data="Original field values"), str(field.path))
+                for field in fields]
 
     def export_graph(self):
         export_figure_dialog(self, self.figure, "fluid_plot")

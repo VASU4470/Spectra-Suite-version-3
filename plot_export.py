@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from io import BytesIO
+from contextlib import contextmanager
 import os
 import tempfile
 
@@ -13,6 +15,43 @@ from matplotlib.backends import backend_agg, backend_pdf, backend_svg
 
 
 SUPPORTED_FIGURE_FORMATS = (".png", ".jpg", ".svg", ".pdf", ".tiff")
+
+
+@contextmanager
+def sized_figure(figure, size_inches=None):
+    """Fit labels at export size and restore the live layout as well as its canvas."""
+    size = figure.get_size_inches().copy()
+    canvas = figure.canvas
+    engine = figure.get_layout_engine()
+    subplot = dict(vars(figure.subplotpars))
+    positions = [(ax, ax.get_position(original=True).frozen(), ax.get_position().frozen(), ax.get_in_layout())
+                 for ax in figure.axes]
+    try:
+        if size_inches is not None:
+            figure.set_size_inches(size_inches, forward=False)
+        if engine is None or type(engine).__name__ == "PlaceHolderLayoutEngine":
+            figure.tight_layout()
+        yield
+    finally:
+        figure.set_size_inches(size, forward=False)
+        figure.set_canvas(canvas)
+        figure.set_layout_engine(engine)
+        figure.subplotpars.update(**subplot)
+        for ax, original, active, in_layout in positions:
+            ax.set_position(original, which="original")
+            ax.set_position(active, which="active")
+            ax.set_in_layout(in_layout)
+
+
+def figure_bytes(figure, *, format="png", dpi=100, size_inches=None,
+                 transparent=False, tight=False):
+    """Render a preview or vector report panel without replacing its live canvas."""
+    stream = BytesIO()
+    backend = {"pdf": backend_pdf, "svg": backend_svg}.get(format, backend_agg)
+    with sized_figure(figure, size_inches):
+        figure.savefig(stream, format=format, backend="module://" + backend.__name__,
+                       dpi=dpi, transparent=transparent, bbox_inches="tight" if tight else None)
+        return stream.getvalue()
 
 
 def normalize_figure_path(filename, selected_filter="", default_suffix=".png"):
@@ -44,15 +83,14 @@ def save_figure(figure, filename, *, selected_filter="", dpi=300,
         raise ValueError("JPEG does not support transparency. Use PNG, PDF or SVG.")
     path.parent.mkdir(parents=True, exist_ok=True)
     backend = {".pdf": backend_pdf, ".svg": backend_svg}.get(suffix, backend_agg)
-    original_size = figure.get_size_inches().copy()
     handle, temporary_name = tempfile.mkstemp(prefix=".spectrasuite-", suffix=suffix, dir=path.parent)
     os.close(handle)
     temporary = Path(temporary_name)
     try:
-        figure.set_size_inches(size, forward=False)
-        figure.savefig(temporary, format=suffix[1:], backend="module://" + backend.__name__,
-                       dpi=dpi, bbox_inches="tight" if tight else None,
-                       transparent=transparent)
+        with sized_figure(figure, size):
+            figure.savefig(temporary, format=suffix[1:], backend="module://" + backend.__name__,
+                           dpi=dpi, bbox_inches="tight" if tight else None,
+                           transparent=transparent)
         if temporary.stat().st_size == 0:
             raise OSError(f"Figure export created an empty file: {path}")
         if suffix == ".pdf":
@@ -62,5 +100,4 @@ def save_figure(figure, filename, *, selected_filter="", dpi=300,
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
-        figure.set_size_inches(original_size, forward=False)
     return path

@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
 )
 
 from qt_export import export_figure_dialog
+from report_export import ExportItem
+from qt_import_support import install_import_support
 from column_math import FormulaError, evaluate_column_formula
 from fluid_reader import read_tecplot
 from qt_general_plotter import DataTable, parse_axis_limits, read_table
@@ -49,6 +51,9 @@ class Plot3D(QWidget):
         self.setStyleSheet(LIGHT_STYLE); apply_window_icon(self, "PLOT3D")
         self._loading = False; self.loaded_files = []; self.layers = []
         self._build_ui(); self._set_dataframe(pd.DataFrame({"X": [""] * 25, "Y": [""] * 25, "Z": [""] * 25}))
+        self.digitized_sources = {}
+        install_import_support(self, self.load_paths, self.import_digitized,
+                               suffixes={".csv", ".tsv", ".txt", ".dat", ".xy", ".xlsx", ".xls", ".plt"})
 
     def _build_ui(self):
         root = QVBoxLayout(self); top = QHBoxLayout()
@@ -297,8 +302,15 @@ class Plot3D(QWidget):
             QMessageBox.warning(self, "Axis limits", str(error))
             return
         mappings = list(self.layers) if self.layers else [self._current_layer()]
-        self.figure.clear()
-        ax = self.figure.add_subplot(111, projection="3d")
+        try:
+            self._draw_3d(self.figure, mappings, x_limits, y_limits, z_limits, strict=False)
+        except (KeyError, ValueError, RuntimeError) as error:
+            QMessageBox.warning(self, "3D plot", str(error))
+        self.canvas.draw_idle()
+
+    def _draw_3d(self, figure, mappings, x_limits=None, y_limits=None, z_limits=None, *, strict=True):
+        figure.clear()
+        ax = figure.add_subplot(111, projection="3d")
         plot_type = self.plot_type.currentText()
         cmap = self.colormap.currentText()
         last_artist = None
@@ -369,26 +381,26 @@ class Plot3D(QWidget):
                         from matplotlib.cm import ScalarMappable
                         scalar = ScalarMappable(cmap=cmap)
                         scalar.set_array(magnitude)
-                        self.figure.colorbar(
+                        figure.colorbar(
                             scalar, ax=ax, shrink=.65, label="Vector magnitude"
                         )
                 plotted += 1
             if not plotted:
-                self.figure.clear()
-                self.canvas.draw_idle()
-                return
+                figure.clear()
+                if strict:
+                    raise ValueError("At least three finite XYZ points are required.")
+                return figure
             if (
                 self.colorbar_check.isChecked() and last_artist is not None
                 and plot_type not in {"Wireframe", "Vector field"}
             ):
-                self.figure.colorbar(
+                figure.colorbar(
                     last_artist, ax=ax, shrink=.65, pad=.1,
                     label=mappings[-1]["z"],
                 )
-        except (KeyError, ValueError, RuntimeError) as error:
-            QMessageBox.warning(self, "3D plot", str(error))
-            self.figure.clear(); self.canvas.draw_idle()
-            return
+        except (KeyError, ValueError, RuntimeError):
+            figure.clear()
+            raise
         ax.set_title(self.title_edit.text())
         ax.set_xlabel(self.xlabel_edit.text()); ax.set_ylabel(self.ylabel_edit.text())
         ax.set_zlabel(self.zlabel_edit.text())
@@ -399,13 +411,14 @@ class Plot3D(QWidget):
             ax.legend(loc="best")
         ax.grid(self.grid_check.isChecked())
         ax.view_init(self.elevation.value(), self.azimuth.value())
-        self.canvas.draw_idle()
+        return figure
 
     def _update_view(self, *_args):
         if self.figure.axes:
             self.figure.axes[0].view_init(self.elevation.value(),self.azimuth.value()); self.canvas.draw_idle()
 
     def new_table(self, _checked=False):
+        self.digitized_sources = {}
         self.loaded_files=[]; self.layers=[]; self._refresh_layer_list()
         self._set_dataframe(pd.DataFrame({"X":[""]*25,"Y":[""]*25,"Z":[""]*25}))
         self.xlim_edit.clear(); self.ylim_edit.clear(); self.zlim_edit.clear()
@@ -444,6 +457,7 @@ class Plot3D(QWidget):
         if replace:
             self.loaded_files = []
             self.layers = []
+            self.digitized_sources = {}
             current = pd.DataFrame()
         else:
             current = self._dataframe()
@@ -527,5 +541,38 @@ class Plot3D(QWidget):
             if "Excel" in selected or name.lower().endswith(".xlsx"):self._dataframe().to_excel(name if name.lower().endswith(".xlsx") else name+".xlsx",index=False)
             else:self._dataframe().to_csv(name,index=False)
         except Exception as error:QMessageBox.critical(self,"Save error",str(error))
+    def import_digitized(self, curve):
+        z, ok = QInputDialog.getDouble(self, "Place digitized XY curve in 3D",
+            "A graph image supplies X/Y only. Enter the constant Z reference plane; this does not reconstruct a 3D surface.",
+            0, -1e12, 1e12, 8)
+        if not ok:
+            return
+        current = self._dataframe()
+        prefix = curve.name
+        while prefix + ".X" in current:
+            prefix += " (image)"
+        columns = [prefix + axis for axis in (".X", ".Y", ".Z")]
+        incoming = pd.DataFrame({columns[0]: curve.x, columns[1]: curve.y, columns[2]: z})
+        frame = incoming if current.empty else pd.concat([current.reset_index(drop=True), incoming], axis=1)
+        self._set_dataframe(frame)
+        self.x_column.setCurrentText(columns[0]); self.y_column.setCurrentText(columns[1]); self.z_column.setCurrentText(columns[2])
+        self.layers.append(self._current_layer(curve.name, columns))
+        self.digitized_sources[curve.name] = dict(curve.metadata, user_supplied_z_plane=z)
+        self._refresh_layer_list(); self.plot_type.setCurrentText("3D scatter"); self.plot_data()
+
+    def _layer_export_figure(self, layer):
+        figure = Figure(figsize=self.figure.get_size_inches(), constrained_layout=True)
+        return self._draw_3d(figure, [layer], parse_axis_limits(self.xlim_edit.text()),
+                             parse_axis_limits(self.ylim_edit.text()), parse_axis_limits(self.zlim_edit.text()))
+
+    def export_items(self):
+        frame = self._dataframe()
+        return [ExportItem(layer["name"], lambda item=dict(layer): self._layer_export_figure(item),
+                           frame.loc[:, list(dict.fromkeys(layer[key] for key in ("x", "y", "z", "u", "v", "w") if layer.get(key) in frame))].copy(), [],
+                           {"mapping": layer, "plot_type": self.plot_type.currentText(), "colormap": self.colormap.currentText(),
+                            "elevation": self.elevation.value(), "azimuth": self.azimuth.value(),
+                            "digitization": self.digitized_sources.get(layer["name"], {})}, str(layer.get("path") or "Manual / digitized data"))
+                for layer in (self.layers or [self._current_layer()]) if layer.get("z") in frame]
+
     def export_graph(self):
         export_figure_dialog(self, self.figure, "plot3d")

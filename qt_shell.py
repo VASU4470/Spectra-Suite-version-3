@@ -37,6 +37,8 @@ from PySide6.QtWidgets import (
 from app_version import APP_VERSION
 from config import SessionState, state
 from dataset_reader import discover_many
+from dataset_reader import SpectrumDataset
+from qt_import_support import install_import_support
 from qt_plot_viewer import PlotViewer
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_updates import (
@@ -157,10 +159,15 @@ class InlineImportPage(QWidget):
         self.paths: list[str] = []
         self.datasets = []
         self.failures = []
+        self.image_datasets = []
+        self.image_metadata = {}
         self._last_reference = -1
         self.setObjectName("importPage")
         self.setAcceptDrops(True)
         self._build_ui()
+        install_import_support(self, self.add_paths, self.import_digitized,
+                               suffixes={".csv", ".tsv", ".txt", ".dat", ".xy", ".xlsx", ".xls", ".dpt", ".asc"}
+                               | ({".zip"} if self.technique == "LIBS" else set()))
 
     @property
     def technique(self):
@@ -405,7 +412,7 @@ class InlineImportPage(QWidget):
         for row in rows:
             self.paths.pop(row)
         self._refresh_files()
-        if self.paths:
+        if self.paths or self.image_datasets:
             self.inspect_files(automatic=False)
         else:
             self.datasets = []
@@ -422,6 +429,8 @@ class InlineImportPage(QWidget):
 
     def clear_files(self):
         self.paths.clear()
+        self.image_datasets.clear()
+        self.image_metadata.clear()
         self.datasets = []
         self.failures = []
         self.dataset_list.clear()
@@ -438,6 +447,7 @@ class InlineImportPage(QWidget):
     def inspect_files(self, *, automatic=True):
         self.datasets, self.failures = discover_many(self.paths, minimum_points=11,
                                                     technique=self.technique)
+        self.datasets.extend(self.image_datasets)
         self.discovery_status.setToolTip("\n".join(f"{name}: {reason}" for name, reason in self.failures))
         if not self.datasets:
             details = "\n".join(f"{name}: {reason}" for name, reason in self.failures)
@@ -605,7 +615,32 @@ class InlineImportPage(QWidget):
             "mode": mode,
             "smooth": self.smoothing.value(),
             "files": list(self.paths),
+            "digitization": dict(self.image_metadata),
         })
+
+    def import_digitized(self, curve):
+        name = curve.name
+        while name in {item.name for item in self.datasets}:
+            name += " (image)"
+        dataset = SpectrumDataset(name, curve.x, curve.y, "Image: " + curve.metadata["source_image"])
+        self.image_metadata[name] = curve.metadata
+        self.image_datasets.append(dataset)
+        if not self.datasets:
+            self.datasets = [dataset]
+            self._emit_payload([dataset], None)
+            return
+        selected = {item.name for item in self._selected_datasets()} if self.dataset_list.count() else set()
+        reference = self.reference_combo.currentData()
+        self.datasets.append(dataset); self._populate_dataset_review()
+        reference = int(reference) if reference is not None else -1
+        self.reference_combo.blockSignals(True)
+        self.reference_combo.setCurrentIndex(reference + 1)
+        self.reference_combo.blockSignals(False)
+        self._last_reference = reference
+        self.dataset_list.blockSignals(True)
+        for index, item in enumerate(self.datasets):
+            self.dataset_list.item(index).setCheckState(Qt.CheckState.Checked if item.name in selected | {name} else Qt.CheckState.Unchecked)
+        self.dataset_list.blockSignals(False); self._update_selection_summary()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
@@ -721,6 +756,9 @@ class SpectraSuiteWindow(QMainWindow):
         open_session = QPushButton("Open saved session…")
         open_session.clicked.connect(self.open_session)
         actions.addWidget(open_session)
+        digitize = QPushButton("Image to data…")
+        digitize.clicked.connect(self.open_digitizer)
+        actions.addWidget(digitize)
         actions.addStretch()
         self.email_updates_button = QPushButton("Get update emails…")
         self.email_updates_button.setToolTip(
@@ -783,6 +821,8 @@ class SpectraSuiteWindow(QMainWindow):
         self.new_analysis_action = QAction("&New analysis", self)
         self.new_analysis_action.setShortcut(QKeySequence.StandardKey.New)
         self.new_analysis_action.triggered.connect(self.show_home)
+        self.digitize_action = QAction("Image to data…", self)
+        self.digitize_action.triggered.connect(self.open_digitizer)
         self.open_session_action = QAction("Open &session…", self)
         self.open_session_action.setShortcut(QKeySequence.StandardKey.Open)
         self.open_session_action.triggered.connect(self.open_session)
@@ -820,7 +860,7 @@ class SpectraSuiteWindow(QMainWindow):
         about.triggered.connect(lambda: show_about(self))
         self._shell_menu_groups = {
             "File": [
-                self.new_analysis_action, self.open_session_action, None,
+                self.new_analysis_action, self.open_session_action, self.digitize_action, None,
                 self.close_analysis_action, None, self.quit_action,
             ],
             "View": [self.home_action],
@@ -907,6 +947,25 @@ class SpectraSuiteWindow(QMainWindow):
     def show_home(self):
         self.document_tabs.setCurrentWidget(self.home_page)
 
+    def open_digitizer(self):
+        widget = self.document_tabs.currentWidget()
+        if hasattr(widget, "import_support"):
+            widget.import_support.open_digitizer()
+            return
+        from qt_digitizer import ImageDigitizerDialog
+        from PySide6.QtWidgets import QDialog
+        dialog = ImageDigitizerDialog(self, action_label="Open as 2D plot")
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.add_digitized_document(dialog.result_curve)
+
+    def add_digitized_document(self, curve):
+        from qt_general_plotter import GeneralPlotter
+        workspace = next(item for item in self.workspaces if item.key == "general")
+        plotter = GeneralPlotter()
+        self._add_widget_document(plotter, workspace, "Digitized image")
+        plotter.import_digitized(curve)
+        return plotter
+
     def launch_workspace(self, workspace):
         if workspace.coming_soon:
             return
@@ -969,6 +1028,9 @@ class SpectraSuiteWindow(QMainWindow):
         fresh.init_file_settings()
         for item in payload["datasets"]:
             fresh.file_set[item.name]["source"] = item.source
+            metadata = payload.get("digitization", {}).get(item.name)
+            if metadata:
+                fresh.file_set[item.name].update(digitization=metadata, smooth=0, do_baseline=False, auto_clean_edges=False)
         self._create_spectroscopy_document(fresh, workspace, source_page=self.sender())
 
     def _create_spectroscopy_document(self, session, workspace, *, source_page=None, title=None):
@@ -1033,7 +1095,7 @@ class SpectraSuiteWindow(QMainWindow):
         source = getattr(viewer, "_embedded_menu_groups", {})
         groups = {name: list(items) for name, items in source.items()}
         groups["File"] = [
-            self.new_analysis_action, self.open_session_action, None,
+            self.new_analysis_action, self.open_session_action, self.digitize_action, None,
         ] + groups.get("File", []) + [None, self.quit_action]
         groups["View"] = groups.get("View", []) + [None, self.home_action]
         groups["Account"] = list(self._shell_menu_groups["Account"])

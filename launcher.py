@@ -152,10 +152,29 @@ def startup_smoke_test() -> int:
         datasets, failures = discover_many([archive_path], technique="LIBS")
         if failures or len(datasets) != 1 or datasets[0].y.tolist() != [2, 5, 3]:
             raise RuntimeError("LIBS ZIP spectrum import failed")
+        from report_export import ExportItem, save_pdf_report
+        from PySide6.QtPdf import QPdfDocument
+        from PySide6.QtCore import QSize
+        report = save_pdf_report([ExportItem("Smoke-test spectrum", lambda: figure,
+                                  results=["Synthetic test peak: X=2, Y=5"],
+                                  settings={"smoothing": 0})], Path(folder) / "report.pdf")
+        document = QPdfDocument()
+        document.load(str(report))
+        if document.pageCount() < 2 or document.render(0, QSize(200, 280)).isNull():
+            raise RuntimeError("PDF report generation or preview failed")
+        document.close()
+        from qt_digitizer import ImageDigitizerDialog
+        from PySide6.QtGui import QImage
+        image = QImage(100, 80, QImage.Format.Format_RGB32)
+        image.fill(0xffffffff)
+        digitizer = ImageDigitizerDialog(image=image)
+        if digitizer.rgb.shape != (80, 100, 3):
+            raise RuntimeError("Image digitizer import failed")
+        digitizer.close()
     canvas.close()
     window.close()
     app.processEvents()
-    print("SpectraSuite startup, figure-export and LIBS ZIP smoke test passed")
+    print("SpectraSuite startup, figure/report export, PDF preview, LIBS ZIP and digitizer smoke test passed")
     return 0
 
 

@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 
 from annotations import AnnotationManager
 from qt_export import export_figure_dialog
+from report_export import ExportItem
+from qt_import_support import install_import_support
 from qt_general_plotter import DataTable, read_table
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
@@ -48,6 +50,9 @@ class MultiAxisPlotter(QWidget):
         self._install_shortcuts()
         self._set_dataframe(pd.DataFrame({"X1": [""] * 25, "Y1": [""] * 25}))
         self.add_mapping()
+        self.digitized_sources = {}
+        install_import_support(self, self.load_paths, self.import_digitized,
+                               suffixes={".csv", ".tsv", ".txt", ".dat", ".xy", ".xlsx", ".xls"})
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -289,6 +294,7 @@ class MultiAxisPlotter(QWidget):
                 combo.blockSignals(False)
 
     def new_table(self, _checked=False):
+        self.digitized_sources = {}
         self.loaded_files = []; self.mapping_table.setRowCount(0)
         self._set_dataframe(pd.DataFrame({"X1": [""] * 25, "Y1": [""] * 25}))
         self.file_label.setText("Manual data - type values or paste from Excel"); self.add_mapping()
@@ -297,6 +303,9 @@ class MultiAxisPlotter(QWidget):
     def add_file(self):
         names, _ = QFileDialog.getOpenFileNames(self, "Add tabular data", "",
             "Data (*.csv *.tsv *.txt *.dat *.xy *.xlsx *.xls);;All files (*)")
+        self.load_paths(names)
+
+    def load_paths(self, names):
         for name in names:
             try: incoming = read_table(Path(name))
             except Exception as error:
@@ -309,6 +318,22 @@ class MultiAxisPlotter(QWidget):
         if names:
             self.file_label.setText("Imported: " + ", ".join(Path(n).name for n in self.loaded_files))
             self.mapping_table.setRowCount(0); self.add_mapping()
+
+    def import_digitized(self, curve):
+        frame = self._dataframe()
+        name = curve.name
+        while name + ".X" in frame:
+            name += " (image)"
+        x_name, y_name = name + ".X", name + ".Y"
+        incoming = pd.DataFrame({x_name: curve.x, y_name: curve.y})
+        self._set_dataframe(incoming if frame.empty else pd.concat([frame.reset_index(drop=True), incoming], axis=1))
+        self.add_mapping()
+        row = self.mapping_table.rowCount() - 1
+        self.mapping_table.cellWidget(row, 1).setCurrentText(x_name)
+        self.mapping_table.cellWidget(row, 2).setCurrentText(y_name)
+        self.mapping_table.setItem(row, 5, QTableWidgetItem(curve.name))
+        self.digitized_sources[name] = curve.metadata
+        self.plot_data()
 
     def add_row(self):
         self.table.insertRow(self.table.currentRow() + 1 if self.table.currentRow() >= 0 else self.table.rowCount())
@@ -346,6 +371,11 @@ class MultiAxisPlotter(QWidget):
                 self._dataframe().to_excel(name if name.lower().endswith(".xlsx") else name + ".xlsx", index=False)
             else: self._dataframe().to_csv(name, index=False)
         except Exception as error: QMessageBox.critical(self, "Save error", str(error))
+
+    def export_items(self):
+        return [ExportItem("Multi-axis comparison", lambda: self.figure, self._dataframe(), [],
+                           {"mappings": [self._mapping(i) for i in range(self.mapping_table.rowCount())],
+                            "digitization": self.digitized_sources}, "; ".join(self.loaded_files))]
 
     def export_graph(self):
         export_figure_dialog(self, self.figure, "multi_axis")

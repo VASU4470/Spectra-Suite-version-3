@@ -85,7 +85,9 @@ from qt_widgets import (
     PanelToggleButton,
 )
 from plot_export import save_figure
-from qt_export import export_figure_dialog
+from qt_export import export_figure_dialog, export_batch_dialog
+from report_export import ExportItem
+from qt_import_support import install_import_support
 from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
 from spectral_preprocessing import subtract_reference, trim_noisy_edges
 
@@ -454,6 +456,10 @@ class PlotViewer(QDialog):
         self._load_active_settings()
         self._rebuild_data_table()
         self.update_plot()
+
+        install_import_support(self, self.add_files, self.import_digitized,
+                               suffixes={".csv", ".tsv", ".txt", ".dat", ".xy", ".xlsx", ".xls", ".dpt", ".asc"}
+                               | ({".zip"} if state.technique == "LIBS" else set()))
 
     # ------------------------------- UI ---------------------------------
     def _build_layout(self):
@@ -2332,7 +2338,7 @@ class PlotViewer(QDialog):
         self.update_plot()
         return True
 
-    def get_processed_data_for_stem(self, stem):
+    def get_processed_data_for_stem(self, stem, *, strict=False):
         raw_x, raw_y = self.data_dict[stem]
         fs = state.file_set[stem]
         x_arr = np.asarray(raw_x, dtype=float)
@@ -2350,6 +2356,8 @@ class PlotViewer(QDialog):
         try:
             x, y = process_spectrum(x_arr, y_arr, stem)
         except Exception:
+            if strict:
+                raise
             x, y = x_arr, y_arr
         x_arr = np.asarray(x, dtype=float)
         y_arr = np.asarray(y, dtype=float)
@@ -2381,15 +2389,15 @@ class PlotViewer(QDialog):
             "uv_transform": "none",
         }
 
-    def add_files(self):
+    def add_files(self, paths=None):
         if self._table_dirty and not self._apply_data_table():
             return
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "Add data files", "",
-            ("LIBS files (*.zip *.txt *.csv *.tsv *.dat *.xy *.asc *.xlsx *.xls);;All files (*)"
-             if state.technique == "LIBS" else
-             "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.xlsx *.xls);;All files (*)")
-        )
+        if not paths:
+            paths, _ = QFileDialog.getOpenFileNames(
+                self, "Add data files", "",
+                ("LIBS files (*.zip *.txt *.csv *.tsv *.dat *.xy *.asc *.xlsx *.xls);;All files (*)"
+                 if state.technique == "LIBS" else
+                 "Data files (*.dpt *.csv *.tsv *.txt *.xy *.dat *.xlsx *.xls);;All files (*)"))
         if not paths:
             return
         datasets, failures = discover_many(paths, minimum_points=11, technique=state.technique)
@@ -2436,6 +2444,23 @@ class PlotViewer(QDialog):
                 self, "Some files skipped",
                 "\n".join(f"{name}: {reason}" for name, reason in failures),
             )
+        self.update_plot()
+
+    def import_digitized(self, curve):
+        if self._table_dirty and not self._apply_data_table():
+            return
+        self._checkpoint_state()
+        stem = _unique_label(curve.name, self.stems)
+        self.stems.append(stem); self.data_dict[stem] = (curve.x, curve.y)
+        state.all_data.append((stem, curve.x, curve.y))
+        self._init_file_settings(stem)
+        state.file_set[stem].update(smooth=0, do_baseline=False, auto_clean_edges=False,
+                                   source="Image: " + curve.metadata["source_image"], digitization=curve.metadata)
+        if state.settings.get("mode") == "individual":
+            state.settings["mode"] = "overlay"
+            self.plot_layout_combo.setCurrentIndex(self.plot_layout_combo.findData("overlay"))
+        self.file_combo.addItem(stem)
+        self._rebuild_data_table(); self._sync_legend_name_list(); self._sync_workspace_navigation()
         self.update_plot()
 
     def replace_current(self):
@@ -2558,34 +2583,50 @@ class PlotViewer(QDialog):
             self.annotation_mgr.selected_artist = None
             self._pending_annotations = []
 
-        self.figure.clear()
         self.cursors = []
-        self._artist_to_stem = {}
-        self._axes_to_stem = {}
-        mode = state.settings.get("mode", "individual")
+        self.ax, self._artist_to_stem, self._axes_to_stem = self._draw_spectra(
+            self.figure, self.stems, interactive=True)
+
+        if hasattr(self, "annotation_mgr") and annotations and self.ax is not None:
+            self.annotation_mgr.load_serialized_data(annotations, self.ax)
+        elif hasattr(self, "annotation_mgr"):
+            self.annotation_mgr.active_ax = self.ax
+
+        try:
+            self.figure.tight_layout()
+        except ValueError:
+            pass
+        self.canvas.draw_idle()
+        self.sync_peak_list()
+
+    def _draw_spectra(self, figure, stems, *, mode=None, interactive=False):
+        figure.clear()
+        artist_to_stem = {}
+        axes_to_stem = {}
+        mode = mode or state.settings.get("mode", "individual")
         is_stack = mode in {"stack", "grid"}
         if mode == "stack":
-            axes_value = self.figure.subplots(len(self.stems), 1, sharex=True)
+            axes_value = figure.subplots(len(stems), 1, sharex=True)
             axes = list(np.atleast_1d(axes_value).flat)
         elif mode == "grid":
-            columns = max(1, int(math.ceil(math.sqrt(len(self.stems)))))
-            rows = int(math.ceil(len(self.stems) / columns))
-            axes_value = self.figure.subplots(rows, columns, squeeze=False)
+            columns = max(1, int(math.ceil(math.sqrt(len(stems)))))
+            rows = int(math.ceil(len(stems) / columns))
+            axes_value = figure.subplots(rows, columns, squeeze=False)
             all_axes = list(np.asarray(axes_value).flat)
-            axes = all_axes[:len(self.stems)]
-            for unused in all_axes[len(self.stems):]:
+            axes = all_axes[:len(stems)]
+            for unused in all_axes[len(stems):]:
                 unused.set_visible(False)
         else:
-            axes = [self.figure.add_subplot(111)] * len(self.stems)
+            axes = [figure.add_subplot(111)] * len(stems)
 
         extents = []
         label_padding = {}
-        for index, stem in enumerate(self.stems):
+        for index, stem in enumerate(stems):
             ax = axes[index]
             if is_stack:
-                self._axes_to_stem[ax] = stem
+                axes_to_stem[ax] = stem
             fs = state.file_set[stem]
-            x, y = self.get_processed_data_for_stem(stem)
+            x, y = self.get_processed_data_for_stem(stem, strict=not interactive)
             if not len(x):
                 continue
             extents.append((np.min(x), np.max(x), np.min(y), np.max(y)))
@@ -2595,7 +2636,7 @@ class PlotViewer(QDialog):
                 linewidth=2.4 if stem == self.current_stem else 1.5,
                 picker=6,
             )[0]
-            self._artist_to_stem[line] = stem
+            artist_to_stem[line] = stem
             # Fractions are [horizontal, bottom, top]. Horizontal padding
             # protects centered labels on the first/last measured point.
             padding = label_padding.setdefault(ax, [0.0, 0.0, 0.0])
@@ -2660,7 +2701,7 @@ class PlotViewer(QDialog):
         unique_axes = list(dict.fromkeys(axes))
         if extents:
             for ax in unique_axes:
-                self._style_axis(ax, extents, is_stack)
+                self._style_axis(ax, extents, is_stack, interactive=interactive)
             for ax, (horizontal_fraction, bottom_fraction, top_fraction) in label_padding.items():
                 if horizontal_fraction and not state.global_set.get("xlim"):
                     left, right = ax.get_xlim()
@@ -2693,19 +2734,8 @@ class PlotViewer(QDialog):
                     legend.set_draggable(True)
                     for text_artist in legend.get_texts():
                         text_artist.set_color(state.global_set.get("legend_color", "#172033"))
-        self.ax = axes[0] if axes else None
+        return (axes[0] if axes else None), artist_to_stem, axes_to_stem
 
-        if hasattr(self, "annotation_mgr") and annotations and self.ax is not None:
-            self.annotation_mgr.load_serialized_data(annotations, self.ax)
-        elif hasattr(self, "annotation_mgr"):
-            self.annotation_mgr.active_ax = self.ax
-
-        try:
-            self.figure.tight_layout()
-        except ValueError:
-            pass
-        self.canvas.draw_idle()
-        self.sync_peak_list()
 
     @staticmethod
     def _peak_label_horizontal_position(x_value, x_values):
@@ -2727,7 +2757,7 @@ class PlotViewer(QDialog):
             return "right", -4
         return "center", 0
 
-    def _style_axis(self, ax, extents, is_stack):
+    def _style_axis(self, ax, extents, is_stack, *, interactive=True):
         gs = state.global_set
         min_x = min(item[0] for item in extents)
         max_x = max(item[1] for item in extents)
@@ -2761,9 +2791,10 @@ class PlotViewer(QDialog):
         ax.set_xlabel(gs.get("xlabel", ""), fontweight="bold")
         ax.set_ylabel(gs.get("ylabel", ""), fontweight="bold")
         ax.grid(True, linestyle="--", alpha=0.2)
-        cursor = Cursor(ax, useblit=True, color="red", linewidth=1, linestyle="dotted")
-        cursor.visible = self.click_mode.currentData() != "none"
-        self.cursors.append(cursor)
+        if interactive:
+            cursor = Cursor(ax, useblit=True, color="red", linewidth=1, linestyle="dotted")
+            cursor.visible = self.click_mode.currentData() != "none"
+            self.cursors.append(cursor)
 
     def _plot_deconvolutions(self, ax, x, _y, fs):
         for item in fs.get("deconvs", []):
@@ -3242,45 +3273,48 @@ class PlotViewer(QDialog):
             return
         export_figure_dialog(self, self.figure, f"{self.current_stem}_plot")
 
+    def _spectrum_export_figure(self, stem):
+        figure = Figure(figsize=self.figure.get_size_inches())
+        self._draw_spectra(figure, [stem], mode="individual")
+        figure.tight_layout()
+        return figure
+
+    def export_items(self):
+        from pandas import DataFrame
+        from report_export import setting_lines
+        items = []
+        for stem in self.stems:
+            fs = copy.deepcopy(state.file_set[stem])
+            x, y = self.get_processed_data_for_stem(stem, strict=True)
+            results = []
+            for px, py, label in fs.get("labels", []):
+                results.append(f"Peak: X={px:.7g}; Y={py:.7g}; label={label}")
+            for x1, x2, area in fs.get("areas", []):
+                results.append(f"Integrated area: {x1:.7g} to {x2:.7g}; area={area:.7g}")
+            for px, py, fwhm, size in fs.get("xrd_peaks", []):
+                results.append(f"XRD: 2-theta={px:.7g}; intensity={py:.7g}; FWHM={fwhm:.7g}; crystallite size={size:.7g} nm")
+            for index, fit in enumerate(fs.get("deconvs", []), 1):
+                results.extend(setting_lines({f"Deconvolution {index}": {
+                    "range": fit[:2], "Gaussian amplitude/center/sigma parameters": fit[3],
+                    "components": fit[4], "valleys": fit[5] if len(fit) > 5 else False}}))
+            settings = {"technique": state.technique, "processing": fs,
+                        "axes": copy.deepcopy(state.global_set), "original_points": len(self.data_dict[stem][0])}
+            settings["processing"] = {k: v for k, v in fs.items() if k not in {"labels", "areas", "xrd_peaks", "deconvs"}}
+            xlabel = state.global_set.get("xlabel", "X") or "X"
+            ylabel = state.global_set.get("ylabel", "Y") or "Y"
+            if ylabel == xlabel:
+                ylabel += " (Y)"
+            items.append(ExportItem(fs.get("custom_name", stem), lambda key=stem: self._spectrum_export_figure(key),
+                                    DataFrame({xlabel: x, ylabel: y}), results, settings, fs.get("source", stem)))
+        return items
+
     def export_data(self):
         if self._table_dirty and not self._apply_data_table():
             return
-        fs = state.file_set[self.current_stem]
-        options_dialog = ExportOptionsDialog(bool(fs.get("deconvs")), self)
-        if options_dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        options = options_dialog.result
-        folder = QFileDialog.getExistingDirectory(self, "Select export folder")
-        if not folder:
-            return
-        destination = Path(folder)
-        x, y = self.get_processed_data_for_stem(self.current_stem)
         try:
-            header = {
-                "FTIR": "Wavenumber,Intensity", "XRD": "2-Theta,Intensity",
-                "UVVIS": "Wavelength,Signal", "RAMAN": "Raman Shift,Intensity",
-                "GENERAL": "X,Y", "XPS": "Binding energy (eV),Intensity",
-                "LIBS": "Wavelength (nm),Intensity",
-            }.get(state.technique, "X,Y")
-            if options["data"]:
-                np.savetxt(
-                    destination / f"{self.current_stem}_processed.csv",
-                    np.column_stack((x, y)), delimiter=",", header=header, comments="",
-                )
-            if options["report"]:
-                self._write_report(destination / f"{self.current_stem}_analysis_report.txt", fs)
-            if options["image"]:
-                save_figure(
-                    self.figure,
-                    destination / f"{self.current_stem}_plot{options['format']}",
-                    dpi=options["dpi"],
-                )
-            if options["deconvolution"]:
-                self._export_deconvolutions(destination, fs)
+            export_batch_dialog(self, self.export_items())
         except Exception as error:
-            QMessageBox.critical(self, "Export Error", str(error))
-            return
-        QMessageBox.information(self, "Export Complete", f"Files saved to:\n{destination}")
+            QMessageBox.critical(self, "Export error", str(error))
 
     def _write_report(self, path, fs):
         with path.open("w", encoding="utf-8") as stream:

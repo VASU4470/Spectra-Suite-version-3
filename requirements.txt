@@ -11,3 +11,5 @@ PySide6
 # Packaging and icon processing
 pyinstaller
 Pillow
+pypdf
+reportlab

@@ -1,11 +1,24 @@
 # Changelog
 
-## Unreleased — export repair and spectroscopy previews
+## Unreleased — export center, image digitizing and spectroscopy previews
 
 - Explicitly bundle PDF/SVG renderers and exercise real figure export in the
   installed-application smoke check; reproduced the former missing-PDF-backend failure.
 - Add shared Save figure controls for format, millimetre dimensions, resolution,
   transparency and cropping, with atomic replacement and live-figure restoration.
+- Add publication-size and saved custom presets, live figure previews, selected
+  dataset batches, and paginated vector PDF reports containing stored results
+  and processing settings. Preview every report page before saving a complete
+  export folder with figures/data, results, settings and a manifest.
+- Support file/folder drops across enabled spectroscopy, 2D, 3D and fluid
+  workspaces, including their canvases and tables; retain normal text paste.
+- Add a shared Image to data tool with clipboard, file picker and image drops,
+  three-point calibration, linear/logarithmic/reversed axes, manual points and
+  color tracing. Preserve calibration and source provenance with extracted data.
+- Allow image reference spectra, explicit 2D grid comparison without
+  extrapolation, fluid profile comparisons and user-defined 3D reference planes.
+- Exercise report generation, Qt PDF rendering and the digitizer in the frozen
+  application smoke check as well as the numerical and interaction tests.
 - Add XPS/LIBS plotting previews with unit-aware axes, peak selection and saved
   sessions; preserve unsmoothed data on import. Specialized analysis remains pending.
 - Enable the fluid preview inside the shell, correct Cartesian grid ordering,
