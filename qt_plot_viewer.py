@@ -3293,6 +3293,10 @@ class PlotViewer(QDialog):
                 results.append(f"Integrated area: {x1:.7g} to {x2:.7g}; area={area:.7g}")
             for px, py, fwhm, size in fs.get("xrd_peaks", []):
                 results.append(f"XRD: 2-theta={px:.7g}; intensity={py:.7g}; FWHM={fwhm:.7g}; crystallite size={size:.7g} nm")
+            sizes = [row[3] for row in fs.get("xrd_peaks", []) if np.isfinite(row[3]) and row[3] > 0]
+            if sizes:
+                results.extend((f"Average crystallite size: {np.mean(sizes):.7g} nm",
+                                f"Standard deviation: {np.std(sizes):.7g} nm"))
             for index, fit in enumerate(fs.get("deconvs", []), 1):
                 results.extend(setting_lines({f"Deconvolution {index}": {
                     "range": fit[:2], "Gaussian amplitude/center/sigma parameters": fit[3],
@@ -3305,7 +3309,8 @@ class PlotViewer(QDialog):
             if ylabel == xlabel:
                 ylabel += " (Y)"
             items.append(ExportItem(fs.get("custom_name", stem), lambda key=stem: self._spectrum_export_figure(key),
-                                    DataFrame({xlabel: x, ylabel: y}), results, settings, fs.get("source", stem)))
+                                    DataFrame({xlabel: x, ylabel: y}), results, settings, fs.get("source", stem),
+                                    self._deconvolution_tables(fs)))
         return items
 
     def export_data(self):
@@ -3344,7 +3349,10 @@ class PlotViewer(QDialog):
                 for row in fs["areas"]:
                     stream.write("\t".join(f"{value:.5g}" for value in row) + "\n")
 
-    def _export_deconvolutions(self, destination, fs):
+    @staticmethod
+    def _deconvolution_tables(fs):
+        from pandas import DataFrame
+        tables = {}
         for region, item in enumerate(fs.get("deconvs", []), start=1):
             if len(item) == 6:
                 x1, x2, baseline, params, count, is_valley = item
@@ -3362,11 +3370,13 @@ class PlotViewer(QDialog):
             total = np.sum(components, axis=0)
             columns = [x_fit, baseline_fit + sign * total]
             columns.extend(baseline_fit + sign * component for component in components)
-            header = "X,Total Fit," + ",".join(f"Peak {index + 1}" for index in range(count))
-            np.savetxt(
-                destination / f"{self.current_stem}_deconvolution_{region}.csv",
-                np.column_stack(columns), delimiter=",", header=header, comments="",
-            )
+            header = ["X", "Total Fit", *[f"Peak {index + 1}" for index in range(count)]]
+            tables[f"deconvolution_{region}"] = DataFrame(np.column_stack(columns), columns=header)
+        return tables
+
+    def _export_deconvolutions(self, destination, fs):
+        for name, frame in self._deconvolution_tables(fs).items():
+            frame.to_csv(destination / f"{self.current_stem}_{name}.csv", index=False)
 
     # ---------------------------- extra dialogs --------------------------
     def show_cheat_sheet(self):

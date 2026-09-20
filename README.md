@@ -32,7 +32,10 @@ is published only after every requested output succeeds.
 **Preview complete PDF report** provides a page selector for the actual report.
 A4 report pages contain vector figures fitted to the page, followed by all
 stored results and processing settings, with automatic pagination. Reports do
-not run new analyses. Per-dataset figures retain stored analysis markers;
+not run new analyses. They include saved peak positions, areas, XRD size
+summaries and Gaussian fit parameters; CSV export also retains fitted curves.
+Advanced UV-Vis and Raman analysis dialogs retain their separate CSV exports.
+Per-dataset figures retain stored analysis markers;
 freehand workspace drawings are included when saving the current figure.
 **Save workspace session** saves editable spectroscopy data and settings as JSON.
 

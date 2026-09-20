@@ -52,6 +52,7 @@ class ExportEngineTests(unittest.TestCase):
 
     def test_only_selected_datasets_are_written_with_unique_portable_names(self):
         items = [sample_item("sample/a"), sample_item("sample:a")]
+        items[0].extra_data = {"deconvolution_1": pd.DataFrame({"X": [1., 2.], "Total Fit": [5., 7.]})}
         with TemporaryDirectory() as folder:
             output = export_batch(items, folder, extension="png", options={"dpi": 80, "tight": False})
             manifest = json.loads((output/"manifest.json").read_text())
@@ -61,6 +62,8 @@ class ExportEngineTests(unittest.TestCase):
             self.assertEqual(len(PdfReader(output/"report.pdf").pages), 4)
             frame = pd.read_csv(next(output.glob("*_data.csv")))
             np.testing.assert_allclose(frame.iloc[:, 1], items[0].data.iloc[:, 1])
+            fit_file = next(name for name in manifest["datasets"][0]["files"] if "deconvolution_1" in name)
+            pd.testing.assert_frame_equal(pd.read_csv(output / fit_file), items[0].extra_data["deconvolution_1"])
 
     def test_batch_failure_and_report_failure_preserve_existing_files(self):
         good = sample_item()
@@ -168,3 +171,19 @@ class ExportUITests(unittest.TestCase):
         items = three.export_items(); self.assertEqual(len(items), 1)
         self.assertEqual(items[0].figure().axes[0].name, "3d")
         self.assertIs(three.figure, before)
+
+    def test_export_keeps_xrd_summary_and_valley_fit_curves(self):
+        dashboard = WelcomeDashboard(); workspace = next(w for w in WORKSPACES if w.key == "xrd")
+        x = np.linspace(10, 30, 101); y = np.full_like(x, 10.)
+        dashboard._open_spectroscopy({"workspace": workspace, "datasets": [SpectrumDataset("sample", x, y, "sample.csv")],
+                                     "reference": None, "mode": "individual", "smooth": 0, "files": []})
+        viewer = dashboard.document_tabs.currentWidget()
+        state.file_set["sample"]["xrd_peaks"] = [(15., 10., .2, 12.), (25., 10., .3, 28.)]
+        state.file_set["sample"]["deconvs"] = [(10., 30., [10., 10.], [2., 20., 1.], 1, True)]
+        item = viewer.export_items()[0]
+        self.assertIn("Average crystallite size: 20 nm", item.results)
+        self.assertIn("Standard deviation: 8 nm", item.results)
+        fit = item.extra_data["deconvolution_1"]
+        expected = 10 - 2 * np.exp(-((fit["X"].to_numpy() - 20)**2) / 2)
+        np.testing.assert_allclose(fit["Total Fit"], expected)
+        np.testing.assert_allclose(fit["Peak 1"], expected)

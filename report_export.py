@@ -36,6 +36,7 @@ class ExportItem:
     results: list[str] = field(default_factory=list)
     settings: dict = field(default_factory=dict)
     source: str = ""
+    extra_data: dict[str, pd.DataFrame] = field(default_factory=dict)
 
 
 def json_value(value):
@@ -140,6 +141,8 @@ def save_pdf_report(items, filename, *, options=None, progress=None):
                  _paragraph(f"Source: {item.source or 'Current workspace / manual data'}")]
         if item.data is not None:
             story.append(_paragraph(f"Exported data: {len(item.data):,} rows; columns: {', '.join(map(str, item.data.columns))}"))
+        for name, frame in item.extra_data.items():
+            story.append(_paragraph(f"Additional data available with CSV export: {name} ({len(frame):,} rows)"))
         story.append(Spacer(1, 8))
         story.append(_paragraph("Results", size=11, bold=True))
         story.extend(_paragraph(line) for line in (item.results or ["No stored analysis results for this dataset."]))
@@ -196,6 +199,11 @@ def export_batch(items, folder, *, extension="pdf", options=None, include_data=T
                 name = f"{stem}_data.csv"
                 item.data.to_csv(stage / name, index=False)
                 files.append(name)
+            if include_data:
+                for extra_index, (label, frame) in enumerate(item.extra_data.items(), 1):
+                    name = f"{stem}_{extra_index:02d}_{safe_name(label)}.csv"
+                    frame.to_csv(stage / name, index=False)
+                    files.append(name)
             (stage / f"{stem}_results.txt").write_text("\n".join(item.results) or "No stored analysis results.", encoding="utf-8")
             (stage / f"{stem}_settings.json").write_text(json.dumps(json_value(item.settings), indent=2, ensure_ascii=False), encoding="utf-8")
             manifest.append({"name": item.name, "source": item.source, "files": files,
