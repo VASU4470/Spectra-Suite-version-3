@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
-from PySide6.QtCore import QSize, Signal, Qt
+from PySide6.QtCore import QEvent, QSize, Signal, Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -15,6 +15,9 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSplitter,
+    QToolBar,
+    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -257,23 +260,85 @@ class PanelToggleButton(QPushButton):
             raise ValueError("side must be left, right, or bottom")
         self.panel = panel
         self.side = side
+        self._saved_sizes = None
         self.setCheckable(True)
         self.setFixedSize(30, 30)
         self.setObjectName("panelArrow")
         self.setToolTip("Hide panel")
         self.toggled.connect(self._apply_state)
         self._refresh_arrow(False)
+        panel.installEventFilter(self)
+        splitter = panel.parentWidget()
+        if isinstance(splitter, QSplitter):
+            splitter.setHandleWidth(7)
+            splitter.splitterMoved.connect(self._splitter_moved)
+
+    def _splitter_moved(self, *_args):
+        splitter = self.panel.parentWidget()
+        index = splitter.indexOf(self.panel)
+        sizes = splitter.sizes()
+        hidden = self.panel.isHidden() or sizes[index] == 0
+        if not hidden:
+            self._saved_sizes = sizes
+        self.blockSignals(True)
+        self.setChecked(hidden)
+        self.blockSignals(False)
+        self._refresh_arrow(hidden)
+
+    def eventFilter(self, watched, event):
+        if watched is self.panel and event.type() in {QEvent.Type.Show, QEvent.Type.Hide}:
+            hidden = self.panel.isHidden()
+            self.blockSignals(True)
+            self.setChecked(hidden)
+            self.blockSignals(False)
+            self._refresh_arrow(hidden)
+        return super().eventFilter(watched, event)
 
     def _refresh_arrow(self, hidden):
         visible_arrow = {"left": "◀", "right": "▶", "bottom": "▼"}
         hidden_arrow = {"left": "▶", "right": "◀", "bottom": "▲"}
         self.setText(hidden_arrow[self.side] if hidden else visible_arrow[self.side])
-        self.setToolTip("Show panel" if hidden else "Hide panel")
+        name = {"left": "data panel", "right": "inspector", "bottom": "plot toolbar"}[self.side]
+        description = f"{'Show' if hidden else 'Hide'} {name}"
+        self.setToolTip(description)
+        self.setAccessibleName(description)
 
     def _apply_state(self, hidden):
+        splitter = self.panel.parentWidget()
+        if isinstance(splitter, QSplitter):
+            index = splitter.indexOf(self.panel)
+            sizes = splitter.sizes()
+            if hidden and sizes[index] > 0:
+                self._saved_sizes = sizes
         self.panel.setVisible(not hidden)
+        if not hidden and isinstance(splitter, QSplitter):
+            if self._saved_sizes:
+                splitter.setSizes(self._saved_sizes)
+            elif splitter.sizes()[index] == 0:
+                sizes[index] = max(240, self.panel.minimumSizeHint().width())
+                splitter.setSizes(sizes)
         self._refresh_arrow(hidden)
 
     def set_panel_visible(self, visible):
         self.setChecked(not visible)
         self._apply_state(not visible)
+
+
+def compact_action_bar(actions, parent=None):
+    """A compact row with Qt's overflow menu when a panel becomes narrow."""
+    toolbar = QToolBar(parent)
+    toolbar.setObjectName("compactDataTools")
+    toolbar.setMovable(False)
+    toolbar.setFloatable(False)
+    toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+    toolbar.setIconSize(QSize(16, 16))
+    toolbar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+    toolbar.setMinimumWidth(0)
+    toolbar.setMaximumHeight(34)
+    for label, tooltip, callback in actions:
+        action = toolbar.addAction(label)
+        action.setToolTip(tooltip)
+        action.triggered.connect(callback)
+        widget = toolbar.widgetForAction(action)
+        widget.setAccessibleName(tooltip)
+    return toolbar

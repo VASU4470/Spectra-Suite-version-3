@@ -10,7 +10,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QGridLayout,
+    QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout,
     QInputDialog, QLabel, QLineEdit, QListWidget, QMessageBox, QPushButton, QScrollArea,
     QSlider, QSplitter, QSpinBox, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -23,7 +23,7 @@ from column_math import FormulaError, evaluate_column_formula
 from fluid_reader import read_tecplot
 from qt_general_plotter import DataTable, parse_axis_limits, read_table
 from qt_theme import LIGHT_STYLE, apply_window_icon
-from qt_widgets import ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton
+from qt_widgets import ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton, compact_action_bar
 
 
 def read_3d_table(path: Path):
@@ -62,25 +62,25 @@ class Plot3D(QWidget):
                             ("Save data", self.save_data), ("Export graph", self.export_graph)):
             button = QPushButton(label); button.clicked.connect(slot); top.addWidget(button)
         top.addStretch(); root.addLayout(top)
-        self.splitter = QSplitter(Qt.Orientation.Horizontal); self.splitter.setChildrenCollapsible(True)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal); self.splitter.setChildrenCollapsible(False)
         root.addWidget(self.splitter, 1)
 
-        self.data_panel = QWidget(); data_layout = QVBoxLayout(self.data_panel)
+        self.data_panel = QWidget(); self.data_panel.setMinimumWidth(230); data_layout = QVBoxLayout(self.data_panel)
         data_layout.setContentsMargins(0, 0, 4, 0)
-        self.file_label = QLabel("Manual XYZ data - type values or paste from Excel")
+        self.file_label = QLabel("Manual XYZ data · Drop files here or paste from Excel")
+        self.file_label.setWordWrap(True)
         data_layout.addWidget(self.file_label)
         self.table = DataTable()
         self.table.historyRestored.connect(self._refresh_columns)
         data_layout.addWidget(self.table, 1)
-        edit = QGridLayout()
-        for index, (label, slot) in enumerate((
-            ("Insert row", self.add_row), ("Delete row(s)", self.delete_rows),
-            ("Insert column", self.add_column), ("Delete column(s)", self.delete_columns),
-            ("Rename", self.rename_column), ("ƒx Formula", self.add_formula_column),
-        )):
-            button = QPushButton(label); button.clicked.connect(slot)
-            edit.addWidget(button, index // 3, index % 3)
-        data_layout.addLayout(edit); self.splitter.addWidget(self.data_panel)
+        self.data_tools = compact_action_bar([
+            ("+Row", "Insert row", self.add_row), ("−Row", "Delete selected rows", self.delete_rows),
+            ("+Col", "Insert column", self.add_column), ("−Col", "Delete selected columns", self.delete_columns),
+            ("Rename", "Rename selected column", self.rename_column),
+            ("ƒx", "Create a calculated column", self.add_formula_column),
+        ], self.data_panel)
+        data_layout.addWidget(self.data_tools)
+        self.splitter.addWidget(self.data_panel)
 
         self.plot_panel = QWidget(); plot_layout = QVBoxLayout(self.plot_panel)
         plot_layout.setContentsMargins(4, 0, 4, 0)
@@ -92,7 +92,7 @@ class Plot3D(QWidget):
         toolbar_row.addWidget(self.toolbar_toggle); plot_layout.addLayout(toolbar_row)
         self.splitter.addWidget(self.plot_panel)
 
-        controls = QWidget(); controls.setMinimumWidth(330); form_layout = QVBoxLayout(controls)
+        controls = QWidget(); controls.setMinimumWidth(260); form_layout = QVBoxLayout(controls)
         mapping = QGroupBox("Data mapping"); form = QFormLayout(mapping)
         self.x_column = QComboBox(); self.y_column = QComboBox(); self.z_column = QComboBox()
         self.u_column = QComboBox(); self.v_column = QComboBox(); self.w_column = QComboBox()
@@ -107,12 +107,13 @@ class Plot3D(QWidget):
         self.layer_list.currentRowChanged.connect(self._select_layer_mapping)
         form.addRow("Datasets in plot", self.layer_list)
         layer_buttons = QHBoxLayout()
-        add_layer = QPushButton("Add current mapping")
+        add_layer = QPushButton("Add layer")
         add_layer.clicked.connect(self.add_current_layer)
-        remove_layer = QPushButton("Remove selected data")
+        remove_layer = QPushButton("Remove layer")
         remove_layer.clicked.connect(self.remove_selected_layer)
         layer_buttons.addWidget(add_layer); layer_buttons.addWidget(remove_layer)
         form.addRow(layer_buttons)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form_layout.addWidget(mapping)
         labels = QGroupBox("Labels and view"); label_form = QFormLayout(labels)
         self.title_edit = QLineEdit(); self.xlabel_edit = QLineEdit("X")
@@ -129,6 +130,7 @@ class Plot3D(QWidget):
                               ("Y limits", self.ylim_edit), ("Z limits", self.zlim_edit),
                               ("Elevation", self.elevation), ("Azimuth", self.azimuth)):
             label_form.addRow(label, widget)
+        label_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         label_form.addRow(self.colorbar_check); label_form.addRow(self.grid_check); form_layout.addWidget(labels)
         plot = QPushButton("Plot / refresh"); plot.setObjectName("primary"); plot.clicked.connect(self.plot_data)
         form_layout.addWidget(plot); form_layout.addStretch()
@@ -136,7 +138,13 @@ class Plot3D(QWidget):
         self.splitter.addWidget(self.controls_scroll); self.splitter.setSizes([420, 760, 360])
         self.data_toggle = PanelToggleButton(self.data_panel, "left", self)
         self.controls_toggle = PanelToggleButton(self.controls_scroll, "right", self)
-        top.insertWidget(5, self.data_toggle); top.insertWidget(6, self.controls_toggle)
+        panel_header = QHBoxLayout()
+        panel_header.addWidget(self.data_toggle)
+        hint = QLabel("Drop data files onto the table or plot")
+        hint.setWordWrap(True)
+        panel_header.addWidget(hint, 1)
+        panel_header.addWidget(self.controls_toggle)
+        plot_layout.insertLayout(0, panel_header)
 
         for widget in (self.plot_type, self.colormap): widget.currentTextChanged.connect(self.plot_data)
         for widget in (self.levels,): widget.valueChanged.connect(self.plot_data)

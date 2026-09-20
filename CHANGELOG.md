@@ -1,3 +1,12 @@
+## 3.3.0-rc.2 — Update discovery and compact interface
+
+- Added explicit stable/test update channels and release-candidate version ordering.
+- Show update-check status and download access inside preferences; refresh after build/channel changes.
+- Compact home cards, document tabs and table-editing toolbars with overflow actions.
+- Resizable panel dividers and collapse icons restore the previous width.
+- Made 2D/3D drop targets discoverable and tested file import in embedded workspaces.
+- Earlier builds require one manual installation to receive the repaired checker.
+
 # Changelog
 
 ## 3.3.0 — export center, image digitizing and spectroscopy previews

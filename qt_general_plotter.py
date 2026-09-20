@@ -26,7 +26,7 @@ from report_export import ExportItem
 from qt_import_support import install_import_support, open_curve_in_2d
 from qt_theme import LIGHT_STYLE, apply_window_icon
 from qt_widgets import (
-    AnnotationToolBar, ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton,
+    AnnotationToolBar, ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton, compact_action_bar,
 )
 from plot_styles import BASIC_COLORS, LEGEND_LOCATIONS, PLOT_COLORS
 
@@ -285,10 +285,10 @@ class GeneralPlotter(QWidget):
             self.panel_actions[label] = action
         panels.setMenu(panel_menu); top.addWidget(panels)
         top.addStretch(); root.addLayout(top)
-        self.splitter = QSplitter(Qt.Orientation.Horizontal); self.splitter.setChildrenCollapsible(True)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal); self.splitter.setChildrenCollapsible(False)
         root.addWidget(self.splitter, 1)
 
-        self.data_panel = QWidget(); data_layout = QVBoxLayout(self.data_panel)
+        self.data_panel = QWidget(); self.data_panel.setMinimumWidth(230); data_layout = QVBoxLayout(self.data_panel)
         data_layout.setContentsMargins(0, 0, 4, 0)
         self.file_label = QLabel("Manual data"); self.file_label.setWordWrap(True)
         data_layout.addWidget(self.file_label)
@@ -298,30 +298,19 @@ class GeneralPlotter(QWidget):
             lambda *_args: None if self._loading_table else self._refresh_columns()
         )
         data_layout.addWidget(self.table, 1)
-        edit_row = QGridLayout()
-        for index, (text, slot) in enumerate((
-            ("Insert row", self.add_row), ("Delete row(s)", self.delete_rows),
-            ("Insert column", self.add_column), ("Delete column(s)", self.delete_columns),
-            ("Rename", self.rename_column),
-        )):
-            button = QPushButton(text); button.clicked.connect(slot)
-            edit_row.addWidget(button, index // 3, index % 3)
-        data_layout.addLayout(edit_row)
-        role_row = QGridLayout()
-        set_x = QPushButton("Set selected column as X")
-        set_x.clicked.connect(self.set_selected_column_as_x)
-        add_y = QPushButton("Add selected column(s) as Y")
-        add_y.clicked.connect(self.add_selected_columns_as_y)
-        formula = QPushButton("ƒx Calculated column")
-        formula.clicked.connect(self.add_formula_column)
-        role_row.addWidget(set_x, 0, 0); role_row.addWidget(add_y, 0, 1)
-        role_row.addWidget(formula, 1, 0, 1, 2)
-        data_layout.addLayout(role_row)
-        table_history = QHBoxLayout()
-        for text, slot in (("↶ Undo data", self._undo_table), ("↷ Redo data", self._redo_table)):
-            button = QPushButton(text); button.clicked.connect(slot); table_history.addWidget(button)
-        data_layout.addLayout(table_history)
-        data_layout.addWidget(QLabel("Paste rectangular data from Excel with Ctrl/Cmd+V."))
+        self.data_tools = compact_action_bar([
+            ("X", "Set selected column as X", self.set_selected_column_as_x),
+            ("Y", "Add selected columns as Y", self.add_selected_columns_as_y),
+            ("ƒx", "Create a calculated column", self.add_formula_column),
+            ("↶", "Undo data edit", self._undo_table), ("↷", "Redo data edit", self._redo_table),
+            ("+Row", "Insert row", self.add_row), ("−Row", "Delete selected rows", self.delete_rows),
+            ("+Col", "Insert column", self.add_column), ("−Col", "Delete selected columns", self.delete_columns),
+            ("Rename", "Rename selected column", self.rename_column),
+        ], self.data_panel)
+        data_layout.addWidget(self.data_tools)
+        hint = QLabel("Drop files here · Paste from Excel with Ctrl/Cmd+V")
+        hint.setWordWrap(True)
+        data_layout.addWidget(hint)
         self.splitter.addWidget(self.data_panel)
 
         self.plot_panel = QWidget(); plot_layout = QVBoxLayout(self.plot_panel)
@@ -341,6 +330,7 @@ class GeneralPlotter(QWidget):
         controls_layout = QVBoxLayout(controls); controls_layout.setContentsMargins(4, 0, 0, 0)
         mapping = QGroupBox("Data mapping"); mapping_form = QFormLayout(mapping)
         mapping_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        mapping_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.x_column = QComboBox()
         self.y_columns = QListWidget(); self.y_columns.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.y_columns.setMinimumHeight(115)
@@ -349,14 +339,16 @@ class GeneralPlotter(QWidget):
         y_buttons = QWidget(); y_row = QHBoxLayout(y_buttons); y_row.setContentsMargins(0, 0, 0, 0)
         select_all_y = QPushButton("Select all Y")
         select_all_y.clicked.connect(self._select_all_y)
-        clear_y = QPushButton("Clear Y selection")
+        clear_y = QPushButton("Clear Y")
         clear_y.clicked.connect(self.y_columns.clearSelection)
         y_row.addWidget(select_all_y); y_row.addWidget(clear_y)
-        mapping_form.addRow("Ctrl/Cmd selects multiple", y_buttons)
+        self.y_columns.setToolTip("Ctrl/Cmd selects multiple Y columns")
+        mapping_form.addRow(y_buttons)
         mapping_form.addRow("Chart type", self.chart_type); controls_layout.addWidget(mapping)
 
         labels = QGroupBox("Titles and labels"); label_form = QFormLayout(labels)
         label_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        label_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.title_edit, self.xlabel_edit, self.ylabel_edit = QLineEdit(), QLineEdit(), QLineEdit()
         self.xlim_edit, self.ylim_edit = QLineEdit(), QLineEdit()
         self.xlim_edit.setPlaceholderText("automatic or min,max")
@@ -379,6 +371,7 @@ class GeneralPlotter(QWidget):
 
         style = QGroupBox("Selected series style"); style_form = QFormLayout(style)
         style_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        style_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.style_series = QComboBox(); self.series_name_edit = QLineEdit(); self.color_edit = QLineEdit("#1f77b4")
         color_button = QPushButton("Choose color"); color_button.clicked.connect(self.choose_color)
         self.line_style = QComboBox(); self.line_style.addItems(["Solid", "Dashed", "Dotted", "Dash-dot", "None"])
@@ -430,8 +423,13 @@ class GeneralPlotter(QWidget):
 
         self.data_toggle = PanelToggleButton(self.data_panel, "left", self)
         self.options_toggle = PanelToggleButton(self.controls_scroll, "right", self)
-        top.insertWidget(6, self.data_toggle)
-        top.insertWidget(7, self.options_toggle)
+        panel_header = QHBoxLayout()
+        panel_header.addWidget(self.data_toggle)
+        drop_hint = QLabel("Drop data files onto the table or plot")
+        drop_hint.setWordWrap(True)
+        panel_header.addWidget(drop_hint, 1)
+        panel_header.addWidget(self.options_toggle)
+        plot_layout.insertLayout(0, panel_header)
         self.data_toggle.toggled.connect(
             lambda hidden: self.panel_actions["Data table"].setChecked(not hidden)
         )

@@ -1,7 +1,7 @@
 # SpectraSuite 3.3.0 release preparation
 
 Version 3.3.0 includes the export center, image digitizer and plotting/import
-updates. It is published as the clearly labeled test release `v3.3.0-rc.1`.
+updates. It is published as the clearly labeled test release `v3.3.0-rc.2`.
 The earlier `v3.2.0-rc.1` test release and `v3.1.0` release remain immutable.
 
 The publication workflow on main requires six successful cross-platform test

@@ -2,7 +2,7 @@
 
 This release includes the export center, image digitizer and plotting updates.
 The application title displays **SpectraSuite 3.3.0**. The immutable release tag
-is **v3.3.0-rc.1**.
+is **v3.3.0-rc.2**.
 
 Download an installer from Assets; no Python, Git or GitHub sign-in is required.
 
@@ -20,6 +20,21 @@ Existing saved data and sessions remain in their original locations.
 
 Windows/Mac installers are unsigned and Mac builds are not notarized; OS
 security checks may warn or block launch. This is a public test release.
+
+Changes in this second test build:
+
+- Update checks can include test releases, compare release-candidate numbers,
+  show progress/results in preferences, and recheck after a build/channel change.
+- Compact home cards and document tabs; compact table tools with an overflow menu.
+- Resizable panels with visible dividers, collapse icons and restored widths.
+- Visible 2D/3D file-drop instructions; regression-tested file drops onto both
+  tables and plots inside the main application window.
+
+Earlier 3.2.0 and 3.3.0-rc.1 installations check only stable releases, so install
+this build manually once. In Account → Privacy and update preferences, enable
+“Include test releases” to receive subsequent test-build notices. Test builds
+include this by default. Notifications open the download page; the app does
+not replace itself automatically.
 
 Included:
 

@@ -2,9 +2,10 @@
 
 APP_NAME = "SpectraSuite"
 APP_VERSION = "3.3.0"
-RELEASE_TAG = "v3.3.0-rc.1"
+RELEASE_TAG = "v3.3.0-rc.2"
 REPOSITORY = "VASU4470/Spectra-Suite-version-3"
 RELEASE_API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
+RELEASE_LIST_API_URL = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=100"
 RELEASE_PAGE_URL = f"https://github.com/{REPOSITORY}/releases"
 PRIVACY_POLICY_URL = f"https://github.com/{REPOSITORY}/blob/main/PRIVACY.md"
 UPDATE_SIGNUP_URL = (

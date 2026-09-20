@@ -544,7 +544,7 @@ class PlotViewer(QDialog):
         self.controls_layout.addLayout(inspector_header)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setChildrenCollapsible(True)
+        self.splitter.setChildrenCollapsible(False)
         root.addWidget(self.splitter, 1)
 
         self.project_sidebar = QFrame()
@@ -721,8 +721,8 @@ class PlotViewer(QDialog):
         self.right_sidebar.setObjectName("rightSidebarTabs")
         self.right_sidebar.setDocumentMode(True)
         self.right_sidebar.setTabPosition(QTabWidget.TabPosition.West)
-        self.right_sidebar.setMinimumWidth(430)
-        self.right_sidebar.setMaximumWidth(620)
+        self.right_sidebar.setMinimumWidth(340)
+        self.right_sidebar.setMaximumWidth(900)
         self.right_sidebar.addTab(self.controls, "Inspector")
         self.right_sidebar.addTab(results_page, "Results")
 

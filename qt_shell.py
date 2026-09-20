@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app_version import APP_VERSION
+from app_version import APP_VERSION, RELEASE_TAG
 from config import SessionState, state
 from dataset_reader import discover_many
 from dataset_reader import SpectrumDataset
@@ -90,15 +90,15 @@ QFrame#homeHero {
     border: 1px solid #d7e0ec;
     border-radius: 12px;
 }
-QLabel#homeTitle { color: #172033; font-size: 28px; font-weight: 800; }
+QLabel#homeTitle { color: #172033; font-size: 23px; font-weight: 800; }
 QLabel#homeSubtitle { color: #64748b; font-size: 14px; }
 QPushButton#workspaceTile {
     background-color: #ffffff;
     border: 1px solid #cbd5e1;
     border-radius: 12px;
     text-align: left;
-    padding: 14px;
-    font-size: 15px;
+    padding: 8px 12px;
+    font-size: 14px;
     font-weight: 700;
 }
 QPushButton#workspaceTile:hover { background-color: #eff6ff; border-color: #60a5fa; }
@@ -140,8 +140,8 @@ QLabel#updateBannerNote { color: #475569; }
 QLabel#importTitle { color: #172033; font-size: 22px; font-weight: 800; }
 QTabWidget#documentTabs::pane { border: none; background-color: #f4f7fb; }
 QTabWidget#documentTabs > QTabBar::tab {
-    min-width: 145px;
-    padding: 9px 16px;
+    min-width: 85px;
+    padding: 6px 12px;
 }
 """
 
@@ -735,13 +735,13 @@ class SpectraSuiteWindow(QMainWindow):
         page = QWidget()
         page.setObjectName("homePage")
         outer = QVBoxLayout(page)
-        outer.setContentsMargins(42, 34, 42, 34)
+        outer.setContentsMargins(24, 20, 24, 20)
         outer.setSpacing(18)
 
         hero = QFrame()
         hero.setObjectName("homeHero")
         hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(28, 22, 28, 22)
+        hero_layout.setContentsMargins(20, 14, 20, 14)
         title = QLabel("What would you like to analyse?")
         title.setObjectName("homeTitle")
         hero_layout.addWidget(title)
@@ -769,9 +769,6 @@ class SpectraSuiteWindow(QMainWindow):
         hero_layout.addLayout(actions)
         outer.addWidget(hero)
 
-        active_label = QLabel("WORKSPACES")
-        active_label.setObjectName("sectionLabel")
-        outer.addWidget(active_label)
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(14)
@@ -780,22 +777,21 @@ class SpectraSuiteWindow(QMainWindow):
             button.setObjectName("workspaceTile")
             button.setProperty("comingSoon", workspace.coming_soon)
             title_text = workspace.title.replace("\n", " ")
-            button.setText(
-                f"{title_text}\n"
-                + ("Coming soon" if workspace.coming_soon else
-                   "Preview workspace" if workspace.experimental else "Open workspace")
-            )
+            status = " · Coming soon" if workspace.coming_soon else " · Preview" if workspace.experimental else ""
+            button.setText(title_text + status)
+            button.setToolTip("Coming soon" if workspace.coming_soon else f"Open {title_text}")
             icon_path = self.resource_path(workspace.icon)
             if icon_path.exists():
                 button.setIcon(QIcon(str(icon_path)))
-                button.setIconSize(QSize(42, 42))
-            button.setMinimumHeight(96)
+                button.setIconSize(QSize(26, 26))
+            button.setFixedHeight(54)
             button.setEnabled(not workspace.coming_soon)
             button.clicked.connect(
                 lambda _checked=False, selected=workspace: self.launch_workspace(selected)
             )
             self._buttons[workspace.key] = button
             grid.addWidget(button, index // 3, index % 3)
+        grid.setRowStretch((len(self.workspaces) + 2) // 3, 1)
         workspace_panel = QWidget()
         workspace_panel.setLayout(grid)
         workspace_scroll = QScrollArea()
@@ -803,7 +799,7 @@ class SpectraSuiteWindow(QMainWindow):
         workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
         workspace_scroll.setWidget(workspace_panel)
         outer.addWidget(workspace_scroll, 1)
-        footer = QLabel(f"SpectraSuite {APP_VERSION} · One project window")
+        footer = QLabel(f"SpectraSuite {RELEASE_TAG.removeprefix('v')} · One project window")
         footer.setObjectName("homeSubtitle")
         outer.addWidget(footer, alignment=Qt.AlignmentFlag.AlignRight)
         return page
@@ -915,7 +911,7 @@ class SpectraSuiteWindow(QMainWindow):
         """Present a release unobtrusively without interrupting active analysis."""
         self._pending_update_release = dict(release)
         self.update_banner_title.setText(
-            f"{release['name']} is available · You are using {APP_VERSION}"
+            f"{release['name']} is available · You are using {RELEASE_TAG}"
         )
         note = " ".join(str(release.get("notes", "")).split())
         if len(note) > 220:

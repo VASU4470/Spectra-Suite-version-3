@@ -102,6 +102,11 @@ QTabBar::tab {
 }
 QTabBar::tab:selected { background-color: #2563eb; color: #ffffff; }
 QScrollArea, QSplitter { background-color: #f4f7fb; }
+QSplitter::handle { background-color: #d7e0ec; }
+QSplitter::handle:hover { background-color: #93b4ec; }
+QToolBar#compactDataTools { background: transparent; border: 0; spacing: 2px; }
+QToolBar#compactDataTools QToolButton { padding: 3px 5px; font-size: 12px; }
+QToolButton#qt_toolbar_ext_button { padding: 0; min-width: 18px; max-width: 18px; }
 QToolTip { background-color: #172033; color: #ffffff; border: 1px solid #334155; }
 
 /* Project–Canvas–Inspector spectroscopy workspace */
