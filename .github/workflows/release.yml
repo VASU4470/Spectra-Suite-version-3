@@ -1,106 +1,36 @@
-name: Publish versioned release
+name: Publish verified test installers
 
 on:
+  push:
+    branches: [main]
   workflow_run:
-    workflows: ["Cross-platform tests"]
+    workflows: ["Cross-platform tests", "Installer candidates"]
     types: [completed]
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
-  group: release-${{ github.event.workflow_run.head_sha }}
+  group: spectrasuite-release
   cancel-in-progress: false
 
 jobs:
   release:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
+      github.event_name == 'push' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
-      - name: Check out the tested commit
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-
-      - name: Resolve and validate the application version
-        id: version
-        shell: bash
-        run: |
-          python - <<'PY'
-          import ast
-          import os
-          import re
-          from pathlib import Path
-
-          tree = ast.parse(Path("app_version.py").read_text(encoding="utf-8"))
-          version = None
-          for node in tree.body:
-              if not isinstance(node, ast.Assign):
-                  continue
-              if any(isinstance(target, ast.Name) and target.id == "APP_VERSION"
-                     for target in node.targets):
-                  version = ast.literal_eval(node.value)
-                  break
-
-          if not isinstance(version, str) or not re.fullmatch(
-              r"[0-9]+\.[0-9]+\.[0-9]+(?:[-.][0-9A-Za-z.-]+)?", version
-          ):
-              raise SystemExit("APP_VERSION is missing or is not a valid semantic version")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"number={version}\n")
-              output.write(f"tag=v{version}\n")
-          PY
-
-      - name: Prepare release notes
-        env:
-          VERSION: ${{ steps.version.outputs.number }}
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          version = os.environ["VERSION"]
-          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
-          match = re.search(
-              rf"^##[ \t]+{re.escape(version)}(?:[ \t]+[^\n]*)?$\n"
-              r"(.*?)(?=^##[ \t]+|\Z)",
-              changelog,
-              flags=re.MULTILINE | re.DOTALL,
-          )
-          notes = match.group(1).strip() if match else (
-              f"SpectraSuite {version}. See CHANGELOG.md for details."
-          )
-          notes += (
-              "\n\nThis release passed the Windows, macOS, and Ubuntu test matrix "
-              "on Python 3.11 and 3.12 before publication."
-          )
-          Path("release-notes.md").write_text(notes + "\n", encoding="utf-8")
-          PY
-
-      - name: Publish the release if it does not already exist
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Verify tested artifacts and publish the new test release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.number }}
-        shell: bash
-        run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "$TAG is already published; no release action is needed."
-            exit 0
-          fi
-
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$SHA" \
-            --title "SpectraSuite $VERSION" \
-            --notes-file release-notes.md
+          RELEASE_SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: python3 packaging/publish_test_installers.py

@@ -1,8 +1,19 @@
-# SpectraSuite 3.2.0 release preparation
+# SpectraSuite 3.3.0 release preparation
 
-Feature scope is frozen for 3.2.0: the single-window interface, existing scientific
-tools, optional email signup, update banner, and privacy preferences. Accept only
-release-blocking fixes until this version ships.
+Version 3.3.0 includes the export center, image digitizer and plotting/import
+updates. It is published as the clearly labeled test release `v3.3.0-rc.1`.
+The earlier `v3.2.0-rc.1` test release and `v3.1.0` release remain immutable.
+
+The publication workflow on main requires six successful cross-platform test
+jobs and four successful installer jobs for the same source commit. It checks
+the actual built source tree, complete artifact set, SHA-256 manifests and
+uploaded release assets before publishing. Matching successful PR runs may be
+reused after fast-forwarding their exact source commit to main. If builds are
+still running, workflow-completion events retry the publication check.
+
+Installers remain unsigned/unnotarized and must be described as test builds.
+Set a new APP_VERSION and RELEASE_TAG for the next release; never replace an
+existing version tag. A draft left by a failed upload requires inspection.
 
 ## Candidate downloads
 
@@ -25,7 +36,7 @@ app installed from the Windows setup, copied from the Mac image, or installed
 from the Linux package. This does not test Gatekeeper/SmartScreen or replace an
 interactive clean-machine installation test.
 
-## Release gates
+## Stable distribution gates
 
 1. All six existing Cross-platform tests jobs and all four Installer candidates
    jobs pass for the exact release source. Record the commit SHA and run links.
@@ -44,6 +55,6 @@ interactive clean-machine installation test.
 6. Publish the completed GitHub Release. App notifications discover published
    newer releases; a source commit alone does not trigger an update banner.
 
-Until these gates pass, v3.2.0 must not be advertised as a finished installer
-release. The existing release workflow creates source-only releases on main;
-change that workflow to require installer assets before merging this candidate.
+Until these gates pass, the test release must not be advertised as a signed,
+finished stable installer release. The main publication workflow includes
+verified installer assets and marks the current release as a prerelease.

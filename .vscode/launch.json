@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SpectraSuite — desktop application",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/launcher.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

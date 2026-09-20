@@ -1,15 +1,16 @@
-# SpectraSuite 3.2.0
+# SpectraSuite 3.3.0
 
 SpectraSuite is a free desktop application for scientific data plotting and
 analysis. It includes working FT-IR, XRD, UV-Vis, Raman, General 2D, and General
-3D workspaces. This review branch also includes preview XPS, LIBS, and Fluid
-Dynamics workspaces. Multi-X/Multi-Y remains disabled. The published 3.2.0
-release candidate does not contain these unreleased changes.
+3D workspaces, plus preview XPS, LIBS, and Fluid Dynamics workspaces.
+Multi-X/Multi-Y remains disabled. Version 3.3.0 adds the export center,
+image digitizer and consistent file drops. The application title shows 3.3.0;
+the earlier 3.2.0 installer does not contain these updates.
 
 The application is designed to work offline. Scientific data stays on the
 computer unless the user explicitly saves or exports it.
 
-## Export and new-workspace preview (unreleased)
+## Export center and workspace previews
 
 **Save figure** is available in the spectroscopy File menu and Export inspector,
 and through **Export graph** in the general and fluid plotters. Choose PDF/SVG
@@ -246,13 +247,15 @@ sign-in or signed offline licenses if a commercial edition is introduced later.
 
 ## Installer candidates
 
-Version 3.2.0 is feature-frozen and being prepared for distribution. Native
+Version 3.3.0 is distributed as test release `v3.3.0-rc.1`. Native
 Windows setup, Apple Silicon/Intel Mac disk images, and Ubuntu/Debian packages
 are built by the **Installer candidates** workflow. Candidates bundle Python
 and application dependencies, include checksums, and are startup-tested after
 installation. Windows/Mac candidates are not publisher-signed or notarized.
 See [release preparation](packaging/RELEASE.md) for download formats and remaining
-release gates. A finished public installer release has not yet been published.
+release gates. The publication workflow verifies all six test jobs, four
+installer jobs, matching source trees and asset checksums before publishing.
+Download the latest test from [GitHub Releases](https://github.com/VASU4470/Spectra-Suite-version-3/releases).
 
 ## Run from source
 
@@ -266,10 +269,17 @@ python launcher.py
 Update an existing Git clone with:
 
 ```bash
-git pull
+git fetch origin
+git switch main
+git pull --ff-only
 python -m pip install -r requirements.txt
 python launcher.py
 ```
+
+In VS Code, select the virtual-environment interpreter and press F5. Choose
+**SpectraSuite — desktop application** to launch `launcher.py`, regardless of
+which source file is open. Confirm **SpectraSuite 3.3.0** in the window title
+and **Image to data…** on Home. Close any earlier running app before testing.
 
 The GitHub Actions workflow compiles and lints the project, runs numerical and
 off-screen PySide6 tests, validates image/PDF export, builds the PyInstaller
@@ -278,6 +288,6 @@ Python 3.11 and 3.12.
 
 ## License
 
-SpectraSuite 3.2.0 is distributed under the [MIT License](LICENSE). A signed
+SpectraSuite 3.3.0 is distributed under the [MIT License](LICENSE). A signed
 installer has not yet been published; the source workflow above remains the
 recommended testing path.

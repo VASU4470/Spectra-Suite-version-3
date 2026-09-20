@@ -5,7 +5,6 @@ import tempfile
 
 from PySide6.QtCore import Qt, QSettings, QSize, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
-from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QListWidget,
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
 from plot_export import figure_bytes, save_figure
 from report_export import ExportItem, export_batch, save_pdf_report
 from qt_theme import LIGHT_STYLE
+from qt_pdf_preview import PdfPreviewDocument
 
 # Generic publication widths, rather than a claim of compliance with every journal.
 SIZE_PRESETS = (("Custom dimensions", None), ("Single column - 85 mm", (85, None)),
@@ -240,7 +240,7 @@ class BatchExportDialog(FigureExportDialog):
         self.report_page = QComboBox(); self.report_page.hide()
         self.report_page.currentIndexChanged.connect(self.render_report_page)
         self.preview_layout.addWidget(self.report_page)
-        self.pdf = QPdfDocument(self)
+        self.pdf = PdfPreviewDocument(self)
         self.dataset_list.itemChanged.connect(self.selection_changed)
         self.dataset_list.currentRowChanged.connect(self.schedule_preview)
         self.dataset_list.setCurrentRow(0)
@@ -282,7 +282,7 @@ class BatchExportDialog(FigureExportDialog):
         path = Path(self._temporary.name) / "report.pdf"
         try:
             save_pdf_report(items, path, options=self.options())
-            self.pdf.load(str(path))
+            self.pdf.load_path(path)
             count = self.pdf.pageCount()
             if not count:
                 raise ValueError("The report preview could not be opened.")

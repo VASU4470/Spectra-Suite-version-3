@@ -140,6 +140,19 @@ class ExportUITests(unittest.TestCase):
         dialog.report_page.setCurrentIndex(1)
         self.assertFalse(dialog.preview.pixmap().isNull())
 
+    def test_pdf_preview_allows_replacement_and_cleanup_while_document_exists(self):
+        from PySide6.QtCore import QSize
+        dialog = BatchExportDialog([sample_item()])
+        dialog.show(); self.app.processEvents(); dialog.preview_report()
+        folder = Path(dialog._temporary.name)
+        path = folder / "report.pdf"
+        path.unlink()  # Windows rejects this if Qt still holds a file handle.
+        self.assertFalse(dialog.pdf.render(0, QSize(200, 280)).isNull())
+        dialog.preview_report()
+        self.assertEqual(dialog.pdf.pageCount(), 2)
+        dialog.reject()
+        self.assertFalse(folder.exists())
+
     def test_spectra_export_preserves_live_selection_data_and_processing(self):
         dashboard = WelcomeDashboard(); workspace = next(w for w in WORKSPACES if w.key == "libs")
         x = np.linspace(300, 320, 101); y = np.sin(x) + 10

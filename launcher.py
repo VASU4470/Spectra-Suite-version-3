@@ -153,13 +153,13 @@ def startup_smoke_test() -> int:
         if failures or len(datasets) != 1 or datasets[0].y.tolist() != [2, 5, 3]:
             raise RuntimeError("LIBS ZIP spectrum import failed")
         from report_export import ExportItem, save_pdf_report
-        from PySide6.QtPdf import QPdfDocument
+        from qt_pdf_preview import PdfPreviewDocument
         from PySide6.QtCore import QSize
         report = save_pdf_report([ExportItem("Smoke-test spectrum", lambda: figure,
                                   results=["Synthetic test peak: X=2, Y=5"],
                                   settings={"smoothing": 0})], Path(folder) / "report.pdf")
-        document = QPdfDocument()
-        document.load(str(report))
+        document = PdfPreviewDocument()
+        document.load_path(report)
         if document.pageCount() < 2 or document.render(0, QSize(200, 280)).isNull():
             raise RuntimeError("PDF report generation or preview failed")
         document.close()

@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased — export center, image digitizing and spectroscopy previews
+## 3.3.0 — export center, image digitizing and spectroscopy previews
+
+- Publish as test release `v3.3.0-rc.1` with the new version visible in the app.
+- Fix Windows PDF preview file locking with an owned in-memory document buffer.
+- Add a VS Code F5 configuration targeting the current desktop launcher.
+- Require all platform tests, installer checks, source provenance and asset
+  checksums before publishing installer releases; preserve earlier release tags.
 
 - Explicitly bundle PDF/SVG renderers and exercise real figure export in the
   installed-application smoke check; reproduced the former missing-PDF-backend failure.
