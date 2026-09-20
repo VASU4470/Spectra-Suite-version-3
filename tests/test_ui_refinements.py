@@ -12,7 +12,7 @@ from unittest.mock import patch
 from PySide6.QtCore import QMimeData, QPoint, QPointF, QSettings, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtNetwork import QNetworkReply
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QToolButton
 
 from launcher import WelcomeDashboard, WORKSPACES
 from qt_updates import UpdateController, PrivacyPreferencesDialog
@@ -116,6 +116,9 @@ class RefinementGuiTests(unittest.TestCase):
                 plotter.splitter.setSizes([255, 640, 290]); self.app.processEvents()
                 before = plotter.splitter.sizes()[0]
                 self.assertLessEqual(plotter.data_tools.height(), 34)
+                extension = plotter.data_tools.findChild(QToolButton, "qt_toolbar_ext_button")
+                if extension.isVisible():
+                    self.assertLessEqual(extension.geometry().right(), plotter.data_tools.width() + 1)
                 self.assertLessEqual(plotter.data_panel.minimumSizeHint().width(), 270)
                 plotter.data_toggle.click(); self.app.processEvents()
                 self.assertTrue(plotter.data_panel.isHidden())
