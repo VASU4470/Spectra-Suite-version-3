@@ -22,7 +22,7 @@ from qt_import_support import install_import_support
 from column_math import FormulaError, evaluate_column_formula
 from fluid_reader import read_tecplot
 from qt_general_plotter import DataTable, parse_axis_limits, read_table
-from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_widgets import ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton, compact_action_bar
 
 
@@ -48,7 +48,7 @@ class Plot3D(QWidget):
         super().__init__()
         self.setWindowTitle("SpectraSuite 3D Plotter")
         self.resize(1500, 900); self.setMinimumSize(1050, 700)
-        self.setStyleSheet(LIGHT_STYLE); apply_window_icon(self, "PLOT3D")
+        apply_theme(self, LIGHT_STYLE); apply_window_icon(self, "PLOT3D")
         self._loading = False; self.loaded_files = []; self.layers = []
         self._build_ui(); self._set_dataframe(pd.DataFrame({"X": [""] * 25, "Y": [""] * 25, "Z": [""] * 25}))
         self.digitized_sources = {}

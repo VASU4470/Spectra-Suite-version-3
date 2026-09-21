@@ -17,7 +17,7 @@ from uvvis_analysis import (
     correct_absorption_baseline, fit_tauc, fit_urbach, signal_to_absorption,
     spectral_axis_to_energy, suggest_tauc_range,
 )
-from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 
 
@@ -32,7 +32,7 @@ class UVVisAnalysisDialog(QDialog):
         self.last_results = None
         self.setWindowTitle(f"UV-Vis advanced analysis — {sample_name}")
         self.resize(1050, 760)
-        self.setStyleSheet(LIGHT_STYLE)
+        apply_theme(self, LIGHT_STYLE)
         apply_window_icon(self, "UVVIS")
         self._build_ui()
         if signal_kind:

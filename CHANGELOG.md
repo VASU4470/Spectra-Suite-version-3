@@ -1,3 +1,22 @@
+# Changelog
+
+## 3.4.0-rc.1 — Appearance and guided image digitizing
+
+- Add five light accent themes and two gradient themes from Home or View →
+  Appearance. Themes change application chrome without changing plot or export
+  colors.
+- Replace the oversized Home workspace cards with a compact four-column grid,
+  smaller icons and clear preview/coming-soon labels.
+- Add a step-by-step image-digitizer guide that distinguishes green calibration
+  markers from red extracted-data markers and rejects an invalid Y point placed
+  along the X axis.
+- Trace the connected curve nearest the clicked color sample instead of always
+  selecting the largest matching object in the image.
+- Widen export controls, rename the ambiguous crop option to "Trim empty outer
+  margins," and explain when it changes the requested output dimensions.
+- Publish as a test release so an installed 3.3.0-rc.2 build can exercise the
+  repaired update notification path.
+
 ## 3.3.0-rc.2 — Update discovery and compact interface
 
 - Added explicit stable/test update channels and release-candidate version ordering.
@@ -6,8 +25,6 @@
 - Resizable panel dividers and collapse icons restore the previous width.
 - Made 2D/3D drop targets discoverable and tested file import in embedded workspaces.
 - Earlier builds require one manual installation to receive the repaired checker.
-
-# Changelog
 
 ## 3.3.0 — export center, image digitizing and spectroscopy previews
 

@@ -40,7 +40,7 @@ from dataset_reader import discover_many
 from dataset_reader import SpectrumDataset
 from qt_import_support import install_import_support
 from qt_plot_viewer import PlotViewer
-from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_theme import AppearanceDialog, LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_updates import (
     PrivacyPreferencesDialog,
     UpdateController,
@@ -668,7 +668,7 @@ class SpectraSuiteWindow(QMainWindow):
         self.setWindowTitle(f"SpectraSuite {APP_VERSION}")
         self.resize(1500, 900)
         self.setMinimumSize(1050, 680)
-        self.setStyleSheet(SHELL_STYLE)
+        apply_theme(self, SHELL_STYLE)
         apply_window_icon(self)
         self._build_ui()
         self._build_menu()
@@ -759,6 +759,10 @@ class SpectraSuiteWindow(QMainWindow):
         digitize = QPushButton("Image to data…")
         digitize.clicked.connect(self.open_digitizer)
         actions.addWidget(digitize)
+        appearance = QPushButton("Appearance…")
+        appearance.setToolTip("Choose a light accent or gradient theme")
+        appearance.clicked.connect(self._show_appearance)
+        actions.addWidget(appearance)
         actions.addStretch()
         self.email_updates_button = QPushButton("Get update emails…")
         self.email_updates_button.setToolTip(
@@ -770,34 +774,42 @@ class SpectraSuiteWindow(QMainWindow):
         outer.addWidget(hero)
 
         grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(14)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
+        grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         for index, workspace in enumerate(self.workspaces):
             button = QPushButton()
             button.setObjectName("workspaceTile")
             button.setProperty("comingSoon", workspace.coming_soon)
             title_text = workspace.title.replace("\n", " ")
-            status = " · Coming soon" if workspace.coming_soon else " · Preview" if workspace.experimental else ""
-            button.setText(title_text + status)
-            button.setToolTip("Coming soon" if workspace.coming_soon else f"Open {title_text}")
+            display_title = "Multi-X / Multi-Y" if workspace.key == "multiaxis" else title_text
+            status = "Coming soon" if workspace.coming_soon else "Preview" if workspace.experimental else ""
+            button.setText(display_title + (f"\n{status}" if status else ""))
+            button.setAccessibleName(title_text)
+            button.setToolTip(
+                f"{title_text}\n{status}" if status else f"Open {title_text}"
+            )
             icon_path = self.resource_path(workspace.icon)
             if icon_path.exists():
                 button.setIcon(QIcon(str(icon_path)))
-                button.setIconSize(QSize(26, 26))
-            button.setFixedHeight(54)
+                button.setIconSize(QSize(28, 28))
+            button.setFixedSize(235, 64)
             button.setEnabled(not workspace.coming_soon)
             button.clicked.connect(
                 lambda _checked=False, selected=workspace: self.launch_workspace(selected)
             )
             self._buttons[workspace.key] = button
-            grid.addWidget(button, index // 3, index % 3)
-        grid.setRowStretch((len(self.workspaces) + 2) // 3, 1)
+            grid.addWidget(button, index // 4, index % 4)
         workspace_panel = QWidget()
         workspace_panel.setLayout(grid)
+        workspace_panel.setMaximumWidth(990)
         workspace_scroll = QScrollArea()
         workspace_scroll.setWidgetResizable(True)
         workspace_scroll.setFrameShape(QFrame.Shape.NoFrame)
         workspace_scroll.setWidget(workspace_panel)
+        workspace_scroll.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter
+        )
         outer.addWidget(workspace_scroll, 1)
         footer = QLabel(f"SpectraSuite {RELEASE_TAG.removeprefix('v')} · One project window")
         footer.setObjectName("homeSubtitle")
@@ -833,6 +845,8 @@ class SpectraSuiteWindow(QMainWindow):
         self.home_action = QAction("Show &Home", self)
         self.home_action.setShortcut(QKeySequence("Ctrl+Shift+H"))
         self.home_action.triggered.connect(self.show_home)
+        self.appearance_action = QAction("&Appearance…", self)
+        self.appearance_action.triggered.connect(self._show_appearance)
 
         self.edition_action = QAction("Community edition · Offline-ready", self)
         self.edition_action.setEnabled(False)
@@ -859,7 +873,7 @@ class SpectraSuiteWindow(QMainWindow):
                 self.new_analysis_action, self.open_session_action, self.digitize_action, None,
                 self.close_analysis_action, None, self.quit_action,
             ],
-            "View": [self.home_action],
+            "View": [self.home_action, None, self.appearance_action],
             "Account": [
                 self.edition_action, None, self.email_updates_action,
                 self.privacy_preferences_action, None,
@@ -898,6 +912,9 @@ class SpectraSuiteWindow(QMainWindow):
             "licenses if a paid edition is introduced later. No user or installation "
             "identifier is currently collected.",
         )
+
+    def _show_appearance(self):
+        AppearanceDialog(self).exec()
 
     def _open_update_signup(self):
         open_update_signup(self)

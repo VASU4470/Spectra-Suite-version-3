@@ -20,7 +20,7 @@ from fluid_reader import TecplotField, aligned_difference, read_tecplot
 from qt_export import export_figure_dialog
 from report_export import ExportItem
 from qt_import_support import install_import_support, open_curve_in_2d
-from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 
 
@@ -35,7 +35,7 @@ class FluidPlotter(QWidget):
         super().__init__()
         self.setWindowTitle("SpectraSuite Fluid Dynamics Plotter")
         self.resize(1550, 900); self.setMinimumSize(800, 550)
-        self.setStyleSheet(LIGHT_STYLE); apply_window_icon(self, "FLUID")
+        apply_theme(self, LIGHT_STYLE); apply_window_icon(self, "FLUID")
         self.fields: list[TecplotField] = []
         self.digitized_curves = []
         self._build_ui()

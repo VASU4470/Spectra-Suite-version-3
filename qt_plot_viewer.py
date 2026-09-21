@@ -70,7 +70,7 @@ from qt_general_plotter import DataTable
 from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
-from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_updates import (
     PrivacyPreferencesDialog,
     UpdateController,
@@ -183,7 +183,7 @@ class TextAnnotationDialog(QDialog):
         self.setWindowTitle("Text Annotation")
         self.resize(820, 800)
         self.setMinimumSize(660, 600)
-        self.setStyleSheet(STYLE)
+        apply_theme(self, STYLE)
         apply_window_icon(self, state.technique)
         self._build_ui(text, color, fontsize, bold, italic, family, underline)
 
@@ -350,7 +350,7 @@ class ExportOptionsDialog(QDialog):
         self.setWindowTitle("Export Options")
         self.setMinimumWidth(430)
         self.resize(460, 330)
-        self.setStyleSheet(STYLE)
+        apply_theme(self, STYLE)
         apply_window_icon(self, state.technique)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Select items to export:"))
@@ -416,7 +416,7 @@ class PlotViewer(QDialog):
         self.setWindowTitle(title)
         self.resize(1450, 850)
         self.setMinimumSize(1000, 650)
-        self.setStyleSheet(STYLE)
+        apply_theme(self, STYLE)
 
         apply_window_icon(self, state.technique)
 

@@ -22,7 +22,7 @@ from qt_export import export_figure_dialog
 from report_export import ExportItem
 from qt_import_support import install_import_support
 from qt_general_plotter import DataTable, read_table
-from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
 
 
@@ -37,7 +37,7 @@ class MultiAxisPlotter(QWidget):
         self.setWindowTitle("SpectraSuite Multi-X / Multi-Y Plotter")
         self.resize(1550, 900)
         self.setMinimumSize(1100, 700)
-        self.setStyleSheet(LIGHT_STYLE)
+        apply_theme(self, LIGHT_STYLE)
         apply_window_icon(self, "MULTIAXIS")
         self.loaded_files = []
         self._loading = False

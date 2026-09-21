@@ -1,8 +1,9 @@
-# SpectraSuite 3.3.0 release preparation
+# SpectraSuite 3.4.0 release preparation
 
-Version 3.3.0 includes the export center, image digitizer and plotting/import
-updates. It is published as the clearly labeled test release `v3.3.0-rc.2`.
-The earlier `v3.2.0-rc.1` test release and `v3.1.0` release remain immutable.
+Version 3.4.0 improves appearance, image-digitizer guidance, connected-curve
+tracing and export-control clarity. It is published as the clearly labeled test
+release `v3.4.0-rc.1`. Earlier release tags remain immutable. This release is
+also the end-to-end update-notification target for installed 3.3.0-rc.2 builds.
 
 The publication workflow on main requires six successful cross-platform test
 jobs and four successful installer jobs for the same source commit. It checks

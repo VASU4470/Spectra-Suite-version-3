@@ -24,7 +24,7 @@ from column_math import FormulaError, evaluate_column_formula
 from qt_export import export_figure_dialog
 from report_export import ExportItem
 from qt_import_support import install_import_support, open_curve_in_2d
-from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_widgets import (
     AnnotationToolBar, ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton, compact_action_bar,
 )
@@ -244,7 +244,7 @@ class GeneralPlotter(QWidget):
         self.setWindowTitle("SpectraSuite General 2D Plotter")
         self.resize(1500, 900)
         self.setMinimumSize(1050, 680)
-        self.setStyleSheet(STYLE)
+        apply_theme(self, STYLE)
         apply_window_icon(self, "GENERAL")
         self.loaded_files, self.series_styles = [], {}
         self.digitized_sources = {}

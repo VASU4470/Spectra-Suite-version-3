@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import re
 import sys
+import weakref
 from pathlib import Path
 
+from PySide6.QtCore import QSettings
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QVBoxLayout,
+)
 
 
 LIGHT_STYLE = """
@@ -296,3 +306,172 @@ def apply_window_icon(window, technique: str = "APP") -> None:
         app = QApplication.instance()
         if app is not None:
             app.setWindowIcon(icon)
+
+
+# Themes change only the interface chrome. Matplotlib curves, plot backgrounds,
+# and exported figures continue to use their own scientific/style settings.
+THEMES = {
+    "blue": {
+        "label": "Classic blue",
+        "accent": "#2563eb",
+        "strong": "#1d4ed8",
+        "soft": "#dbeafe",
+        "pale": "#eff6ff",
+        "gradient_end": None,
+    },
+    "teal": {
+        "label": "Laboratory teal",
+        "accent": "#0f766e",
+        "strong": "#115e59",
+        "soft": "#ccfbf1",
+        "pale": "#f0fdfa",
+        "gradient_end": None,
+    },
+    "plum": {
+        "label": "Plum",
+        "accent": "#7e22ce",
+        "strong": "#6b21a8",
+        "soft": "#f3e8ff",
+        "pale": "#faf5ff",
+        "gradient_end": None,
+    },
+    "rose": {
+        "label": "Rose",
+        "accent": "#be185d",
+        "strong": "#9d174d",
+        "soft": "#fce7f3",
+        "pale": "#fdf2f8",
+        "gradient_end": None,
+    },
+    "graphite": {
+        "label": "Graphite",
+        "accent": "#475569",
+        "strong": "#334155",
+        "soft": "#e2e8f0",
+        "pale": "#f8fafc",
+        "gradient_end": None,
+    },
+    "ocean": {
+        "label": "Ocean gradient",
+        "accent": "#0369a1",
+        "strong": "#075985",
+        "soft": "#cffafe",
+        "pale": "#ecfeff",
+        "gradient_end": "#0f766e",
+    },
+    "aurora": {
+        "label": "Aurora gradient",
+        "accent": "#7e22ce",
+        "strong": "#6b21a8",
+        "soft": "#f3e8ff",
+        "pale": "#faf5ff",
+        "gradient_end": "#be185d",
+    },
+}
+
+_ACTIVE_THEME = None
+_THEMED_WIDGETS = weakref.WeakKeyDictionary()
+
+
+def current_theme():
+    """Return the saved interface theme, falling back safely to classic blue."""
+    global _ACTIVE_THEME
+    if _ACTIVE_THEME is None:
+        saved = str(QSettings("SpectraSuite", "SpectraSuite").value(
+            "appearance/theme", "blue"
+        ))
+        _ACTIVE_THEME = saved if saved in THEMES else "blue"
+    return _ACTIVE_THEME
+
+
+def themed_stylesheet(base_style=LIGHT_STYLE, theme_key=None):
+    """Recolor one existing light stylesheet without touching plot artists."""
+    theme = THEMES[theme_key or current_theme()]
+    replacements = {
+        "#2563eb": theme["accent"],
+        "#1d4ed8": theme["strong"],
+        "#60a5fa": theme["accent"],
+        "#93b4ec": theme["accent"],
+        "#dbeafe": theme["soft"],
+        "#bfdbfe": theme["soft"],
+        "#eff6ff": theme["pale"],
+    }
+    result = re.sub(
+        r"#[0-9a-fA-F]{6}",
+        lambda match: replacements.get(match.group(0).lower(), match.group(0)),
+        base_style,
+    )
+    gradient_end = theme["gradient_end"]
+    if gradient_end:
+        gradient = (
+            "qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            f"stop:0 {theme['accent']},stop:1 {gradient_end})"
+        )
+        result += f"""
+QPushButton#primary, QPushButton#launch, QTabBar::tab:selected {{
+    background: {gradient}; color: #ffffff; border-color: {theme['strong']};
+}}
+QFrame#homeHero {{
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+        stop:0 #ffffff,stop:1 {theme['soft']});
+}}
+"""
+    return result
+
+
+def apply_theme(widget, base_style=LIGHT_STYLE):
+    """Apply and register a stylesheet so live theme changes reach this window."""
+    _THEMED_WIDGETS[widget] = base_style
+    widget.setStyleSheet(themed_stylesheet(base_style))
+
+
+def set_theme(theme_key, *, persist=True):
+    """Apply a theme immediately to every registered application window."""
+    global _ACTIVE_THEME
+    if theme_key not in THEMES:
+        raise ValueError(f"Unknown interface theme: {theme_key}")
+    _ACTIVE_THEME = theme_key
+    if persist:
+        QSettings("SpectraSuite", "SpectraSuite").setValue(
+            "appearance/theme", theme_key
+        )
+    for widget, base_style in list(_THEMED_WIDGETS.items()):
+        try:
+            widget.setStyleSheet(themed_stylesheet(base_style, theme_key))
+        except RuntimeError:
+            # The Qt object was destroyed before its Python wrapper disappeared.
+            _THEMED_WIDGETS.pop(widget, None)
+
+
+class AppearanceDialog(QDialog):
+    """Small live-preview selector for the light interface themes."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Appearance")
+        self.setMinimumWidth(380)
+        root = QVBoxLayout(self)
+        heading = QLabel("Interface theme")
+        heading.setStyleSheet("font-size:17px;font-weight:800;")
+        root.addWidget(heading)
+        note = QLabel(
+            "Choose a light accent or gradient. This changes application controls "
+            "only; spectrum colors and exported figures are unchanged."
+        )
+        note.setWordWrap(True)
+        root.addWidget(note)
+        self.theme_combo = QComboBox()
+        for key, theme in THEMES.items():
+            self.theme_combo.addItem(theme["label"], key)
+        self.theme_combo.setCurrentIndex(
+            self.theme_combo.findData(current_theme())
+        )
+        self.theme_combo.currentIndexChanged.connect(self._theme_selected)
+        root.addWidget(self.theme_combo)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+        apply_theme(self)
+
+    def _theme_selected(self, _index):
+        set_theme(self.theme_combo.currentData())

@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from config import state
 from dataset_reader import discover_many
 from readers import read_generic_configured
-from qt_theme import LIGHT_STYLE, apply_window_icon
+from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
 
 
 STYLE = LIGHT_STYLE + """
@@ -54,7 +54,7 @@ class SetupDialog(QDialog):
         self.setWindowTitle(technique_titles.get(state.technique, "SpectraSuite Data Setup"))
         self.resize(600, 680)
         self.setMinimumSize(520, 620)
-        self.setStyleSheet(STYLE)
+        apply_theme(self, STYLE)
 
         apply_window_icon(self, state.technique)
 
@@ -355,7 +355,7 @@ class ColumnPickerDialog(QDialog):
         self.setWindowTitle("Configure General Plotter Columns")
         self.resize(680, 650)
         self.setMinimumSize(580, 560)
-        self.setStyleSheet(STYLE)
+        apply_theme(self, STYLE)
         apply_window_icon(self, state.technique)
         self._build_ui()
         self.refresh_preview()
@@ -475,7 +475,7 @@ class DatasetSelectionDialog(QDialog):
         self.is_libs = state.technique == "LIBS"
         self.setWindowTitle(f"Select {state.technique} datasets to plot")
         self.resize(720, 560)
-        self.setStyleSheet(STYLE)
+        apply_theme(self, STYLE)
         apply_window_icon(self, state.technique)
         layout = QVBoxLayout(self)
         heading = QLabel(f"Found {len(self.datasets)} plottable dataset(s)")
@@ -644,7 +644,7 @@ class DatasetSelectionDialog(QDialog):
             return
         dialog = QDialog(self)
         dialog.setWindowTitle("Choose multi-dataset layout")
-        dialog.setStyleSheet(STYLE)
+        apply_theme(dialog, STYLE)
         mode_layout = QVBoxLayout(dialog)
         mode_layout.addWidget(QLabel(f"How should {total_count} datasets be plotted?"))
         buttons = []

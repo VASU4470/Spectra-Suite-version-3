@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from plot_export import figure_bytes, save_figure
 from report_export import ExportItem, export_batch, save_pdf_report
-from qt_theme import LIGHT_STYLE
+from qt_theme import LIGHT_STYLE, apply_theme
 from qt_pdf_preview import PdfPreviewDocument
 
 # Generic publication widths, rather than a claim of compliance with every journal.
@@ -31,6 +31,8 @@ class ExportControls(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.preset = QComboBox()
         for label, size in SIZE_PRESETS:
             self.preset.addItem(label, size)
@@ -39,8 +41,18 @@ class ExportControls(QWidget):
         self.height = self._dimension(figure.get_figheight() * 25.4)
         self.dpi = QComboBox(); self.dpi.addItems(["150", "300", "600", "1200"]); self.dpi.setCurrentText("300")
         self.transparent = QCheckBox("Transparent background")
-        self.tight = QCheckBox("Crop to content (changes final dimensions)")
+        self.tight = QCheckBox("Trim empty outer margins")
+        self.tight.setToolTip(
+            "Removes blank padding outside titles, axes and legends. This can make "
+            "the saved width and height smaller than the dimensions selected above."
+        )
         self.open_folder = QCheckBox("Open destination folder after export")
+        self.preset.setMinimumWidth(230)
+        self.format.setMinimumWidth(180)
+        self.format.view().setMinimumWidth(180)
+        self.dpi.setMinimumWidth(120)
+        for dimension in (self.width, self.height):
+            dimension.setMinimumWidth(180)
         for label, widget in (("Size preset", self.preset), ("Format", self.format),
                               ("Width", self.width), ("Height", self.height), ("DPI", self.dpi)):
             form.addRow(label, widget)
@@ -49,8 +61,15 @@ class ExportControls(QWidget):
         root.addWidget(save_preset)
         for control in (self.transparent, self.tight, self.open_folder):
             root.addWidget(control)
+        crop_help = QLabel(
+            "Trim empty outer margins: removes unused space around the graph. Leave "
+            "this off when the journal requires the exact width and height above."
+        )
+        crop_help.setWordWrap(True)
+        crop_help.setObjectName("mutedLabel")
+        root.addWidget(crop_help)
         note = QLabel("Column presets keep the current aspect ratio. Check your journal's required width. "
-                      "With cropping off, the exported canvas has the dimensions above. "
+                      "With margin trimming off, the exported canvas has the dimensions above. "
                       "PDF/SVG preserve vectors; DPI controls raster content.")
         note.setWordWrap(True); root.addWidget(note)
         self._load_presets()
@@ -126,12 +145,12 @@ class FigureExportDialog(QDialog):
         super().__init__(parent)
         self.figure = figure
         self.setWindowTitle("Save figure")
-        self.resize(930, 610); self.setMinimumSize(780, 540); self.setStyleSheet(LIGHT_STYLE)
+        self.resize(960, 640); self.setMinimumSize(840, 560); apply_theme(self, LIGHT_STYLE)
         root = QVBoxLayout(self)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.controls = ExportControls(figure)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(self.controls)
-        scroll.setMinimumWidth(310); self.splitter.addWidget(scroll)
+        scroll.setMinimumWidth(390); self.splitter.addWidget(scroll)
         # Keep the existing public option controls for callers and saved tests.
         for name in ("format", "width", "height", "dpi", "transparent", "tight", "open_folder", "preset"):
             setattr(self, name, getattr(self.controls, name))
@@ -142,7 +161,7 @@ class FigureExportDialog(QDialog):
         self.preview_layout.addWidget(self.preview, 1)
         self.preview_note = QLabel("Layout preview at screen resolution. Export uses the selected DPI.")
         self.preview_note.setWordWrap(True); self.preview_layout.addWidget(self.preview_note)
-        self.splitter.addWidget(panel); self.splitter.setSizes([340, 570])
+        self.splitter.addWidget(panel); self.splitter.setSizes([410, 550])
         root.addWidget(self.splitter, 1)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         advanced = self.buttons.addButton("Batch / PDF report…", QDialogButtonBox.ButtonRole.ActionRole)

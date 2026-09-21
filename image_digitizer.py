@@ -59,8 +59,13 @@ class DigitizedCurve:
     metadata: dict
 
 
-def color_trace(rgb, color, calibration, tolerance=35, step=3):
-    """Sample the largest connected color region, one center point per X bin."""
+def color_trace(rgb, color, calibration, tolerance=35, step=3, seed=None):
+    """Sample the clicked connected curve color, one center point per X bin.
+
+    When a seed pixel is supplied, the connected component under that click is
+    preferred. This prevents black axes, labels, or borders from winning simply
+    because they contain more pixels than the intended black curve.
+    """
     rgb = np.asarray(rgb, dtype=np.uint8)
     distance = np.max(np.abs(rgb.astype(np.int16) - np.asarray(color, dtype=np.int16)), axis=2)
     mask = distance <= tolerance
@@ -74,7 +79,19 @@ def color_trace(rgb, color, calibration, tolerance=35, step=3):
     if not count:
         raise ValueError("No matching curve inside the calibrated plot area.")
     sizes = np.bincount(components.ravel()); sizes[0] = 0
-    yy, xx = np.nonzero(components == np.argmax(sizes))
+    component = 0
+    if seed is not None:
+        sx, sy = np.rint(np.asarray(seed, dtype=float)).astype(int)
+        if 0 <= sy < components.shape[0] and 0 <= sx < components.shape[1]:
+            component = int(components[sy, sx])
+        if not component:
+            matching_y, matching_x = np.nonzero(components)
+            if len(matching_x):
+                nearest = np.argmin((matching_x - sx) ** 2 + (matching_y - sy) ** 2)
+                component = int(components[matching_y[nearest], matching_x[nearest]])
+    if not component:
+        component = int(np.argmax(sizes))
+    yy, xx = np.nonzero(components == component)
     if len(xx) < 3:
         raise ValueError("The selected color does not form a continuous curve.")
     uv = calibration.fractions(np.column_stack((xx, yy)))
