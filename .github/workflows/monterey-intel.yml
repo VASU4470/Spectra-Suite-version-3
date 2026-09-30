@@ -36,6 +36,9 @@ jobs:
           python -m compileall -q .
           python -m pyflakes .
           python -m unittest discover -s tests -v
+      - name: Record exact source commit
+        shell: bash
+        run: echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - name: Build and smoke-test Monterey candidate
         env:
           MACOSX_DEPLOYMENT_TARGET: "12.0"
