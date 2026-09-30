@@ -1,0 +1,52 @@
+name: Monterey Intel compatibility candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monterey-intel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS Monterey 12 Intel candidate
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install build and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-macos-monterey.txt pyflakes
+      - name: Verify source and scientific/GUI regressions
+        env:
+          QT_QPA_PLATFORM: offscreen
+          MPLBACKEND: QtAgg
+          SPECTRASUITE_DISABLE_UPDATE_CHECK: "1"
+        run: |
+          python -m compileall -q .
+          python -m pyflakes .
+          python -m unittest discover -s tests -v
+      - name: Build and smoke-test Monterey candidate
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
+          QT_QPA_PLATFORM: offscreen
+          MPLBACKEND: QtAgg
+          SPECTRASUITE_DISABLE_UPDATE_CHECK: "1"
+        run: python packaging/build_monterey_installer.py
+      - name: Preserve Monterey installer candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpectraSuite-macOS-Intel-Monterey-candidate
+          path: release-dist/*
+          if-no-files-found: error
+          retention-days: 30
