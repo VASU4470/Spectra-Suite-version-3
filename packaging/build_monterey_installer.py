@@ -33,9 +33,9 @@ def main() -> None:
     names = {
         f"SpectraSuite-{version}-macos-x86_64-unsigned.dmg":
             f"SpectraSuite-{version}-macos-x86_64-monterey-unsigned.dmg",
-        "build-macos-x86_64.json": "build-macos-x86_64-monterey.json",
-        "dependencies-macos-x86_64.txt": "dependencies-macos-x86_64-monterey.txt",
-        "SHA256SUMS-macos-x86_64.txt": "SHA256SUMS-macos-x86_64-monterey.txt",
+        "build-darwin-x86_64.json": "build-macos-x86_64-monterey.json",
+        "dependencies-darwin-x86_64.txt": "dependencies-macos-x86_64-monterey.txt",
+        "SHA256SUMS-darwin-x86_64.txt": "SHA256SUMS-macos-x86_64-monterey.txt",
     }
     for source_name, target_name in names.items():
         source = OUTPUT / source_name
