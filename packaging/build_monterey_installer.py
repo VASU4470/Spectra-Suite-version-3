@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import platform
+import runpy
 import sys
 from pathlib import Path
 
@@ -28,7 +29,7 @@ def main() -> None:
 
     build_installers.main()
 
-    version = __import__("runpy").run_path(str(ROOT / "app_version.py"))["APP_VERSION"]
+    version = runpy.run_path(str(ROOT / "app_version.py"))["APP_VERSION"]
     names = {
         f"SpectraSuite-{version}-macos-x86_64-unsigned.dmg":
             f"SpectraSuite-{version}-macos-x86_64-monterey-unsigned.dmg",
@@ -45,7 +46,7 @@ def main() -> None:
     manifest_path = OUTPUT / "build-macos-x86_64-monterey.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest.update({
-        "minimum_macos": "12.0",
+        "target_macos": "12.0",
         "build_flavor": "monterey-intel-compatibility-candidate",
         "qt_version": QtCore.qVersion(),
         "distribution_status": "installer-candidate",
@@ -56,7 +57,8 @@ def main() -> None:
     entries = []
     for artifact in sorted(OUTPUT.iterdir()):
         if artifact.is_file() and artifact != checksum_path:
-            digest = hashlib.file_digest(artifact.open("rb"), "sha256").hexdigest()
+            with artifact.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
             entries.append(f"{digest}  {artifact.name}")
     checksum_path.write_text("\n".join(entries) + "\n", encoding="utf-8")
 
