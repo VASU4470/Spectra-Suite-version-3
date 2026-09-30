@@ -2,6 +2,9 @@ name: Monterey Intel compatibility candidate
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/macos-monterey-intel-candidate
 
 permissions:
   contents: read
