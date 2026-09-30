@@ -1,33 +1,37 @@
-# macOS Monterey Intel compatibility candidate
+# macOS Monterey Intel compatibility test
 
 The regular Intel installer currently contains a Qt runtime that requires
 macOS 13 or later. This separate candidate pins PySide6/Qt 6.7.0 and sets
 `MACOSX_DEPLOYMENT_TARGET=12.0` so it can be evaluated on Monterey 12 without
 changing the standard Intel, Apple Silicon, Windows, or Linux installer builds.
 
-## Build
+## Build and test prerelease
 
-Run **Monterey Intel compatibility candidate** manually from GitHub Actions.
-It runs the source test suite on an Intel macOS runner and uploads a separate
-candidate artifact. The regular release publisher does not consume this
-artifact, and the workflow does not create or replace a GitHub Release or tag.
+The dedicated **Monterey Intel compatibility test release** workflow builds on
+an Intel macOS runner, runs the source tests, smoke-tests the packaged app, and
+publishes an unsigned prerelease containing the Monterey DMG, build manifest,
+dependency list, and SHA-256 checksums. The separate artifact is not included in
+the regular four-platform release publisher.
 
 The DMG is named
 `SpectraSuite-3.4.0-macos-x86_64-monterey-unsigned.dmg` (the version comes
-from `app_version.py`). The artifact also includes a build manifest,
-dependency list, and SHA-256 checksums.
+from `app_version.py`). The test release uses a non-version tag, which the
+SpectraSuite in-app version checker ignores.
 
 ## Required real-Mac acceptance
 
-Before publishing a special Monterey release, install the DMG on the Intel Mac
-running Monterey 12.0.1 and verify:
+The CI runner is Intel macOS 15. It does not emulate Monterey, so a successful
+workflow run alone does not establish Monterey compatibility. Install the
+prerelease on the Intel Mac running Monterey 12.0.1 and verify:
 
 1. Copy SpectraSuite to Applications and launch it successfully.
 2. Open Home, import a small CSV, plot it, and close/reopen an analysis.
 3. Export a plot to PNG and PDF.
 4. Quit and relaunch the app; confirm it does not close during startup.
 
-This runner builds and smoke-tests the packaged app on Intel macOS 15. It does
-not emulate Monterey. A successful GitHub Actions run alone is not proof of
-Monterey runtime compatibility. Keep this artifact labeled as a candidate
-until the real-Mac checks pass. It remains unsigned and not notarized.
+This is a test prerelease for the specified Monterey machine. It is unsigned and
+not notarized; macOS may show the standard developer-verification prompt. Do
+not describe Monterey as supported until the real-Mac checks pass. If they pass,
+keep this Monterey-specific prerelease available and document the tested model
+and macOS version. If they fail, use the captured error to revise the packaging
+before issuing a replacement candidate.
