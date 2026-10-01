@@ -101,11 +101,11 @@ class UpdateTests(unittest.TestCase):
         from unittest.mock import patch
 
         with patch("qt_update_installer.sys.platform", "darwin"), patch(
-            "qt_update_installer.os.getxattr", side_effect=OSError("attribute missing")
+            "qt_update_installer.os.getxattr", side_effect=OSError("attribute missing"), create=True
         ):
             self.assertFalse(_preserve_platform_download_warning("update.pkg"))
         with patch("qt_update_installer.sys.platform", "darwin"), patch(
-            "qt_update_installer.os.getxattr", return_value=b"quarantine metadata"
+            "qt_update_installer.os.getxattr", return_value=b"quarantine metadata", create=True
         ):
             self.assertTrue(_preserve_platform_download_warning("update.pkg"))
 
