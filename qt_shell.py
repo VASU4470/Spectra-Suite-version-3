@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 13357)
-Total output lines: 1239
-
 """Persistent single-window shell for SpectraSuite workspaces."""
 
 from __future__ import annotations
@@ -491,7 +488,299 @@ class InlineImportPage(QWidget):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Unchecked if self.technique == "LIBS"
                                else Qt.CheckState.Checked)
-    …3357 tokens truncated…" ")
+            self.dataset_list.addItem(item)
+        self.dataset_list.blockSignals(False)
+
+        self.reference_combo.blockSignals(True)
+        self.reference_combo.clear()
+        self.reference_combo.addItem("None", -1)
+        for index, dataset in enumerate(self.datasets):
+            self.reference_combo.addItem(dataset.name, index)
+        candidate = -1
+        if self.technique in {"UVVIS", "RAMAN"}:
+            words = ("baseline", "background", "blank", "reference", "dark", "substrate")
+            candidate = next(
+                (index for index, item in enumerate(self.datasets)
+                 if any(word in item.name.casefold() for word in words)),
+                -1,
+            )
+        self.reference_combo.setCurrentIndex(candidate + 1)
+        self.reference_combo.blockSignals(False)
+        self._last_reference = -1
+        if candidate >= 0:
+            self.dataset_list.item(candidate).setCheckState(Qt.CheckState.Unchecked)
+            self._last_reference = candidate
+        self.review_group.show()
+        self.open_button.setEnabled(True)
+        self._update_selection_summary()
+        if self.technique == "LIBS":
+            self._filter_datasets(self.dataset_search.text())
+
+    def _filter_datasets(self, text):
+        text = text.casefold().strip()
+        first = -1
+        for index, dataset in enumerate(self.datasets):
+            item = self.dataset_list.item(index)
+            visible = text in (dataset.name + " " + dataset.source).casefold()
+            item.setHidden(not visible)
+            if visible and first < 0:
+                first = index
+        self.dataset_list.setCurrentRow(first)
+        self._preview_dataset(first)
+        self._update_selection_summary()
+
+    def _check_visible_datasets(self, checked):
+        self.dataset_list.blockSignals(True)
+        reference = self.reference_combo.currentData()
+        for index in range(self.dataset_list.count()):
+            item = self.dataset_list.item(index)
+            if not checked or not item.isHidden():
+                item.setCheckState(Qt.CheckState.Checked if checked and index != reference
+                                   else Qt.CheckState.Unchecked)
+        self.dataset_list.blockSignals(False)
+        self._update_selection_summary()
+
+    def _preview_dataset(self, index):
+        if not hasattr(self, "preview_figure"):
+            return
+        self.preview_figure.clear()
+        # Figure.clear resets subplot margins; keep labels inside the small canvas.
+        self.preview_figure.subplots_adjust(left=.20, right=.97, bottom=.30, top=.95)
+        if 0 <= index < len(self.datasets):
+            dataset = self.datasets[index]
+            ax = self.preview_figure.add_subplot()
+            ax.plot(dataset.x, dataset.y, color="#0284c7", linewidth=.8)
+            ax.set_xlabel("Wavelength (nm)", fontsize=8)
+            ax.set_ylabel("Intensity (a.u.)", fontsize=8)
+            ax.tick_params(labelsize=7)
+            self.preview_info.setText(
+                f"{len(dataset.x):,} points · "
+                f"{float(np.min(dataset.x)):.3f}–{float(np.max(dataset.x)):.3f} nm")
+            self.preview_info.setToolTip(dataset.source)
+        else:
+            self.preview_info.setText("Click a spectrum in the list to preview its raw signal.")
+            self.preview_info.setToolTip("")
+        self.preview_canvas.draw_idle()
+
+    def _reference_changed(self):
+        current = int(self.reference_combo.currentData())
+        if self.technique != "LIBS" and 0 <= self._last_reference < self.dataset_list.count():
+            self.dataset_list.item(self._last_reference).setCheckState(Qt.CheckState.Checked)
+        if 0 <= current < self.dataset_list.count():
+            self.dataset_list.item(current).setCheckState(Qt.CheckState.Unchecked)
+        self._last_reference = current
+        self._update_selection_summary()
+
+    def _selected_datasets(self):
+        reference = int(self.reference_combo.currentData()) if self.reference_combo.count() else -1
+        return [
+            dataset for index, dataset in enumerate(self.datasets)
+            if index != reference
+            and self.dataset_list.item(index).checkState() == Qt.CheckState.Checked
+        ]
+
+    def _update_selection_summary(self, *_args):
+        count = len(self._selected_datasets()) if self.dataset_list.count() else 0
+        failed = f" · {len(self.failures)} file(s) skipped" if self.failures else ""
+        self.discovery_status.setText(
+            f"Found {len(self.datasets)} dataset(s); {count} selected{failed}."
+            + (f" {sum(not self.dataset_list.item(i).isHidden() for i in range(self.dataset_list.count()))} visible."
+               if self.technique == "LIBS" else "")
+        )
+        self.open_button.setEnabled(count > 0)
+
+    def open_ready(self):
+        """Open parsed data from the fixed import footer."""
+        if len(self.datasets) == 1 and self.dataset_list.count() == 0:
+            self._emit_payload(self.datasets, None)
+        else:
+            self.open_selected()
+
+    def open_selected(self):
+        selected = self._selected_datasets()
+        if not selected:
+            QMessageBox.information(self, "Choose data", "Select at least one sample dataset.")
+            return
+        reference_index = int(self.reference_combo.currentData())
+        reference = self.datasets[reference_index] if reference_index >= 0 else None
+        self._emit_payload(selected, reference)
+
+    def _emit_payload(self, datasets, reference):
+        mode = "individual" if len(datasets) == 1 else self.mode_combo.currentData()
+        self.analysisReady.emit({
+            "workspace": self.workspace,
+            "datasets": list(datasets),
+            "reference": reference,
+            "mode": mode,
+            "smooth": self.smoothing.value(),
+            "files": list(self.paths),
+            "digitization": dict(self.image_metadata),
+        })
+
+    def import_digitized(self, curve):
+        name = curve.name
+        while name in {item.name for item in self.datasets}:
+            name += " (image)"
+        dataset = SpectrumDataset(name, curve.x, curve.y, "Image: " + curve.metadata["source_image"])
+        self.image_metadata[name] = curve.metadata
+        self.image_datasets.append(dataset)
+        if not self.datasets:
+            self.datasets = [dataset]
+            self._emit_payload([dataset], None)
+            return
+        selected = {item.name for item in self._selected_datasets()} if self.dataset_list.count() else set()
+        reference = self.reference_combo.currentData()
+        self.datasets.append(dataset); self._populate_dataset_review()
+        reference = int(reference) if reference is not None else -1
+        self.reference_combo.blockSignals(True)
+        self.reference_combo.setCurrentIndex(reference + 1)
+        self.reference_combo.blockSignals(False)
+        self._last_reference = reference
+        self.dataset_list.blockSignals(True)
+        for index, item in enumerate(self.datasets):
+            self.dataset_list.item(index).setCheckState(Qt.CheckState.Checked if item.name in selected | {name} else Qt.CheckState.Unchecked)
+        self.dataset_list.blockSignals(False); self._update_selection_summary()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        if paths:
+            self.add_paths(paths)
+            event.acceptProposedAction()
+
+
+class SpectraSuiteWindow(QMainWindow):
+    """One persistent window containing Home, Import and analysis documents."""
+
+    def __init__(self, workspaces, resource_path, parent=None):
+        super().__init__(parent)
+        self.workspaces = tuple(workspaces)
+        self.resource_path = resource_path
+        self._buttons = {}
+        self._document_states: dict[QWidget, dict] = {}
+        self._active_state_widget = None
+        self._skip_close_prompt = False
+        self.setObjectName("spectraSuiteWindow")
+        self.setWindowTitle(f"SpectraSuite {APP_VERSION}")
+        self.resize(1500, 900)
+        self.setMinimumSize(1050, 680)
+        apply_theme(self, SHELL_STYLE)
+        apply_window_icon(self)
+        self._build_ui()
+        self._build_menu()
+        self.update_controller = UpdateController(
+            self, update_handler=self._show_update_banner
+        )
+        self._sync_update_menu()
+        self.update_controller.schedule_automatic_check()
+
+    def _build_ui(self):
+        self.shell_central = QWidget()
+        central_layout = QVBoxLayout(self.shell_central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+
+        self.update_banner = QFrame()
+        self.update_banner.setObjectName("updateBanner")
+        banner_layout = QHBoxLayout(self.update_banner)
+        banner_layout.setContentsMargins(14, 8, 10, 8)
+        banner_layout.setSpacing(10)
+        badge = QLabel("UPDATE")
+        badge.setObjectName("updateBannerBadge")
+        banner_layout.addWidget(badge)
+        banner_text = QWidget()
+        banner_text_layout = QVBoxLayout(banner_text)
+        banner_text_layout.setContentsMargins(0, 0, 0, 0)
+        banner_text_layout.setSpacing(1)
+        self.update_banner_title = QLabel()
+        self.update_banner_title.setObjectName("updateBannerTitle")
+        self.update_banner_note = QLabel()
+        self.update_banner_note.setObjectName("updateBannerNote")
+        self.update_banner_note.setWordWrap(True)
+        banner_text_layout.addWidget(self.update_banner_title)
+        banner_text_layout.addWidget(self.update_banner_note)
+        banner_layout.addWidget(banner_text, 1)
+        self.update_download_button = QPushButton("Download update…")
+        self.update_download_button.clicked.connect(self._download_pending_update)
+        banner_layout.addWidget(self.update_download_button)
+        later = QPushButton("Later")
+        later.clicked.connect(self._dismiss_update_banner)
+        banner_layout.addWidget(later)
+        self.update_banner.hide()
+        central_layout.addWidget(self.update_banner)
+
+        self.document_tabs = QTabWidget()
+        self.document_tabs.setObjectName("documentTabs")
+        self.document_tabs.setDocumentMode(True)
+        self.document_tabs.setMovable(False)
+        self.document_tabs.setTabsClosable(True)
+        self.document_tabs.tabCloseRequested.connect(self.close_document)
+        self.document_tabs.currentChanged.connect(self._document_activated)
+        central_layout.addWidget(self.document_tabs, 1)
+        self.setCentralWidget(self.shell_central)
+
+        self.home_page = self._build_home_page()
+        self.document_tabs.addTab(self.home_page, "Home")
+        self._hide_home_close_button()
+        new_button = QPushButton("+ New analysis")
+        new_button.setToolTip("Return to Home and start another analysis")
+        new_button.clicked.connect(self.show_home)
+        self.document_tabs.setCornerWidget(new_button, Qt.Corner.TopRightCorner)
+
+    def _build_home_page(self):
+        page = QWidget()
+        page.setObjectName("homePage")
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(24, 20, 24, 20)
+        outer.setSpacing(18)
+
+        hero = QFrame()
+        hero.setObjectName("homeHero")
+        hero_layout = QVBoxLayout(hero)
+        hero_layout.setContentsMargins(20, 14, 20, 14)
+        title = QLabel("What would you like to analyse?")
+        title.setObjectName("homeTitle")
+        hero_layout.addWidget(title)
+        subtitle = QLabel(
+            "Open a workspace, drag in your data, and continue in this window. "
+            "Your open analyses remain available as tabs above."
+        )
+        subtitle.setObjectName("homeSubtitle")
+        subtitle.setWordWrap(True)
+        hero_layout.addWidget(subtitle)
+        actions = QHBoxLayout()
+        open_session = QPushButton("Open saved session…")
+        open_session.clicked.connect(self.open_session)
+        actions.addWidget(open_session)
+        digitize = QPushButton("Image to data…")
+        digitize.clicked.connect(self.open_digitizer)
+        actions.addWidget(digitize)
+        appearance = QPushButton("Appearance…")
+        appearance.setToolTip("Choose a light accent or gradient theme")
+        appearance.clicked.connect(self._show_appearance)
+        actions.addWidget(appearance)
+        actions.addStretch()
+        self.email_updates_button = QPushButton("Get update emails…")
+        self.email_updates_button.setToolTip(
+            "Open the optional SpectraSuite email-update form in your web browser"
+        )
+        self.email_updates_button.clicked.connect(self._open_update_signup)
+        actions.addWidget(self.email_updates_button)
+        hero_layout.addLayout(actions)
+        outer.addWidget(hero)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
+        grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        for index, workspace in enumerate(self.workspaces):
+            button = QPushButton()
+            button.setObjectName("workspaceTile")
+            button.setProperty("comingSoon", workspace.coming_soon)
+            title_text = workspace.title.replace("\n", " ")
             display_title = "Multi-X / Multi-Y" if workspace.key == "multiaxis" else title_text
             status = "Coming soon" if workspace.coming_soon else "Preview" if workspace.experimental else ""
             button.setText(display_title + (f"\n{status}" if status else ""))
