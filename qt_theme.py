@@ -320,7 +320,7 @@ THEMES = {
         "gradient_end": None,
     },
     "teal": {
-        "label": "Laboratory teal",
+        "label": "Spectra teal",
         "accent": "#0f766e",
         "strong": "#115e59",
         "soft": "#ccfbf1",
@@ -374,13 +374,13 @@ _THEMED_WIDGETS = weakref.WeakKeyDictionary()
 
 
 def current_theme():
-    """Return the saved interface theme, falling back safely to classic blue."""
+    """Return the saved interface theme, falling back safely to Spectra teal."""
     global _ACTIVE_THEME
     if _ACTIVE_THEME is None:
         saved = str(QSettings("SpectraSuite", "SpectraSuite").value(
-            "appearance/theme", "blue"
+            "appearance/theme", "teal"
         ))
-        _ACTIVE_THEME = saved if saved in THEMES else "blue"
+        _ACTIVE_THEME = saved if saved in THEMES else "teal"
     return _ACTIVE_THEME
 
 

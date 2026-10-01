@@ -1,9 +1,11 @@
-# SpectraSuite 3.4.0 release preparation
+# SpectraSuite 3.5.0 release preparation
 
-Version 3.4.0 improves appearance, image-digitizer guidance, connected-curve
-tracing and export-control clarity. It is published as the clearly labeled test
-release `v3.4.0-rc.1`. Earlier release tags remain immutable. This release is
-also the end-to-end update-notification target for installed 3.3.0-rc.2 builds.
+Version 3.5.0 adds a verified in-app download and installer handoff for future
+releases, recovery copies for supported desktop installers, a refreshed app
+icon and Spectra teal as the default interface accent. Publish it as the clearly
+labeled test release `v3.5.0-rc.1`; earlier release tags remain immutable.
+Users must manually install this version. Once installed, it can discover and
+install compatible future releases from inside the app.
 
 The publication workflow on main requires six successful cross-platform test
 jobs and four successful installer jobs for the same source commit. It checks
@@ -22,14 +24,20 @@ The **Installer candidates** GitHub Actions run stores one artifact per target:
 
 | Target | File | User action |
 | --- | --- | --- |
-| Windows x64 | unsigned setup .exe | Open setup; installs for the current user and adds a Start menu entry |
-| Apple Silicon Mac | unsigned arm64 .dmg | Open image and drag SpectraSuite to Applications |
-| Intel Mac | unsigned x86_64 .dmg | Open image and drag SpectraSuite to Applications |
+| Windows x64 | unsigned setup .exe | First install manually; later, download and start setup from the in-app update flow |
+| Apple Silicon Mac | unsigned arm64 .dmg | First install: open image and drag SpectraSuite to Applications |
+| Apple Silicon Mac | unsigned arm64 update .pkg | In-app update: open in macOS Installer; the package reopens SpectraSuite after installation |
+| Intel Mac | unsigned x86_64 .dmg | First install: open image and drag SpectraSuite to Applications |
+| Intel Mac | unsigned x86_64 update .pkg | In-app update: open in macOS Installer; the package reopens SpectraSuite after installation |
 | Ubuntu/Debian x64 | .deb | Open with the system package installer |
 
 Python, Git, and pip are not needed by end users. Linux may need system runtime
 packages installed by its package manager. These are candidate builds, not a
 claim of signed or notarized distribution. Do not disable OS security settings.
+The update dialog verifies the package checksum. On macOS, it opens the in-app
+download only when the operating system's quarantine marker is present; otherwise
+it directs the user to the browser download so Gatekeeper receives normal
+download provenance.
 
 Each artifact includes SHA-256 checksums, the tested source commit, architecture,
 and installed Python dependency versions. CI runs the source tests and starts the

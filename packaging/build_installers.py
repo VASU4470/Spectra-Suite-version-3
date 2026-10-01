@@ -97,6 +97,23 @@ def macos():
     finally:
         run(["hdiutil", "detach", mount])
 
+    # The DMG remains the guided first-install package. Updates use a native
+    # macOS Installer package so the user can approve a normal system install
+    # and the postinstall action can reopen the updated app.
+    package_root = ROOT / "build/pkg-root"
+    shutil.rmtree(package_root, ignore_errors=True)
+    app_destination = package_root / "Applications" / app.name
+    package_root.mkdir(parents=True, exist_ok=True)
+    run(["ditto", app, app_destination])
+    package = OUTPUT / f"SpectraSuite-{VERSION}-macos-{arch}-unsigned-update.pkg"
+    run(["pkgbuild", "--root", package_root,
+         "--identifier", "org.spectrasuite.desktop",
+         "--version", VERSION,
+         "--install-location", "/",
+         "--scripts", ROOT / "packaging/macos-pkg-scripts",
+         package])
+    run(["pkgutil", "--payload-files", package])
+
 
 def linux():
     smoke(ROOT / "dist/SpectraSuite/SpectraSuite")

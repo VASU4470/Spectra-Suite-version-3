@@ -146,9 +146,9 @@ class StartupTests(unittest.TestCase):
         self.assertTrue(dashboard.update_banner.isVisible())
         self.assertIn("SpectraSuite 3.2.0", dashboard.update_banner_title.text())
         self.assertIn("usability improvements", dashboard.update_banner_note.text())
-        with patch("qt_shell.open_release_page", return_value=True) as opener:
+        with patch.object(dashboard.update_controller, "download_update") as opener:
             dashboard.update_download_button.click()
-        opener.assert_called_once_with(release["url"], dashboard)
+        opener.assert_called_once_with(release)
         self.assertFalse(dashboard.update_banner.isVisible())
 
         dialog = PrivacyPreferencesDialog(dashboard.update_controller, dashboard)

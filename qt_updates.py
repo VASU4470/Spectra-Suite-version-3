@@ -30,6 +30,11 @@ from app_version import (
     UPDATE_SIGNUP_URL,
 )
 from update_logic import is_newer_release, select_release
+from qt_update_installer import (
+    SUPPORT_EMAIL,
+    UpdateDownloadDialog,
+    _latest_backup_directory,
+)
 
 
 def _open_https_page(value, parent, title, failure_message):
@@ -210,7 +215,8 @@ class UpdateController(QObject):
                 QMessageBox.information(
                     self.parent_window,
                     "Update check",
-                    "SpectraSuite could not reach GitHub. The application remains fully usable offline.",
+                    "SpectraSuite could not reach GitHub. The application remains fully usable offline.\n\n"
+                    f"Support: {SUPPORT_EMAIL}",
                 )
             elif self.automatic_runtime_enabled() and not self._retry_timer.isActive():
                 self._retry_timer.start()
@@ -222,7 +228,11 @@ class UpdateController(QObject):
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exception:
             self._status(f"Update check failed: {exception}")
             if not self._silent:
-                QMessageBox.warning(self.parent_window, "Update check", str(exception))
+                QMessageBox.warning(
+                    self.parent_window,
+                    "Update check",
+                    f"{exception}\n\nSupport: {SUPPORT_EMAIL}",
+                )
             return
         self.settings.setValue("updates/last_success_utc", datetime.now(timezone.utc).isoformat())
         self.settings.setValue("updates/last_check_identity", self._request_identity)
@@ -238,7 +248,7 @@ class UpdateController(QObject):
                 )
             return
         self.available_release = release
-        self._status(f"Update available: {release['tag']}. Open the download page to install it.")
+        self._status(f"Update available: {release['tag']}. Download and verify the installer.")
         self.present_update(release)
 
     def present_update(self, release):
@@ -255,10 +265,22 @@ class UpdateController(QObject):
             notes = notes[:1200].rstrip() + "…"
         box.setInformativeText(notes)
         open_button = box.addButton("Open download page", QMessageBox.ButtonRole.AcceptRole)
+        download_button = box.addButton("Download and install…", QMessageBox.ButtonRole.AcceptRole)
         box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
         box.exec()
         if box.clickedButton() == open_button:
             open_release_page(release["url"], self.parent_window)
+        elif box.clickedButton() == download_button:
+            self.download_update(release)
+
+    def download_update(self, release=None):
+        release = release or self.available_release
+        if not release:
+            return
+        dialog = UpdateDownloadDialog(
+            self.network, release, self.parent_window, open_page=open_release_page
+        )
+        dialog.exec()
 
 
 class PrivacyPreferencesDialog(QDialog):
@@ -299,7 +321,9 @@ class PrivacyPreferencesDialog(QDialog):
             "Checks at most once per 24 hours and sends only the normal HTTPS request "
             "information plus the SpectraSuite version. No installation identifier or "
             "scientific data is attached. If the app is temporarily offline, it retries "
-            "quietly while it remains open."
+            "quietly while it remains open. Update packages are checked against the "
+            "release SHA-256 file. Before opening a supported installer, SpectraSuite "
+            "keeps a copy of the current application so you can run that version if needed."
         )
         update_note.setWordWrap(True)
         updates_layout.addWidget(update_note)
@@ -310,11 +334,15 @@ class PrivacyPreferencesDialog(QDialog):
         self.update_status.setWordWrap(True)
         controller.status_changed.connect(self.update_status.setText)
         updates_layout.addWidget(self.update_status)
-        self.download_button = QPushButton("Open available release…")
+        self.download_button = QPushButton("Download and install update…")
         self.download_button.setVisible(False)
         controller.status_changed.connect(self._refresh_release)
-        self.download_button.clicked.connect(self._open_available_release)
+        self.download_button.clicked.connect(self._download_available_release)
         updates_layout.addWidget(self.download_button)
+        self.recovery_button = QPushButton("Show previous version backup")
+        self.recovery_button.clicked.connect(self._show_previous_version_backup)
+        updates_layout.addWidget(self.recovery_button)
+        self._refresh_recovery_backup()
         self._refresh_release()
         root.addWidget(updates)
 
@@ -347,9 +375,18 @@ class PrivacyPreferencesDialog(QDialog):
         self.available_release = getattr(self.controller, "available_release", None)
         self.download_button.setVisible(self.available_release is not None)
 
-    def _open_available_release(self):
+    def _download_available_release(self):
         if self.available_release:
-            open_release_page(self.available_release["url"], self)
+            self.controller.download_update(self.available_release)
+
+    def _refresh_recovery_backup(self):
+        self.previous_backup = _latest_backup_directory()
+        self.recovery_button.setVisible(self.previous_backup is not None)
+
+    def _show_previous_version_backup(self):
+        self._refresh_recovery_backup()
+        if self.previous_backup:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.previous_backup)))
 
 
 def show_about(parent=None):
@@ -360,5 +397,5 @@ def show_about(parent=None):
         "Scientific plotting and analysis for FT-IR, XRD, UV-Vis, Raman, and general data."
         "<br><br>The application works offline. If automatic update checks are enabled, it "
         "contacts only the public GitHub Releases API; no installation identifier or "
-        "scientific data is sent.",
+        "scientific data is sent.<br><br>Update support: " + SUPPORT_EMAIL,
     )

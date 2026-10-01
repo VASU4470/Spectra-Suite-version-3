@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.5.0-rc.1 — One-click updates and refreshed identity
+
+- Add an in-app installer flow for future releases, with download progress,
+  SHA-256 verification, platform-specific install guidance and recovery backup.
+- Make this version a manual first install; later compatible releases can be
+  downloaded and installed from the update notice inside SpectraSuite.
+- Refresh the SpectraSuite app icon and make Spectra teal the default interface
+  accent. Existing user-selected themes and scientific plot colors are preserved.
+
 ## 3.4.0-rc.1 — Appearance and guided image digitizing
 
 - Add five light accent themes and two gradient themes from Home or View →

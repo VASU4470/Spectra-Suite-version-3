@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+APP="/Applications/SpectraSuite.app"
+CONSOLE_USER="$(/usr/bin/stat -f '%Su' /dev/console 2>/dev/null || true)"
+
+if [ -d "$APP" ] && [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ]; then
+    CONSOLE_UID="$(/usr/bin/id -u "$CONSOLE_USER")"
+    /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" \
+        /usr/bin/open -a "$APP" >/dev/null 2>&1 || true
+fi
+
+exit 0
