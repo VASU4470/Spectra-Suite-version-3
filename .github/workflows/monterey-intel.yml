@@ -1,0 +1,83 @@
+name: Monterey Intel compatibility test release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/macos-monterey-intel-candidate
+
+permissions:
+  contents: write
+
+concurrency:
+  group: monterey-intel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS Monterey 12 Intel candidate
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install build and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-macos-monterey.txt pyflakes
+      - name: Verify source and scientific/GUI regressions
+        env:
+          QT_QPA_PLATFORM: offscreen
+          MPLBACKEND: QtAgg
+          SPECTRASUITE_DISABLE_UPDATE_CHECK: "1"
+        run: |
+          python -m compileall -q .
+          python -m pyflakes .
+          python -m unittest discover -s tests -v
+      - name: Record exact source commit
+        shell: bash
+        run: echo "BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Build and smoke-test Monterey candidate
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
+          QT_QPA_PLATFORM: offscreen
+          MPLBACKEND: QtAgg
+          SPECTRASUITE_DISABLE_UPDATE_CHECK: "1"
+        run: python packaging/build_monterey_installer.py
+      - name: Preserve Monterey installer candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpectraSuite-macOS-Intel-Monterey-candidate
+          path: release-dist/*
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish Monterey compatibility test prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="spectrasuite-monterey-12-test-${GITHUB_SHA:0:7}"
+          cat > release-notes-monterey.md <<'NOTES'
+          # SpectraSuite Monterey 12 Intel compatibility test
+
+          This is a separate, unsigned and unnotarized test build for Intel Macs running macOS Monterey 12. It uses a pinned PySide6/Qt 6.7 runtime and a macOS 12.0 deployment target.
+
+          The app was built and smoke-tested on GitHub's Intel macOS 15 runner. It has **not yet been verified on Monterey**. This release is for the requested real-device check on the Intel Mac running Monterey 12.0.1.
+
+          Download the file ending in `macos-x86_64-monterey-unsigned.dmg`, open it, and drag SpectraSuite to Applications. macOS may require the usual **Open Anyway** confirmation because the app is unsigned. Do not use this build as a general Windows, Apple Silicon, or stable release.
+
+          Please report whether the app opens and whether Home, CSV import, plotting, PNG/PDF export, quit, and relaunch all work. If it fails, capture the message or crash output before we describe Monterey as supported.
+
+          This release uses a non-version tag so SpectraSuite's in-app version checker ignores it. It does not replace or alter existing release tags or assets.
+          NOTES
+          gh release create "$tag" release-dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "SpectraSuite 3.4.0 — Monterey 12 Intel compatibility test" \
+            --notes-file release-notes-monterey.md \
+            --prerelease --latest=false
