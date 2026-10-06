@@ -64,14 +64,13 @@ class PreviewWorkspaceTests(unittest.TestCase):
             widget.close()
         self.app.processEvents()
 
-    def test_new_analysis_plus_is_attached_to_home_tab(self):
+    def test_new_analysis_button_is_at_the_right_end_of_the_tab_ribbon(self):
         dashboard = WelcomeDashboard()
         bar = dashboard.document_tabs.tabBar()
-        button = bar.tabButton(0, bar.ButtonPosition.RightSide)
+        button = dashboard.document_tabs.cornerWidget()
         self.assertIsNotNone(button)
-        self.assertEqual(button.text(), "+")
-        self.assertEqual(button.accessibleName(), "New analysis")
-        self.assertIsNone(dashboard.document_tabs.cornerWidget())
+        self.assertEqual(button.text(), "+ New analysis")
+        self.assertIsNone(bar.tabButton(0, bar.ButtonPosition.RightSide))
 
     def test_xps_libs_import_axes_pdf_and_session_round_trip(self):
         dashboard = WelcomeDashboard()

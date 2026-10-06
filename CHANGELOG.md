@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.3-rc.1 — Ribbon action placement
+
+- Restore “+ New analysis” at the far right of the tab ribbon.
+- Keep the Home tab free of a close button.
+
 ## 3.5.2-rc.1 — Update handoff fixes
 
 - Start the verified Windows setup as soon as the in-app download and checksum verification finish.
