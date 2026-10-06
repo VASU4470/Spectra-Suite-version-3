@@ -47,6 +47,7 @@ from qt_updates import (
     open_update_signup,
     show_about,
 )
+from update_logic import plain_release_notes
 
 
 SPECTROSCOPY = {
@@ -934,9 +935,7 @@ class SpectraSuiteWindow(QMainWindow):
         self.update_banner_title.setText(
             f"{release['name']} is available · You are using {RELEASE_TAG}"
         )
-        note = " ".join(str(release.get("notes", "")).split())
-        if len(note) > 220:
-            note = note[:220].rstrip() + "…"
+        note = plain_release_notes(release.get("notes", ""), limit=220)
         self.update_banner_note.setText(note or "A newer SpectraSuite release is ready.")
         self.update_banner.show()
 
