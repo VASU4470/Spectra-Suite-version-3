@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.5.2-rc.1 — Update handoff fixes
+
+- Start the verified Windows setup as soon as the in-app download and checksum verification finish.
+- On Mac, open the official release page automatically so Safari can apply the standard download security check for unsigned packages.
+- Render release notes as readable plain text in update notices instead of displaying Markdown syntax.
+- Limit new release test and installer builds to Windows and Mac.
+
 ## 3.5.1-rc.1 — Live accent, fluid text import, and tab actions
 
 - Add a Live accent option that varies interface colors on each launch, avoids repeating the previous color, and preserves manually selected themes.
