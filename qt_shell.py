@@ -725,16 +725,11 @@ class SpectraSuiteWindow(QMainWindow):
 
         self.home_page = self._build_home_page()
         self.document_tabs.addTab(self.home_page, "Home")
-        new_button = QPushButton("+")
-        new_button.setObjectName("newAnalysisTabButton")
-        new_button.setFixedSize(34, 30)
-        new_button.setToolTip("Return to Home and start another analysis")
-        new_button.setAccessibleName("New analysis")
-        new_button.clicked.connect(self.show_home)
-        self.document_tabs.tabBar().setTabButton(
-            0, QTabBar.ButtonPosition.RightSide, new_button
-        )
         self._hide_home_close_button()
+        new_button = QPushButton("+ New analysis")
+        new_button.setToolTip("Return to Home and start another analysis")
+        new_button.clicked.connect(self.show_home)
+        self.document_tabs.setCornerWidget(new_button, Qt.Corner.TopRightCorner)
 
     def _build_home_page(self):
         page = QWidget()
@@ -951,6 +946,7 @@ class SpectraSuiteWindow(QMainWindow):
     def _hide_home_close_button(self):
         bar = self.document_tabs.tabBar()
         bar.setTabButton(0, QTabBar.ButtonPosition.LeftSide, None)
+        bar.setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
 
     def _sync_update_menu(self):
         self.automatic_update_action.blockSignals(True)
