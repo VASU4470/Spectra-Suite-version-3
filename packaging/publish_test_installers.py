@@ -19,7 +19,6 @@ EXPECTED = {
     "windows-x64": f"SpectraSuite-{VERSION}-windows-x64-unsigned-setup.exe",
     "macos-arm64": f"SpectraSuite-{VERSION}-macos-arm64-unsigned.dmg",
     "macos-x86_64": f"SpectraSuite-{VERSION}-macos-x86_64-unsigned.dmg",
-    "linux-amd64": f"SpectraSuite-{VERSION}-linux-amd64.deb",
 }
 
 
@@ -62,7 +61,7 @@ def main():
         return
     runs = api(f"actions/runs?head_sha={SOURCE}&per_page=100")["workflow_runs"]
     selected = {}
-    for workflow, count in (("installers.yml", 4), ("tests.yml", 6)):
+    for workflow, count in (("installers.yml", 3), ("tests.yml", 4)):
         candidates = [r for r in runs if r["path"] == f".github/workflows/{workflow}"
                       and r["head_sha"] == SOURCE and r["conclusion"] == "success"
                       and r["head_repository"]["full_name"] == REPO
@@ -74,7 +73,7 @@ def main():
     installer_run = selected["installers.yml"]
     test_run = selected["tests.yml"]
     tree = api(f"git/commits/{SOURCE}")["tree"]["sha"]
-    for run_id, count in ((installer_run, 4), (test_run, 6)):
+    for run_id, count in ((installer_run, 3), (test_run, 4)):
         info = api(f"actions/runs/{run_id}")
         require(info["head_sha"] == SOURCE and info["conclusion"] == "success",
                 "Source commit has not passed the required workflow")
@@ -122,8 +121,8 @@ def main():
         notes.write_text(
             (ROOT / "packaging/release-notes.md").read_text(encoding="utf-8")
             + f"\n\nSource: [{SOURCE[:7]}](https://github.com/{REPO}/commit/{SOURCE}).\n\n"
-            + f"All [six cross-platform jobs](https://github.com/{REPO}/actions/runs/{test_run}) "
-            + f"and [four installer jobs](https://github.com/{REPO}/actions/runs/{installer_run}) passed. "
+            + f"All [four Windows and Mac test jobs](https://github.com/{REPO}/actions/runs/{test_run}) "
+            + f"and [three Windows and Mac installer jobs](https://github.com/{REPO}/actions/runs/{installer_run}) passed. "
             + "Checksums, exact build commits and dependency manifests are attached.\n",
             encoding="utf-8")
         releases = api("releases?per_page=100")
