@@ -21,7 +21,7 @@ class PublicationTests(unittest.TestCase):
             f"git/commits/{SOURCE}": {"tree": {"sha": "b" * 40}},
         }
         runs = []
-        for run_id, name, count in ((1, "installers.yml", 4), (2, "tests.yml", 6)):
+        for run_id, name, count in ((1, "installers.yml", 3), (2, "tests.yml", 4)):
             info = {"id": run_id, "path": f".github/workflows/{name}",
                     "head_sha": SOURCE, "conclusion": "success", "event": "pull_request",
                     "head_repository": {"full_name": publisher.REPO}}
