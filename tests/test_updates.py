@@ -10,6 +10,7 @@ from update_logic import (
     checksum_from_manifest,
     is_newer_release,
     release_summary,
+    plain_release_notes,
     select_update_assets,
     sha256_file,
     version_tuple,
@@ -40,6 +41,13 @@ class UpdateTests(unittest.TestCase):
         })
         self.assertEqual(release["assets"][0]["name"], "package.dmg")
         self.assertEqual(release["assets"][0]["size"], 42)
+
+    def test_release_notes_are_plain_text_in_update_notice(self):
+        self.assertEqual(
+            plain_release_notes("# SpectraSuite 3.5.2\n\n- **Faster plots** and [details](https://example.test)"),
+            "SpectraSuite 3.5.2 Faster plots and details",
+        )
+        self.assertTrue(plain_release_notes("x" * 40, limit=12).endswith("…"))
 
     def test_select_update_assets_matches_platform_and_checksum_manifest(self):
         release = {
