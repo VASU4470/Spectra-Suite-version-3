@@ -311,12 +311,14 @@ class UpdateDownloadDialog(QDialog):
         self.security_note.setVisible(True)
         self.support.setVisible(True)
         self.primary.setText(
-            "Open verified installer"
-            if sys.platform != "darwin" or self._security_marker_ok
-            else "Open official download in browser…"
+            "Opening installer…" if sys.platform == "win32"
+            else "Opening official release page…" if sys.platform == "darwin"
+            else "Opening package installer…"
         )
-        self.primary.setEnabled(True)
-        self.cancel_button.setText("Close")
+        self.primary.setEnabled(False)
+        self.cancel_button.setEnabled(False)
+        self.status.setText("Checksum verified. Starting the installation handoff…")
+        QTimer.singleShot(0, self._open_verified_installer)
 
     def _open_verified_installer(self):
         if not self._download_path or not self._download_path.is_file():
@@ -434,14 +436,20 @@ class UpdateDownloadDialog(QDialog):
             self._show_backup()
         if sys.platform == "darwin" and not getattr(self, "_security_marker_ok", False):
             self._stage = "mac-browser"
+            opened = self.open_page(self.release.get("url", ""), self)
             self.status.setText(
-                "The download checksum is verified. To keep macOS's normal Gatekeeper "
-                "check, get the installer package in your browser from the official release page. "
-                "The previous app backup is available in Finder."
+                "The checksum is verified. The official release page is open so Safari "
+                "can apply macOS's normal download security check. Download the matching "
+                "Mac update package there, then open it to finish the update."
+                if opened else
+                "The checksum is verified, but SpectraSuite could not open your browser. "
+                "Use Open official release page to download the matching Mac update "
+                "package, then open it to finish the update."
             )
-            self.primary.setText("Open official release page…")
-            self.primary.setEnabled(True)
+            self.primary.setText("Open official release page")
+            self.primary.setEnabled(not opened)
             self.cancel_button.setText("Close")
+            self.cancel_button.setEnabled(True)
             return
         if sys.platform == "darwin":
             installed_app = self._installed_bundle_path()
