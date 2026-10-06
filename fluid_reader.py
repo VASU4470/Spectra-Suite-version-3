@@ -68,7 +68,17 @@ def read_tecplot(path):
             if "VARIABLES" in upper:
                 in_variables = True
             if in_variables:
-                variables.extend(re.findall(r'"([^"]+)"', line))
+                quoted_names = re.findall(r'"([^"]+)"', line)
+                if quoted_names:
+                    variables.extend(quoted_names)
+                else:
+                    declaration = re.sub(
+                        r"^\s*VARIABLES\s*=?\s*", "", line, flags=re.I
+                    )
+                    variables.extend(
+                        token for token in re.split(r"[\s,;]+", declaration.strip())
+                        if token
+                    )
         for key, value in re.findall(r'\b([IJK])\s*=\s*(\d+)', line, re.I):
             dims[key.upper()] = int(value)
         row = _numeric_values(line)

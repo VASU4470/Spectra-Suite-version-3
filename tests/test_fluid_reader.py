@@ -74,6 +74,15 @@ class FluidReaderTests(unittest.TestCase):
         self.assertEqual(field.variables, ("x-coordinate", "y coordinate", "Pressure (Pa)"))
         np.testing.assert_allclose(field.variable("Pressure (Pa)"), [[1, 2], [3, 4]])
 
+    def test_unquoted_variable_names_are_accepted(self):
+        text = "VARIABLES = x, y, pressure\nZONE i=2 j=2 f=point\n0 0 1\n0 1 2\n1 0 3\n1 1 4\n"
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "unquoted.txt"
+            path.write_text(text, encoding="utf-8")
+            field = read_tecplot(path)
+        self.assertEqual(field.variables, ("x", "y", "pressure"))
+        np.testing.assert_allclose(field.variable("pressure"), [[1, 2], [3, 4]])
+
     def test_volume_rejected_instead_of_flattening(self):
         text = TEC.replace("I=2 J=3 K=1", "I=1 J=3 K=2")
         with TemporaryDirectory() as folder:
