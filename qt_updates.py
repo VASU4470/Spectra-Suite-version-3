@@ -29,7 +29,7 @@ from app_version import (
     RELEASE_TAG,
     UPDATE_SIGNUP_URL,
 )
-from update_logic import is_newer_release, select_release
+from update_logic import is_newer_release, plain_release_notes, select_release
 from qt_update_installer import (
     SUPPORT_EMAIL,
     UpdateDownloadDialog,
@@ -260,9 +260,7 @@ class UpdateController(QObject):
         box.setWindowTitle("SpectraSuite update available")
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(f"{release['name']} is available. You are using Version {APP_VERSION}.")
-        notes = release["notes"].strip()
-        if len(notes) > 1200:
-            notes = notes[:1200].rstrip() + "…"
+        notes = plain_release_notes(release["notes"], limit=1200)
         box.setInformativeText(notes)
         open_button = box.addButton("Open download page", QMessageBox.ButtonRole.AcceptRole)
         download_button = box.addButton("Download and install…", QMessageBox.ButtonRole.AcceptRole)
