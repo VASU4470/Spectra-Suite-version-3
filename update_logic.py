@@ -73,6 +73,29 @@ def release_summary(payload):
     }
 
 
+def plain_release_notes(value, limit=None):
+    """Turn GitHub Markdown release notes into compact plain text for Qt labels."""
+    lines = []
+    for raw_line in str(value or "").splitlines():
+        line = raw_line.strip()
+        if not line or re.fullmatch(r"[-*_`| :]+", line):
+            continue
+        line = re.sub(r"^#{1,6}\s*", "", line)
+        line = re.sub(r"^[-*+]\s+", "", line)
+        line = re.sub(r"^\d+[.)]\s+", "", line)
+        line = re.sub(r"!?\[([^]]+)\]\([^)]*\)", r"\1", line)
+        line = re.sub(r"<[^>]+>", "", line)
+        line = re.sub(r"[`*_~]", "", line)
+        line = re.sub(r"\s*\|\s*", " · ", line).strip(" ·")
+        line = re.sub(r"\s+", " ", line)
+        if line:
+            lines.append(line)
+    result = " ".join(lines)
+    if limit is not None and len(result) > limit:
+        result = result[:limit].rstrip() + "…"
+    return result
+
+
 def update_asset_names(system=None, machine=None):
     """Return the release installer/checksum names for this supported platform."""
     system = (system or platform.system()).casefold()
