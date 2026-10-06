@@ -45,6 +45,35 @@ class FluidReaderTests(unittest.TestCase):
                 np.testing.assert_allclose(field.x[:, 0], [0, 1])
                 np.testing.assert_allclose(field.y[0, :], [0, 1, 2])
 
+    def test_headerless_and_headered_txt_grids_are_inferred(self):
+        rows = "0 0 1\n0 1 2\n1 0 3\n1 1 4\n"
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "headerless.txt"
+            path.write_text(rows, encoding="utf-8")
+            field = read_tecplot(path)
+            self.assertEqual(field.variables, ("X", "Y", "Field_1"))
+            np.testing.assert_allclose(field.variable("Field_1"), [[1, 2], [3, 4]])
+
+            path.write_text(
+                "X-coordinate, Y coordinate, Velocity magnitude\n" +
+                rows.replace(" ", ", ").replace("\n", "\n"),
+                encoding="utf-8",
+            )
+            field = read_tecplot(path)
+            self.assertEqual(field.variables, ("X-coordinate", "Y coordinate", "Velocity magnitude"))
+            np.testing.assert_allclose(
+                field.variable("Velocity magnitude"), [[1, 2], [3, 4]]
+            )
+
+    def test_textec_header_variations_do_not_break_numeric_plot_data(self):
+        text = 'title = "Test"\nvariables = "x-coordinate" "y coordinate" "Pressure (Pa)"\nzone i=2, j=2, datapacking=point\n0 0 1\n0 1 2\n1 0 3\n1 1 4\n'
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "variant.txt"
+            path.write_text(text, encoding="utf-8")
+            field = read_tecplot(path)
+        self.assertEqual(field.variables, ("x-coordinate", "y coordinate", "Pressure (Pa)"))
+        np.testing.assert_allclose(field.variable("Pressure (Pa)"), [[1, 2], [3, 4]])
+
     def test_volume_rejected_instead_of_flattening(self):
         text = TEC.replace("I=2 J=3 K=1", "I=1 J=3 K=2")
         with TemporaryDirectory() as folder:

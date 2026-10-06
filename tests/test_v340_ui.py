@@ -41,6 +41,30 @@ class Version340Tests(unittest.TestCase):
         self.assertIn("#7e22ce", widget.styleSheet())
         self.assertNotIn("#2563eb", widget.styleSheet())
 
+    def test_live_accent_changes_without_repeating_previous_launch(self):
+        from unittest.mock import patch
+        import qt_theme
+
+        settings = {}
+
+        class MemorySettings:
+            def value(self, key, default=None):
+                return settings.get(key, default)
+
+            def setValue(self, key, value):
+                settings[key] = value
+
+        qt_theme._ACTIVE_THEME = None
+        with patch("qt_theme.QSettings", return_value=MemorySettings()), patch(
+            "qt_theme.secrets.choice", side_effect=lambda choices: choices[0]
+        ):
+            first = qt_theme.current_theme()
+            qt_theme._ACTIVE_THEME = None
+            second = qt_theme.current_theme()
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(first, "live")
+        self.assertNotEqual(second, "live")
+
     def test_home_workspace_cards_are_compact(self):
         dashboard = WelcomeDashboard()
         self.assertTrue(all(button.width() == 235 for button in dashboard._buttons.values()))

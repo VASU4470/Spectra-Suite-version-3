@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.5.1-rc.1 — Live accent, fluid text import, and tab actions
+
+- Add a Live accent option that varies interface colors on each launch, avoids repeating the previous color, and preserves manually selected themes.
+- Read headered or headerless TXT/CSV fluid grids and tolerate changed Tecplot metadata labels.
+- Move New analysis to a plus button beside Home in the document tabs.
+- Prepare a prerelease for testing in-app updates from 3.5.0.
+
 ## 3.5.0-rc.1 — One-click updates and refreshed identity
 
 - Add an in-app installer flow for future releases, with download progress,

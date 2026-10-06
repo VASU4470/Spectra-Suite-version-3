@@ -89,7 +89,7 @@ class FluidPlotter(QWidget):
         self.colormap.currentTextChanged.connect(self.plot_selected); self.levels.valueChanged.connect(self.plot_selected)
 
     def add_files(self):
-        names,_=QFileDialog.getOpenFileNames(self,"Add fluid-dynamics data","","Tecplot files (*.plt *.dat);;All files (*)")
+        names,_=QFileDialog.getOpenFileNames(self,"Add fluid-dynamics data","","Fluid data (*.plt *.dat *.txt *.csv);;All files (*)")
         self.load_paths(names)
 
     def load_paths(self, names):

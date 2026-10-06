@@ -1,11 +1,9 @@
-# SpectraSuite 3.5.0 release preparation
+# SpectraSuite 3.5.1 test release preparation
 
-Version 3.5.0 adds a verified in-app download and installer handoff for future
-releases, recovery copies for supported desktop installers, a refreshed app
-icon and Spectra teal as the default interface accent. Publish it as the clearly
-labeled test release `v3.5.0-rc.1`; earlier release tags remain immutable.
-Users must manually install this version. Once installed, it can discover and
-install compatible future releases from inside the app.
+Version 3.5.1 adds a Live accent, more flexible fluid TXT/CSV parsing, and a
+plus action beside Home. Publish it as the labeled test release
+`v3.5.1-rc.1`; earlier release tags remain immutable. The release is also used
+to test discovery and installation from an already-installed 3.5.0 app.
 
 The publication workflow on main requires six successful cross-platform test
 jobs and four successful installer jobs for the same source commit. It checks
@@ -15,7 +13,7 @@ reused after fast-forwarding their exact source commit to main. If builds are
 still running, workflow-completion events retry the publication check.
 
 Installers remain unsigned/unnotarized and must be described as test builds.
-Set a new APP_VERSION and RELEASE_TAG for the next release; never replace an
+Set APP_VERSION and RELEASE_TAG together for each release; never replace an
 existing version tag. A draft left by a failed upload requires inspection.
 
 ## Candidate downloads

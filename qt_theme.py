@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 import sys
 import weakref
 from pathlib import Path
@@ -311,6 +312,14 @@ def apply_window_icon(window, technique: str = "APP") -> None:
 # Themes change only the interface chrome. Matplotlib curves, plot backgrounds,
 # and exported figures continue to use their own scientific/style settings.
 THEMES = {
+    "live": {
+        "label": "Live accent (varies on launch)",
+        "accent": "#0f766e",
+        "strong": "#115e59",
+        "soft": "#ccfbf1",
+        "pale": "#f0fdfa",
+        "gradient_end": None,
+    },
     "blue": {
         "label": "Classic blue",
         "accent": "#2563eb",
@@ -374,19 +383,37 @@ _THEMED_WIDGETS = weakref.WeakKeyDictionary()
 
 
 def current_theme():
-    """Return the saved interface theme, falling back safely to Spectra teal."""
+    """Return this launch's theme, resolving Live accent once per process."""
     global _ACTIVE_THEME
     if _ACTIVE_THEME is None:
         saved = str(QSettings("SpectraSuite", "SpectraSuite").value(
-            "appearance/theme", "teal"
+            "appearance/theme", "live"
         ))
-        _ACTIVE_THEME = saved if saved in THEMES else "teal"
+        if saved == "live" or saved not in THEMES:
+            settings = QSettings("SpectraSuite", "SpectraSuite")
+            last = str(settings.value("appearance/lastLiveTheme", ""))
+            candidates = [key for key in THEMES if key not in {"live", last}]
+            if not candidates:
+                candidates = [key for key in THEMES if key != "live"]
+            _ACTIVE_THEME = secrets.choice(candidates)
+            settings.setValue("appearance/lastLiveTheme", _ACTIVE_THEME)
+        else:
+            _ACTIVE_THEME = saved
     return _ACTIVE_THEME
+
+
+def theme_preference():
+    """Return the user's saved choice, which may be the Live accent mode."""
+    saved = str(QSettings("SpectraSuite", "SpectraSuite").value(
+        "appearance/theme", "live"
+    ))
+    return saved if saved in THEMES else "live"
 
 
 def themed_stylesheet(base_style=LIGHT_STYLE, theme_key=None):
     """Recolor one existing light stylesheet without touching plot artists."""
-    theme = THEMES[theme_key or current_theme()]
+    resolved_key = current_theme() if theme_key in (None, "live") else theme_key
+    theme = THEMES[resolved_key]
     replacements = {
         "#2563eb": theme["accent"],
         "#1d4ed8": theme["strong"],
@@ -430,14 +457,23 @@ def set_theme(theme_key, *, persist=True):
     global _ACTIVE_THEME
     if theme_key not in THEMES:
         raise ValueError(f"Unknown interface theme: {theme_key}")
-    _ACTIVE_THEME = theme_key
+    if theme_key == "live":
+        settings = QSettings("SpectraSuite", "SpectraSuite")
+        last = str(settings.value("appearance/lastLiveTheme", ""))
+        candidates = [key for key in THEMES if key not in {"live", last}]
+        if not candidates:
+            candidates = [key for key in THEMES if key != "live"]
+        _ACTIVE_THEME = secrets.choice(candidates)
+        settings.setValue("appearance/lastLiveTheme", _ACTIVE_THEME)
+    else:
+        _ACTIVE_THEME = theme_key
     if persist:
         QSettings("SpectraSuite", "SpectraSuite").setValue(
             "appearance/theme", theme_key
         )
     for widget, base_style in list(_THEMED_WIDGETS.items()):
         try:
-            widget.setStyleSheet(themed_stylesheet(base_style, theme_key))
+            widget.setStyleSheet(themed_stylesheet(base_style, _ACTIVE_THEME))
         except RuntimeError:
             # The Qt object was destroyed before its Python wrapper disappeared.
             _THEMED_WIDGETS.pop(widget, None)
@@ -464,7 +500,7 @@ class AppearanceDialog(QDialog):
         for key, theme in THEMES.items():
             self.theme_combo.addItem(theme["label"], key)
         self.theme_combo.setCurrentIndex(
-            self.theme_combo.findData(current_theme())
+            self.theme_combo.findData(theme_preference())
         )
         self.theme_combo.currentIndexChanged.connect(self._theme_selected)
         root.addWidget(self.theme_combo)
