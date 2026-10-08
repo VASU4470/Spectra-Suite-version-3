@@ -1,0 +1,4 @@
+# Intel Monterey compatibility candidate.
+# Qt 6.7 is used here because the current Qt runtime requires macOS 13+.
+-r requirements.txt
+PySide6==6.7.0
