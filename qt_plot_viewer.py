@@ -646,6 +646,10 @@ class PlotViewer(QDialog):
 
         for _page, layout in self.ribbon_pages.values():
             layout.addStretch(1)
+        # The persistent SpectraSuite shell owns the ribbon for embedded
+        # analyses.  Standalone PlotViewer windows retain their own ribbon.
+        if self.embedded:
+            self.ribbon_tabs.hide()
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
