@@ -869,6 +869,9 @@ class PlotViewer(QDialog):
             button = QToolButton(self)
             button.setCheckable(True)
             button.hide()
+            button.clicked.connect(
+                lambda checked=False, selected=name: checked and self._open_workflow_dialog(selected)
+            )
             self.workflow_button_group.addButton(button, index)
             self.workflow_buttons[name] = button
 
@@ -931,22 +934,37 @@ class PlotViewer(QDialog):
             self.canvas_tabs.blockSignals(False)
 
     def _open_workflow_dialog(self, name):
+        """Show the existing scientific controls on demand without a fixed inspector."""
         self._activate_workflow(name)
+        existing = getattr(self, "_tool_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.setWindowTitle(f"{name} — {self.windowTitle()}")
+            existing.raise_()
+            existing.activateWindow()
+            return
+
         dialog = QDialog(self)
         dialog.setWindowTitle(f"{name} — {self.windowTitle()}")
         dialog.resize(620, 760)
         dialog.setMinimumSize(520, 560)
         layout = QVBoxLayout(dialog)
         self.controls.setParent(dialog)
+        self.controls.show()
         layout.addWidget(self.controls, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dialog.reject)
         buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(dialog.accept)
         layout.addWidget(buttons)
-        dialog.exec()
-        self.controls.setParent(self.tool_host)
-        self.tool_host_layout.addWidget(self.controls)
-        self.controls.hide()
+
+        def restore_controls(_result=0):
+            self.controls.setParent(self.tool_host)
+            self.tool_host_layout.addWidget(self.controls)
+            self.controls.hide()
+            self._tool_dialog = None
+
+        dialog.finished.connect(restore_controls)
+        self._tool_dialog = dialog
+        dialog.show()
 
     def _activate_workflow(self, name):
         """Show one contextual tool family without changing analysis state."""
