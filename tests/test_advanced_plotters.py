@@ -53,8 +53,14 @@ class AdvancedPlotterTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 plotter.plot_type.setCurrentText(kind); plotter.plot_data(); self.assertGreaterEqual(len(plotter.figure.axes), 1)
         self.assertFalse(plotter.windowIcon().isNull())
-        plotter.controls_toggle.click(); self.assertTrue(plotter.controls_scroll.isHidden())
-        self.assertEqual(plotter.controls_toggle.text(), "◀")
+        self.assertTrue(plotter.controls_scroll.isHidden())
+        self.assertEqual(plotter.splitter.count(), 2)
+        plotter.controls_toggle.click()
+        self.app.processEvents()
+        self.assertIsNotNone(getattr(plotter, "_plot3d_options_dialog", None))
+        self.assertTrue(plotter._plot3d_options_dialog.isVisible())
+        plotter._plot3d_options_dialog.close()
+        self.app.processEvents()
 
     def test_3d_tecplot_import_and_multiple_file_layers(self):
         text='''TITLE="Velocity"\nVARIABLES="X"\n"Y"\n"U"\nZONE T="Grid"\nI=2 J=2 K=1,F=POINT\n0 0 1\n0 1 2\n1 0 3\n1 1 4\n'''
