@@ -430,16 +430,15 @@ class StartupTests(unittest.TestCase):
                     for button in viewer.order_buttons
                 ))
                 self.assertGreaterEqual(viewer.data_table.columnCount(), 2)
-                viewer.controls_toggle.click()
                 self.assertTrue(viewer.right_sidebar.isHidden())
-                self.assertEqual(viewer.controls_toggle.text(), "◀")
-                viewer.controls_toggle.click()
-                self.assertFalse(viewer.right_sidebar.isHidden())
-                self.assertEqual(viewer.controls_toggle.text(), "▶")
+                self.assertEqual(set(viewer.workspace_documents), {
+                    "plot", "table", "results", "history",
+                })
+                self.assertEqual(len(viewer.workspace_mdi.subWindowList()), 4)
                 viewer._skip_close_prompt = True
                 viewer.close()
 
-    def test_spectroscopy_workspace_uses_project_canvas_inspector_shell(self):
+    def test_spectroscopy_workspace_uses_ui_v2_ribbon_project_and_documents(self):
         reset_state("FTIR")
         x = np.linspace(400.0, 4000.0, 101)
         state.all_data = [
@@ -452,41 +451,51 @@ class StartupTests(unittest.TestCase):
         viewer.show()
         self.app.processEvents()
 
-        self.assertEqual(viewer.splitter.count(), 3)
-        self.assertFalse(hasattr(viewer, "workspace_splitter"))
+        self.assertEqual(viewer.splitter.count(), 2)
         self.assertIs(viewer.splitter.widget(0), viewer.project_sidebar)
         self.assertIs(viewer.splitter.widget(1), viewer.center_panel)
-        self.assertIs(viewer.splitter.widget(2), viewer.right_sidebar)
-        self.assertEqual(list(viewer.workflow_buttons), [
-            "Prepare", "Analyze", "Style", "Annotate", "Export",
-        ])
-        self.assertTrue(viewer.tabs.tabBar().isHidden())
-        self.assertEqual(viewer.tabs.count(), 5)
+        self.assertTrue(viewer.right_sidebar.isHidden())
+        self.assertEqual(
+            [viewer.ribbon_tabs.tabText(index) for index in range(viewer.ribbon_tabs.count())],
+            ["Home", "Data", "Plot", "Process", "Analyze", "Annotate", "View", "Export"],
+        )
+        self.assertEqual(set(viewer.workspace_documents), {
+            "plot", "table", "results", "history",
+        })
+        self.assertEqual(len(viewer.workspace_mdi.subWindowList()), 4)
         self.assertEqual(viewer.project_data_list.count(), 2)
         self.assertEqual(len(viewer.series_chip_buttons), 2)
+
+        viewer._activate_workspace_document("table")
+        self.app.processEvents()
+        self.assertIn("Data table", viewer.active_document_label.text())
         self.assertEqual(
-            [viewer.canvas_tabs.tabText(index) for index in range(viewer.canvas_tabs.count())],
-            ["Plot", "Data table"],
+            viewer.ribbon_tabs.tabText(viewer.ribbon_tabs.currentIndex()), "Data"
         )
-        self.assertTrue(viewer.canvas_tabs.widget(1).isAncestorOf(viewer.data_table))
+
+        viewer._activate_workspace_document("plot")
+        self.app.processEvents()
+        self.assertIn("Plot", viewer.active_document_label.text())
         self.assertEqual(
-            [viewer.detail_tabs.tabText(index) for index in range(viewer.detail_tabs.count())],
-            ["Inspector", "Results", "History"],
+            viewer.ribbon_tabs.tabText(viewer.ribbon_tabs.currentIndex()), "Plot"
         )
-        self.assertEqual(viewer.detail_tabs.tabPosition(), QTabWidget.TabPosition.West)
 
         viewer.workflow_buttons["Analyze"].click()
+        self.app.processEvents()
         self.assertEqual(viewer.tabs.currentIndex(), 3)
-        self.assertEqual(viewer.detail_tabs.currentIndex(), 0)
         self.assertEqual(viewer.inspector_title.text(), "Analyze spectrum")
-        viewer.command_search.setText("edit legend")
-        viewer.command_search.returnPressed.emit()
-        self.assertEqual(viewer.tabs.currentIndex(), 1)
-        self.assertEqual(viewer.inspector_title.text(), "Style figure")
+        self.assertIsNotNone(getattr(viewer, "_tool_dialog", None))
+        viewer._tool_dialog.close()
+        self.app.processEvents()
+
         viewer.command_search.setText("open data table")
         viewer.command_search.returnPressed.emit()
+        self.app.processEvents()
         self.assertEqual(viewer.canvas_tabs.currentIndex(), 1)
-        self.assertEqual(viewer.inspector_title.text(), "Prepare figure")
+        self.assertIn("Data table", viewer.active_document_label.text())
+        if getattr(viewer, "_tool_dialog", None) is not None:
+            viewer._tool_dialog.close()
+            self.app.processEvents()
 
         viewer.project_data_list.setCurrentRow(1)
         self.assertEqual(viewer.current_stem, "sample")
