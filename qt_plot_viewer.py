@@ -46,6 +46,8 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -124,6 +126,19 @@ QToolButton#uiV2RibbonButton {
 QToolButton#uiV2RibbonButton:hover {
     background-color: #e9f0ff;
     border-color: #cedcff;
+}
+QTreeWidget#uiV2ProjectTree {
+    background-color: transparent;
+    border: none;
+    outline: none;
+}
+QTreeWidget#uiV2ProjectTree::item {
+    padding: 5px 4px;
+    border-radius: 5px;
+}
+QTreeWidget#uiV2ProjectTree::item:selected {
+    color: #164aa8;
+    background-color: #e9f0ff;
 }
 QMdiArea#uiV2Mdi { background-color: #dfe5ed; }
 QMdiSubWindow {
@@ -670,27 +685,19 @@ class PlotViewer(QDialog):
         data_heading = QLabel("PROJECT")
         data_heading.setObjectName("sectionLabel")
         project_sidebar_layout.addWidget(data_heading)
-        self.project_data_list = QListWidget()
-        self.project_data_list.setObjectName("projectDataList")
-        self.project_data_list.setMinimumHeight(150)
-        self.project_data_list.currentItemChanged.connect(self._project_series_selected)
-        project_sidebar_layout.addWidget(self.project_data_list, 1)
 
-        documents_heading = QLabel("DOCUMENTS")
-        documents_heading.setObjectName("sectionLabel")
-        project_sidebar_layout.addWidget(documents_heading)
-        for label, key in (
-            ("⌁  Plot", "plot"),
-            ("▦  Data table", "table"),
-            ("≡  Results", "results"),
-            ("↶  History", "history"),
-        ):
-            button = QPushButton(label)
-            button.setObjectName("sidebarAction")
-            button.clicked.connect(
-                lambda _checked=False, document=key: self._activate_workspace_document(document)
-            )
-            project_sidebar_layout.addWidget(button)
+        self.project_tree = QTreeWidget()
+        self.project_tree.setObjectName("uiV2ProjectTree")
+        self.project_tree.setHeaderHidden(True)
+        self.project_tree.setRootIsDecorated(True)
+        self.project_tree.currentItemChanged.connect(self._project_tree_selected)
+        project_sidebar_layout.addWidget(self.project_tree, 1)
+
+        # Historical flat list retained off-screen for extension compatibility.
+        self.project_data_list = QListWidget(self)
+        self.project_data_list.setObjectName("projectDataList")
+        self.project_data_list.currentItemChanged.connect(self._project_series_selected)
+        self.project_data_list.hide()
         project_sidebar_layout.addStretch()
         data_help = QLabel("Select a spectrum here or click a line directly on the plot.")
         data_help.setObjectName("mutedLabel")
@@ -1029,6 +1036,19 @@ class PlotViewer(QDialog):
         elif index == 0:
             self._activate_workspace_document("plot")
 
+    def _project_tree_selected(self, item, _previous=None):
+        if item is None:
+            return
+        payload = item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, tuple) or len(payload) != 2:
+            return
+        kind, value = payload
+        if kind == "series":
+            if hasattr(self, "file_combo") and value in self.data_dict:
+                self.file_combo.setCurrentText(value)
+        elif kind == "document":
+            self._activate_workspace_document(value)
+
     def _project_series_selected(self, item, _previous=None):
         if item is None or not hasattr(self, "file_combo"):
             return
@@ -1061,6 +1081,47 @@ class PlotViewer(QDialog):
         if current_item is not None:
             self.project_data_list.setCurrentItem(current_item)
         self.project_data_list.blockSignals(False)
+        self._sync_project_tree()
+
+    def _sync_project_tree(self):
+        if not hasattr(self, "project_tree"):
+            return
+        self.project_tree.blockSignals(True)
+        self.project_tree.clear()
+
+        data_root = QTreeWidgetItem(["Data"])
+        data_root.setExpanded(True)
+        self.project_tree.addTopLevelItem(data_root)
+        current_tree_item = None
+        for stem in self.stems:
+            settings = state.file_set.get(stem, {})
+            display_name = str(settings.get("custom_name", stem))
+            item = QTreeWidgetItem([display_name])
+            item.setData(0, Qt.ItemDataRole.UserRole, ("series", stem))
+            item.setToolTip(0, f"Source: {stem}")
+            color = QColor(str(settings.get("color", "#2563eb")))
+            if color.isValid():
+                item.setForeground(0, QBrush(color))
+            data_root.addChild(item)
+            if stem == self.current_stem:
+                current_tree_item = item
+
+        documents_root = QTreeWidgetItem(["Documents"])
+        documents_root.setExpanded(True)
+        self.project_tree.addTopLevelItem(documents_root)
+        for label, key in (
+            ("Plot", "plot"),
+            ("Data table", "table"),
+            ("Results", "results"),
+            ("History", "history"),
+        ):
+            item = QTreeWidgetItem([label])
+            item.setData(0, Qt.ItemDataRole.UserRole, ("document", key))
+            documents_root.addChild(item)
+
+        if current_tree_item is not None:
+            self.project_tree.setCurrentItem(current_tree_item)
+        self.project_tree.blockSignals(False)
 
     def _sync_series_chips(self):
         if not hasattr(self, "series_chip_layout"):
