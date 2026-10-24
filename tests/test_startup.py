@@ -100,6 +100,13 @@ class StartupTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(dashboard.document_tabs.count(), 1)
         self.assertIs(dashboard.document_tabs.widget(0), dashboard.home_page)
+        self.assertEqual(
+            [dashboard.shell_ribbon.tabText(i) for i in range(dashboard.shell_ribbon.count())],
+            ["Home", "Data", "Plot", "Process", "Analyze", "Annotate", "View", "Export", "Help"],
+        )
+        self.assertEqual(
+            dashboard.shell_ribbon.tabText(dashboard.shell_ribbon.currentIndex()), "Home"
+        )
         with patch("qt_shell.QTimer.singleShot"):
             workspace = next(item for item in WORKSPACES if item.key == "uvvis")
             dashboard.launch_workspace(workspace)
@@ -181,6 +188,10 @@ class StartupTests(unittest.TestCase):
         viewer = dashboard.document_tabs.currentWidget()
         self.assertIsInstance(viewer, PlotViewer)
         self.assertTrue(viewer.embedded)
+        self.assertTrue(viewer.ribbon_tabs.isHidden())
+        self.assertEqual(
+            dashboard.shell_ribbon.tabText(dashboard.shell_ribbon.currentIndex()), "Plot"
+        )
         self.assertFalse(viewer.isWindow())
         self.assertEqual(viewer.finish_button.text(), "Close analysis")
         self.assertTrue(viewer.findChild(QMenuBar).isHidden())
