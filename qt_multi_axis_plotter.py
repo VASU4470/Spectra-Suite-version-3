@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
     QMessageBox, QPushButton, QScrollArea, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 from annotations import AnnotationManager
