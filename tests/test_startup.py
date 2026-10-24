@@ -13,7 +13,7 @@ os.environ.setdefault("MPLBACKEND", "QtAgg")
 import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QApplication, QMenuBar, QPushButton, QScrollArea, QTabWidget, QTableWidgetItem,
+    QApplication, QMenuBar, QPushButton, QScrollArea, QTableWidgetItem,
 )
 
 from app_version import UPDATE_SIGNUP_URL
