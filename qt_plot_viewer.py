@@ -1278,9 +1278,6 @@ class PlotViewer(QDialog):
         self.view_project_action.setChecked(True)
         view_menu.addAction(self.view_project_action)
         self.view_project_action.toggled.connect(self.project_sidebar.setVisible)
-        self.project_sidebar.visibilityChanged.connect(
-            lambda visible: self.view_project_action.setChecked(visible)
-        ) if hasattr(self.project_sidebar, "visibilityChanged") else None
 
         self.view_controls_action = QAction("Open current tool dialog", self)
         self.view_controls_action.triggered.connect(
