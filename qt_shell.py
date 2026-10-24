@@ -783,7 +783,8 @@ class SpectraSuiteWindow(QMainWindow):
         ribbon_button("Data", "Apply / refresh", self._ribbon_apply_data)
 
         ribbon_button("Plot", "Plot", self._ribbon_show_plot)
-        ribbon_button("Plot", "Properties", self._ribbon_plot_properties)
+        ribbon_button("Plot", "Axis properties", self._ribbon_axis_properties)
+        ribbon_button("Plot", "Plot properties", self._ribbon_plot_properties)
         ribbon_button("Plot", "Fit view", self._ribbon_fit_view)
 
         ribbon_button("Process", "Prepare", lambda: self._ribbon_workflow("Prepare"))
@@ -878,10 +879,17 @@ class SpectraSuiteWindow(QMainWindow):
         elif hasattr(widget, "plot_selected"):
             widget.plot_selected()
 
-    def _ribbon_plot_properties(self):
+    def _ribbon_axis_properties(self):
         widget = self._current_document()
         if hasattr(widget, "open_axis_properties"):
             widget.open_axis_properties()
+        else:
+            self._ribbon_plot_properties()
+
+    def _ribbon_plot_properties(self):
+        widget = self._current_document()
+        if hasattr(widget, "open_plot_properties"):
+            widget.open_plot_properties()
         elif hasattr(widget, "_open_workflow_dialog"):
             widget._open_workflow_dialog("Style")
         elif hasattr(widget, "_set_controls_visible"):
