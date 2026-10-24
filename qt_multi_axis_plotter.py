@@ -23,6 +23,7 @@ from report_export import ExportItem
 from qt_import_support import install_import_support
 from qt_general_plotter import DataTable, read_table
 from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
+from qt_ui_v2_shared import park_panel, show_panel_dialog
 from qt_widgets import AnnotationToolBar, CompactNavigationToolbar, PanelToggleButton
 
 
@@ -140,11 +141,21 @@ class MultiAxisPlotter(QWidget):
         plot = QPushButton("Plot / refresh"); plot.setObjectName("primary"); plot.clicked.connect(self.plot_data)
         settings_layout.addWidget(plot); settings_layout.addStretch()
         self.settings_scroll = QScrollArea(); self.settings_scroll.setWidgetResizable(True)
-        self.settings_scroll.setWidget(settings); self.splitter.addWidget(self.settings_scroll)
-        self.splitter.setSizes([430, 720, 430])
+        self.settings_scroll.setWidget(settings); self.settings_scroll.setMinimumWidth(430)
+        park_panel(self, self.settings_scroll, host_name="_multiaxis_options_host")
+        self.splitter.setSizes([430, 1050])
 
         self.data_toggle = PanelToggleButton(self.data_panel, "left", self)
-        self.settings_toggle = PanelToggleButton(self.settings_scroll, "right", self)
+        self.settings_toggle = QToolButton()
+        self.settings_toggle.setText("Axis / series options…")
+        self.settings_toggle.setToolTip("Open multi-axis mapping and annotation properties")
+        self.settings_toggle.clicked.connect(
+            lambda: show_panel_dialog(
+                self, self.settings_scroll, "Multi-axis Plot Properties",
+                dialog_name="_multiaxis_options_dialog",
+                host_name="_multiaxis_options_host",
+            )
+        )
         top.insertWidget(4, self.data_toggle); top.insertWidget(5, self.settings_toggle)
 
     def _columns(self):
