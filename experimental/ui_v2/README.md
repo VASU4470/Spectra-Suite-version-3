@@ -54,3 +54,50 @@ See:
 ## Release status
 
 This folder does **not** define a future SpectraSuite release number. The next release identity will be chosen only after accepted features are integrated and fully validated.
+
+
+## Desktop prototype
+
+The first real PySide6 desktop prototype is implemented in:
+
+`experimental/ui_v2/prototype.py`
+
+It currently includes:
+
+- Office-style ribbon tabs and command groups;
+- collapsible Project Explorer;
+- true `QMdiArea` multi-document workspace;
+- independent Data Table and Plot documents;
+- tile / maximize / activate behavior;
+- active-document ribbon context switching;
+- compact status bar;
+- functional Axis Properties dialog;
+- double-click on the plot to open axis properties;
+- Matplotlib-backed dummy FT-IR plot;
+- no permanent right Inspector.
+
+### Run on macOS / Linux
+
+From the repository root:
+
+```bash
+git switch feature/ui-workspace-redesign
+python3 experimental/ui_v2/prototype.py
+```
+
+### Run on Windows
+
+From the repository root:
+
+```powershell
+git switch feature/ui-workspace-redesign
+py experimental\ui_v2\prototype.py
+```
+
+If dependencies are missing, install the existing project requirements first:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+This remains an experimental entry point and is intentionally not connected to `launcher.py`.
