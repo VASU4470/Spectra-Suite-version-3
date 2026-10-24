@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout,
     QInputDialog, QLabel, QLineEdit, QListWidget, QMessageBox, QPushButton, QScrollArea,
-    QSlider, QSplitter, QSpinBox, QTableWidgetItem, QVBoxLayout, QWidget,
+    QSlider, QSplitter, QSpinBox, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 from qt_export import export_figure_dialog
