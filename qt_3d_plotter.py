@@ -23,6 +23,7 @@ from column_math import FormulaError, evaluate_column_formula
 from fluid_reader import read_tecplot
 from qt_general_plotter import DataTable, parse_axis_limits, read_table
 from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
+from qt_ui_v2_shared import park_panel, show_panel_dialog
 from qt_widgets import ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton, compact_action_bar
 
 
@@ -135,9 +136,20 @@ class Plot3D(QWidget):
         plot = QPushButton("Plot / refresh"); plot.setObjectName("primary"); plot.clicked.connect(self.plot_data)
         form_layout.addWidget(plot); form_layout.addStretch()
         self.controls_scroll = QScrollArea(); self.controls_scroll.setWidgetResizable(True); self.controls_scroll.setWidget(controls)
-        self.splitter.addWidget(self.controls_scroll); self.splitter.setSizes([420, 760, 360])
+        self.controls_scroll.setMinimumWidth(380)
+        park_panel(self, self.controls_scroll, host_name="_plot3d_options_host")
+        self.splitter.setSizes([420, 1060])
         self.data_toggle = PanelToggleButton(self.data_panel, "left", self)
-        self.controls_toggle = PanelToggleButton(self.controls_scroll, "right", self)
+        self.controls_toggle = QToolButton()
+        self.controls_toggle.setText("3D options…")
+        self.controls_toggle.setToolTip("Open data mapping and 3D view properties")
+        self.controls_toggle.clicked.connect(
+            lambda: show_panel_dialog(
+                self, self.controls_scroll, "3D Plot Properties",
+                dialog_name="_plot3d_options_dialog",
+                host_name="_plot3d_options_host",
+            )
+        )
         panel_header = QHBoxLayout()
         panel_header.addWidget(self.data_toggle)
         hint = QLabel("Drop data files onto the table or plot")
