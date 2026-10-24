@@ -880,7 +880,9 @@ class SpectraSuiteWindow(QMainWindow):
 
     def _ribbon_plot_properties(self):
         widget = self._current_document()
-        if hasattr(widget, "_open_workflow_dialog"):
+        if hasattr(widget, "open_axis_properties"):
+            widget.open_axis_properties()
+        elif hasattr(widget, "_open_workflow_dialog"):
             widget._open_workflow_dialog("Style")
         elif hasattr(widget, "_set_controls_visible"):
             widget._set_controls_visible(True)
