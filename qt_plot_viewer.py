@@ -75,7 +75,7 @@ from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
-from qt_ui_v2_properties import AxisPropertiesDialog
+from qt_ui_v2_properties import AxisPropertiesDialog, PlotPropertiesDialog
 from qt_updates import (
     PrivacyPreferencesDialog,
     UpdateController,
@@ -638,7 +638,8 @@ class PlotViewer(QDialog):
 
         ribbon_button("Plot", "Plot", lambda: self._activate_workspace_document("plot"))
         ribbon_button("Plot", "Axis properties", self.open_axis_properties)
-        ribbon_button("Plot", "Legend", lambda: self._open_workflow_dialog("Style"))
+        ribbon_button("Plot", "Plot properties", self.open_plot_properties)
+        ribbon_button("Plot", "Legend", self.open_plot_properties)
         ribbon_button("Plot", "Fit view", lambda: self.toolbar.home())
 
         ribbon_button("Process", "Prepare", lambda: self._open_workflow_dialog("Prepare"))
@@ -950,6 +951,11 @@ class PlotViewer(QDialog):
         dialog = AxisPropertiesDialog(self, self)
         dialog.exec()
 
+    def open_plot_properties(self):
+        """Open focused series and legend properties."""
+        dialog = PlotPropertiesDialog(self, self)
+        dialog.exec()
+
     def _open_workflow_dialog(self, name):
         """Show the existing scientific controls on demand without a fixed inspector."""
         self._activate_workflow(name)
@@ -1247,6 +1253,9 @@ class PlotViewer(QDialog):
         axis_properties = QAction("Axis &properties…", self)
         axis_properties.triggered.connect(self.open_axis_properties)
         edit_menu.addAction(axis_properties)
+        plot_properties = QAction("Plot &properties…", self)
+        plot_properties.triggered.connect(self.open_plot_properties)
+        edit_menu.addAction(plot_properties)
         rename_legend = QAction("Edit selected &legend name", self)
         rename_legend.triggered.connect(
             lambda: (self._open_workflow_dialog("Style"), self._edit_selected_legend_name())
@@ -1369,7 +1378,7 @@ class PlotViewer(QDialog):
                 add_action, replace_action, None, figure_action, export_action, save_action,
                 None, close_action,
             ],
-            "Edit": [apply_table, formula_action, None, axis_properties, rename_legend],
+            "Edit": [apply_table, formula_action, None, axis_properties, plot_properties, rename_legend],
             "History": [undo_action, redo_action],
             "View": [
                 self.view_project_action, self.view_controls_action,
