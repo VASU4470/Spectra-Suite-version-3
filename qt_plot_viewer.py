@@ -3184,14 +3184,14 @@ class PlotViewer(QDialog):
                 if result and not any(abs(item[0] - result[0]) < 0.01 for item in results):
                     results.append(result)
             self.update_plot()
-            self.right_sidebar.setCurrentIndex(1)
+            self._activate_workspace_document("results")
             return
         existing = fs.setdefault("labels", [])
         for index in peaks:
             if not any(abs(item[0] - x[index]) < (0.001 if state.technique == "LIBS" else 0.1) for item in existing):
                 existing.append((x[index], y[index], (f"{x[index]:.3f}" if state.technique == "LIBS" else f"{x[index]:.1f}")))
         self.update_plot()
-        self.right_sidebar.setCurrentIndex(1)
+        self._activate_workspace_document("results")
 
     def calculate_xrd_peak(self, x_click, x, y):
         x_values = np.asarray(x, dtype=float)
