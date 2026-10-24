@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QDialog, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMenu,
     QListWidget, QMessageBox, QPushButton, QScrollArea, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 from annotations import AnnotationManager
 from column_math import FormulaError, evaluate_column_formula
