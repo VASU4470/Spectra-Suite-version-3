@@ -23,6 +23,7 @@ from launcher import WORKSPACES, WelcomeDashboard, startup_smoke_test, workspace
 from qt_shell import InlineImportPage
 from qt_general_plotter import GeneralPlotter
 from qt_plot_viewer import ExportOptionsDialog, PlotViewer, TextAnnotationDialog
+from qt_ui_v2_properties import AxisPropertiesDialog, PlotPropertiesDialog
 from qt_setup import DatasetSelectionDialog, SetupDialog
 from qt_updates import PrivacyPreferencesDialog
 from qt_widgets import AnalysisToolBar, AnnotationToolBar
@@ -511,6 +512,44 @@ class StartupTests(unittest.TestCase):
         viewer.project_data_list.setCurrentRow(1)
         self.assertEqual(viewer.current_stem, "sample")
         self.assertTrue(viewer.series_chip_buttons["sample"].isChecked())
+        viewer._skip_close_prompt = True
+        viewer.close()
+
+    def test_ui_v2_project_tree_and_property_dialogs_preserve_scientific_conventions(self):
+        reset_state("FTIR")
+        x = np.linspace(400.0, 4000.0, 101)
+        y = np.sin(x / 180.0) + 2.0
+        state.all_data = [("sample", x.copy(), y.copy())]
+        state.init_file_settings()
+        viewer = PlotViewer(state.all_data, "UI v2 properties test")
+        viewer.show()
+        self.app.processEvents()
+
+        self.assertEqual(
+            [viewer.project_tree.topLevelItem(i).text(0)
+             for i in range(viewer.project_tree.topLevelItemCount())],
+            ["Data", "Documents"],
+        )
+
+        axis = AxisPropertiesDialog(viewer)
+        self.assertIn("Reversed", axis.direction_label.text())
+        axis.label_edit.setText("Wavenumber test")
+        axis.apply()
+        self.assertEqual(state.global_set["xlabel"], "Wavenumber test")
+        left, right = viewer.ax.get_xlim()
+        self.assertGreater(left, right)
+        axis.close()
+
+        props = PlotPropertiesDialog(viewer)
+        props.series_name.setText("ZnO sample")
+        props.series_color.setText("#123456")
+        props.legend_check.setChecked(False)
+        props.apply()
+        self.assertEqual(state.file_set["sample"]["custom_name"], "ZnO sample")
+        self.assertEqual(state.file_set["sample"]["color"], "#123456")
+        self.assertFalse(state.global_set["show_legend"])
+        props.close()
+
         viewer._skip_close_prompt = True
         viewer.close()
 
