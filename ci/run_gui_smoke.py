@@ -69,10 +69,8 @@ def parent() -> int:
 
     command = [sys.executable, str(Path(__file__).resolve()), "--worker"]
     process = subprocess.Popen(command, cwd=ROOT)
-    marker_seen = False
     while process.poll() is None:
         if MARKER.is_file():
-            marker_seen = True
             try:
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
