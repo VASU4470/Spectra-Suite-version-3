@@ -1,69 +1,115 @@
-"""Run the GUI test suite without triggering fragile Qt interpreter teardown.
+"""Stable cross-platform runner for the PySide6 GUI smoke suite.
 
-GitHub Actions executes the full PySide6 suite offscreen.  The unittest result can
-be successful while Qt/Matplotlib crashes during Python interpreter shutdown
-because process-global Qt objects are destroyed after the test runner returns.
-This wrapper records the real unittest result, closes remaining top-level
-widgets, processes deferred Qt events, and exits immediately with that result.
+The GUI tests themselves are authoritative. On Windows/macOS, Qt/Matplotlib can
+crash during interpreter teardown after unittest has completed successfully.
+To avoid turning that teardown defect into a false test failure, this module
+uses a non-Qt parent process and a worker process:
+
+1. the worker runs the normal unittest suite;
+2. its TestResult writes an atomic result marker from stopTestRun(), after the
+   complete suite has finished;
+3. the parent trusts only that marker, not a later Qt interpreter exit code.
+
+Actual test failures/errors still make the CI step fail.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-os.chdir(ROOT)
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-os.environ.setdefault("MPLBACKEND", "QtAgg")
+MARKER = Path(tempfile.gettempdir()) / "spectrasuite-gui-smoke-result.json"
 
 
-def main() -> None:
+class MarkerResult(unittest.TextTestResult):
+    """Persist the completed unittest result before Qt interpreter teardown."""
+
+    def stopTestRun(self):
+        super().stopTestRun()
+        payload = {
+            "success": self.wasSuccessful(),
+            "tests_run": self.testsRun,
+            "failures": len(self.failures),
+            "errors": len(self.errors),
+            "skipped": len(self.skipped),
+        }
+        temporary = MARKER.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload), encoding="utf-8")
+        temporary.replace(MARKER)
+
+
+class MarkerRunner(unittest.TextTestRunner):
+    resultclass = MarkerResult
+
+
+def worker() -> int:
+    os.chdir(ROOT)
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("MPLBACKEND", "QtAgg")
+
     suite = unittest.defaultTestLoader.discover("tests")
-    stream = unittest.runner._WritelnDecorator(sys.stderr)
-    result = unittest.TextTestResult(stream, descriptions=True, verbosity=2)
-    result.startTestRun()
-    started = __import__("time").perf_counter()
+    result = MarkerRunner(verbosity=2).run(suite)
+    return 0 if result.wasSuccessful() else 1
+
+
+def parent() -> int:
     try:
-        suite(result)
+        MARKER.unlink()
+    except FileNotFoundError:
+        pass
+
+    command = [sys.executable, str(Path(__file__).resolve()), "--worker"]
+    completed = subprocess.run(command, cwd=ROOT, check=False)
+
+    if not MARKER.is_file():
+        print(
+            "GUI smoke worker did not record a completed unittest result; "
+            f"worker exit code was {completed.returncode}.",
+            file=sys.stderr,
+        )
+        return completed.returncode or 1
+
+    try:
+        payload = json.loads(MARKER.read_text(encoding="utf-8"))
     finally:
-        result.stopTestRun()
-    elapsed = __import__("time").perf_counter() - started
+        try:
+            MARKER.unlink()
+        except FileNotFoundError:
+            pass
 
-    stream.writeln()
-    stream.writeln("-" * 70)
-    run = result.testsRun
-    stream.writeln(f"Ran {run} test{'s' if run != 1 else ''} in {elapsed:.3f}s")
-    stream.writeln()
-    if result.wasSuccessful():
-        stream.writeln("OK")
-        code = 0
+    tests_run = int(payload.get("tests_run", 0))
+    success = bool(payload.get("success", False))
+    if not success:
+        print(
+            "GUI smoke suite reported failures: "
+            f"tests={tests_run}, failures={payload.get('failures', 0)}, "
+            f"errors={payload.get('errors', 0)}, skipped={payload.get('skipped', 0)}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if completed.returncode:
+        print(
+            "GUI smoke assertions passed "
+            f"({tests_run} tests); ignoring post-test Qt teardown exit "
+            f"{completed.returncode}.",
+            file=sys.stderr,
+        )
     else:
-        details = []
-        if result.failures:
-            details.append(f"failures={len(result.failures)}")
-        if result.errors:
-            details.append(f"errors={len(result.errors)}")
-        if result.skipped:
-            details.append(f"skipped={len(result.skipped)}")
-        stream.writeln("FAILED" + (f" ({', '.join(details)})" if details else ""))
-        code = 1
+        print(f"GUI smoke suite passed cleanly ({tests_run} tests).")
 
-    sys.stdout.flush()
-    sys.stderr.flush()
-    # Do not return through Python/Qt teardown. On Windows, a Qt-loaded
-    # process has been observed to turn os._exit(0) into exit code 1 in CI, so
-    # use the operating-system process exit directly. POSIX uses os._exit.
-    if sys.platform == "win32":
-        import ctypes
-        ctypes.windll.kernel32.ExitProcess(code)
-    os._exit(code)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    if "--worker" in sys.argv:
+        raise SystemExit(worker())
+    raise SystemExit(parent())
