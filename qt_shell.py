@@ -804,12 +804,12 @@ class SpectraSuiteWindow(QMainWindow):
         ribbon_button("Export", "Export", self._ribbon_export)
         ribbon_button("Export", "Save figure", self._ribbon_save_figure)
 
-        ribbon_button("Learn", "User manual", lambda: self._open_learning_center("User Manual"))
-        ribbon_button("Learn", "Science of analysis", lambda: self._open_learning_center("Scientific workflow"))
-        ribbon_button("Learn", "Techniques", lambda: self._open_learning_center("FT-IR"))
-        ribbon_button("Learn", "Instrumentation", lambda: self._open_learning_center("FT-IR"))
-        ribbon_button("Learn", "Processing", lambda: self._open_learning_center("Baseline correction"))
-        ribbon_button("Learn", "Equations", lambda: self._open_learning_center("Equations used"))
+        ribbon_button("Learn", "User manual", lambda: self._open_learning_center("manual.getting_started"))
+        ribbon_button("Learn", "Science of analysis", lambda: self._open_learning_center("science.instrumentation"))
+        ribbon_button("Learn", "Techniques", lambda: self._open_learning_center("technique.ftir"))
+        ribbon_button("Learn", "Instrumentation", lambda: self._open_learning_center("technique.ftir"))
+        ribbon_button("Learn", "Processing", lambda: self._open_learning_center("processing.baseline"))
+        ribbon_button("Learn", "Equations", lambda: self._open_learning_center("science.references"))
 
         ribbon_button("Help", "Updates", self._ribbon_check_updates)
         ribbon_button("Help", "Privacy", self._ribbon_privacy)
