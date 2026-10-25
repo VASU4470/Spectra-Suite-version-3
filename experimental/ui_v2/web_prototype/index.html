@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SpectraSuite UI v2 Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="titlebar">
+      <div class="brand">SpectraSuite <span>UI v2 prototype</span></div>
+      <div class="window-actions">— □ ×</div>
+    </header>
+
+    <nav class="ribbon-tabs" aria-label="Ribbon tabs">
+      <button class="tab active" data-tab="home">Home</button>
+      <button class="tab" data-tab="data">Data</button>
+      <button class="tab" data-tab="plot">Plot</button>
+      <button class="tab" data-tab="process">Process</button>
+      <button class="tab" data-tab="analyze">Analyze</button>
+      <button class="tab" data-tab="annotate">Annotate</button>
+      <button class="tab" data-tab="view">View</button>
+      <button class="tab" data-tab="export">Export</button>
+      <div class="ribbon-spacer"></div>
+      <input id="commandSearch" class="command-search" placeholder="Search commands…" />
+    </nav>
+
+    <section id="ribbon" class="ribbon" aria-label="Ribbon commands"></section>
+
+    <main class="workspace-grid">
+      <aside class="project-panel" id="projectPanel">
+        <div class="panel-heading">
+          <strong>Project</strong>
+          <button id="collapseProject" title="Collapse project explorer">‹</button>
+        </div>
+        <div class="project-tree">
+          <div class="tree-root">▾ ZnO_FTIR</div>
+          <button class="tree-item active" data-doc="table">▦ Raw Data</button>
+          <button class="tree-item" data-doc="plot">⌁ FT-IR Plot</button>
+          <button class="tree-item" data-doc="peaks">⋮ Peak Results</button>
+          <div class="tree-root secondary">▾ Comparison</div>
+          <button class="tree-item" data-doc="overlay">⌁ Overlay Plot</button>
+        </div>
+      </aside>
+
+      <section class="document-area">
+        <div class="document-toolbar">
+          <button id="tileDocs">Tile</button>
+          <button id="showTable">Data</button>
+          <button id="showPlot">Plot</button>
+          <span class="context-label" id="contextLabel">Active: Raw Data</span>
+        </div>
+
+        <div id="docCanvas" class="doc-canvas tiled">
+          <article class="doc-window" id="tableDoc" data-type="table">
+            <header class="doc-title">
+              <span>Raw Data — ZnO_FTIR</span>
+              <div>
+                <button class="doc-max" data-target="tableDoc" title="Maximize">□</button>
+                <button class="doc-close" data-target="tableDoc" title="Hide">×</button>
+              </div>
+            </header>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>#</th><th>A(X) / cm⁻¹</th><th>B(Y) / Abs.</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>1</td><td>4000</td><td>0.102</td></tr>
+                  <tr><td>2</td><td>3500</td><td>0.184</td></tr>
+                  <tr><td>3</td><td>3000</td><td>0.221</td></tr>
+                  <tr><td>4</td><td>2500</td><td>0.195</td></tr>
+                  <tr><td>5</td><td>2000</td><td>0.312</td></tr>
+                  <tr><td>6</td><td>1500</td><td>0.481</td></tr>
+                  <tr><td>7</td><td>1000</td><td>0.358</td></tr>
+                  <tr><td>8</td><td>500</td><td>0.149</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="doc-window" id="plotDoc" data-type="plot">
+            <header class="doc-title">
+              <span>FT-IR Plot — ZnO_FTIR</span>
+              <div>
+                <button id="axisProps" title="Axis properties">⚙</button>
+                <button class="doc-max" data-target="plotDoc" title="Maximize">□</button>
+                <button class="doc-close" data-target="plotDoc" title="Hide">×</button>
+              </div>
+            </header>
+            <div class="plot-surface">
+              <svg viewBox="0 0 720 420" role="img" aria-label="Dummy FTIR plot">
+                <rect x="58" y="28" width="620" height="326" class="plot-bg"/>
+                <line x1="58" y1="354" x2="678" y2="354" class="axis"/>
+                <line x1="58" y1="28" x2="58" y2="354" class="axis"/>
+                <polyline class="spectrum" points="58,106 120,112 182,101 244,135 306,92 368,178 430,120 492,238 554,168 616,292 678,210"/>
+                <text x="340" y="398" class="axis-label">Wavenumber (cm⁻¹)</text>
+                <text x="17" y="215" class="axis-label y-label">Absorbance</text>
+                <text x="66" y="48" class="plot-label">ZnO_FTIR</text>
+              </svg>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <span>FT-IR</span>
+      <span>ZnO_FTIR</span>
+      <span>8 points</span>
+      <span id="statusText">Ready</span>
+      <span class="grow"></span>
+      <span>Zoom 100%</span>
+    </footer>
+  </div>
+
+  <dialog id="axisDialog">
+    <form method="dialog" class="dialog-card">
+      <header>
+        <h2>Axis Properties</h2>
+        <button value="cancel" class="icon-close">×</button>
+      </header>
+      <div class="axis-choice">
+        <button type="button" class="axis-pill active">Bottom X</button>
+        <button type="button" class="axis-pill">Top X</button>
+        <button type="button" class="axis-pill">Left Y</button>
+        <button type="button" class="axis-pill">Right Y</button>
+      </div>
+      <div class="dialog-tabs">
+        <button type="button" class="dialog-tab active">Scale</button>
+        <button type="button" class="dialog-tab">Appearance</button>
+        <button type="button" class="dialog-tab">Labels</button>
+        <button type="button" class="dialog-tab">Grid</button>
+      </div>
+      <section class="form-grid">
+        <label>Minimum <input value="4000" /></label>
+        <label>Maximum <input value="400" /></label>
+        <label>Scale type <select><option>Linear</option><option>Log</option></select></label>
+        <label>Direction <select><option>Reversed</option><option>Normal</option></select></label>
+        <label>Major ticks <select><option>Automatic</option><option>Interval</option></select></label>
+        <label>Minor ticks <input value="4" /></label>
+      </section>
+      <footer>
+        <button value="cancel">Cancel</button>
+        <button type="button" id="applyAxis">Apply</button>
+        <button value="ok" class="primary">OK</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

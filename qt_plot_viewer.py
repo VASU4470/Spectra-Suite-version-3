@@ -36,6 +36,8 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenuBar,
     QMessageBox,
+    QMdiArea,
+    QMdiSubWindow,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -44,6 +46,8 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -71,6 +75,7 @@ from readers import read_generic_configured, robust_read_spectrum
 from qt_uvvis import UVVisAnalysisDialog
 from qt_raman import RamanAnalysisDialog
 from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
+from qt_ui_v2_properties import AxisPropertiesDialog, PlotPropertiesDialog
 from qt_updates import (
     PrivacyPreferencesDialog,
     UpdateController,
@@ -94,6 +99,53 @@ from spectral_preprocessing import subtract_reference, trim_noisy_edges
 
 STYLE = LIGHT_STYLE + """
 QLabel#cursor { color: #1d4ed8; font-weight: 700; }
+QTabWidget#uiV2RibbonTabs::pane {
+    background-color: #ffffff;
+    border: none;
+    border-top: 1px solid #e2e8f0;
+}
+QTabWidget#uiV2RibbonTabs QTabBar::tab {
+    background-color: #ffffff;
+    color: #334155;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 7px 13px;
+}
+QTabWidget#uiV2RibbonTabs QTabBar::tab:selected {
+    color: #1d4ed8;
+    background-color: #ffffff;
+    border-bottom: 3px solid #2563eb;
+    font-weight: 700;
+}
+QToolButton#uiV2RibbonButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 7px 10px;
+    min-width: 72px;
+}
+QToolButton#uiV2RibbonButton:hover {
+    background-color: #e9f0ff;
+    border-color: #cedcff;
+}
+QTreeWidget#uiV2ProjectTree {
+    background-color: transparent;
+    border: none;
+    outline: none;
+}
+QTreeWidget#uiV2ProjectTree::item {
+    padding: 5px 4px;
+    border-radius: 5px;
+}
+QTreeWidget#uiV2ProjectTree::item:selected {
+    color: #164aa8;
+    background-color: #e9f0ff;
+}
+QMdiArea#uiV2Mdi { background-color: #dfe5ed; }
+QMdiSubWindow {
+    background-color: #ffffff;
+    border: 1px solid #bfc8d4;
+}
 """
 
 
@@ -543,41 +595,111 @@ class PlotViewer(QDialog):
         inspector_header.addWidget(inspector_titles, 1)
         self.controls_layout.addLayout(inspector_header)
 
+        # UI v2: ribbon + compact Project Explorer + multi-document workspace.
+        # Existing scientific controls remain intact and are shown on demand in
+        # tool dialogs rather than occupying a permanent right-side inspector.
+        self.ribbon_tabs = QTabWidget()
+        self.ribbon_tabs.setObjectName("uiV2RibbonTabs")
+        self.ribbon_tabs.setDocumentMode(True)
+        self.ribbon_tabs.tabBar().setExpanding(False)
+        self.ribbon_pages = {}
+        root.addWidget(self.ribbon_tabs)
+
+        for tab_name in (
+            "Home", "Data", "Plot", "Process", "Analyze",
+            "Annotate", "View", "Export",
+        ):
+            page = QWidget()
+            page_layout = QHBoxLayout(page)
+            page_layout.setContentsMargins(8, 4, 8, 4)
+            page_layout.setSpacing(5)
+            self.ribbon_pages[tab_name] = (page, page_layout)
+            self.ribbon_tabs.addTab(page, tab_name)
+
+        def ribbon_button(tab_name, text, slot, tooltip=""):
+            page, layout = self.ribbon_pages[tab_name]
+            button = QToolButton()
+            button.setObjectName("uiV2RibbonButton")
+            button.setText(text)
+            button.setToolTip(tooltip or text)
+            button.setAccessibleName(tooltip or text)
+            button.clicked.connect(slot)
+            layout.addWidget(button)
+            return button
+
+        ribbon_button("Home", "Add data", self.add_files, "Import another spectrum")
+        ribbon_button("Home", "Save", lambda: self.save_session(save_as=True), "Save workspace session")
+        ribbon_button("Home", "Undo", self._undo_active)
+        ribbon_button("Home", "Redo", self._redo_active)
+
+        ribbon_button("Data", "Data table", lambda: self._activate_workspace_document("table"))
+        ribbon_button("Data", "Apply table", self._apply_data_table)
+        ribbon_button("Data", "Formula", self._create_formula_column)
+
+        ribbon_button("Plot", "Plot", lambda: self._activate_workspace_document("plot"))
+        ribbon_button("Plot", "Axis properties", self.open_axis_properties)
+        ribbon_button("Plot", "Plot properties", self.open_plot_properties)
+        ribbon_button("Plot", "Legend", self.open_plot_properties)
+        ribbon_button("Plot", "Fit view", lambda: self.toolbar.home())
+
+        ribbon_button("Process", "Prepare", lambda: self._open_workflow_dialog("Prepare"))
+        ribbon_button("Process", "Baseline / Smooth", lambda: self._open_workflow_dialog("Prepare"))
+        ribbon_button("Process", "Normalize", lambda: self._open_workflow_dialog("Prepare"))
+
+        ribbon_button("Analyze", "Analysis tools", lambda: self._open_workflow_dialog("Analyze"))
+        ribbon_button("Analyze", "Auto peaks", self.auto_find_peaks)
+
+        ribbon_button("Annotate", "Annotation tools", lambda: self._open_workflow_dialog("Annotate"))
+
+        ribbon_button("View", "Tile", self._tile_workspace_documents)
+        ribbon_button("View", "Plot", lambda: self._activate_workspace_document("plot"))
+        ribbon_button("View", "Data", lambda: self._activate_workspace_document("table"))
+        ribbon_button("View", "Results", lambda: self._activate_workspace_document("results"))
+        ribbon_button("View", "History", lambda: self._activate_workspace_document("history"))
+
+        ribbon_button("Export", "Export center", lambda: self._open_workflow_dialog("Export"))
+        ribbon_button("Export", "Save figure", self.export_figure)
+        ribbon_button("Export", "Export data", self.export_data)
+
+        for _page, layout in self.ribbon_pages.values():
+            layout.addStretch(1)
+        # The persistent SpectraSuite shell owns the ribbon for embedded
+        # analyses.  Standalone PlotViewer windows retain their own ribbon.
+        if self.embedded:
+            self.ribbon_tabs.hide()
+
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         root.addWidget(self.splitter, 1)
 
         self.project_sidebar = QFrame()
         self.project_sidebar.setObjectName("projectSidebar")
-        self.project_sidebar.setMinimumWidth(205)
-        self.project_sidebar.setMaximumWidth(310)
+        self.project_sidebar.setMinimumWidth(180)
+        self.project_sidebar.setMaximumWidth(290)
         project_sidebar_layout = QVBoxLayout(self.project_sidebar)
-        project_sidebar_layout.setContentsMargins(10, 10, 10, 10)
-        project_sidebar_layout.setSpacing(7)
+        project_sidebar_layout.setContentsMargins(8, 8, 8, 8)
+        project_sidebar_layout.setSpacing(6)
         new_analysis = QPushButton("+  New analysis")
         new_analysis.setObjectName("primary")
         new_analysis.setToolTip("Import another spectrum into this workspace")
         new_analysis.clicked.connect(self.add_files)
         project_sidebar_layout.addWidget(new_analysis)
-        data_heading = QLabel("PROJECT DATA")
+        data_heading = QLabel("PROJECT")
         data_heading.setObjectName("sectionLabel")
         project_sidebar_layout.addWidget(data_heading)
-        self.project_data_list = QListWidget()
+
+        self.project_tree = QTreeWidget()
+        self.project_tree.setObjectName("uiV2ProjectTree")
+        self.project_tree.setHeaderHidden(True)
+        self.project_tree.setRootIsDecorated(True)
+        self.project_tree.currentItemChanged.connect(self._project_tree_selected)
+        project_sidebar_layout.addWidget(self.project_tree, 1)
+
+        # Historical flat list retained off-screen for extension compatibility.
+        self.project_data_list = QListWidget(self)
         self.project_data_list.setObjectName("projectDataList")
-        self.project_data_list.setMinimumHeight(150)
         self.project_data_list.currentItemChanged.connect(self._project_series_selected)
-        project_sidebar_layout.addWidget(self.project_data_list, 1)
-        quick_heading = QLabel("WORKFLOWS")
-        quick_heading.setObjectName("sectionLabel")
-        project_sidebar_layout.addWidget(quick_heading)
-        prepare_shortcut = QPushButton("≈  Prepare figure")
-        prepare_shortcut.setObjectName("sidebarAction")
-        prepare_shortcut.clicked.connect(lambda: self._activate_workflow("Prepare"))
-        project_sidebar_layout.addWidget(prepare_shortcut)
-        peaks_shortcut = QPushButton("⌁  Find peaks")
-        peaks_shortcut.setObjectName("sidebarAction")
-        peaks_shortcut.clicked.connect(lambda: self._activate_workflow("Analyze"))
-        project_sidebar_layout.addWidget(peaks_shortcut)
+        self.project_data_list.hide()
         project_sidebar_layout.addStretch()
         data_help = QLabel("Select a spectrum here or click a line directly on the plot.")
         data_help.setObjectName("mutedLabel")
@@ -590,33 +712,6 @@ class PlotViewer(QDialog):
         center_layout = QVBoxLayout(self.center_panel)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(0)
-
-        self.workflow_bar = QFrame()
-        self.workflow_bar.setObjectName("workflowBar")
-        workflow_layout = QHBoxLayout(self.workflow_bar)
-        workflow_layout.setContentsMargins(8, 5, 8, 5)
-        workflow_layout.setSpacing(2)
-        self.workflow_button_group = QButtonGroup(self)
-        self.workflow_button_group.setExclusive(True)
-        self.workflow_buttons = {}
-        for index, (name, glyph) in enumerate((
-            ("Prepare", "≈"), ("Analyze", "⌁"), ("Style", "◐"),
-            ("Annotate", "T"), ("Export", "↓"),
-        )):
-            button = QToolButton()
-            button.setText(f"{glyph}  {name}")
-            button.setToolTip(f"Open {name.lower()} tools")
-            button.setAccessibleName(f"{name} workflow")
-            button.setCheckable(True)
-            button.setObjectName("workflowButton")
-            button.clicked.connect(
-                lambda checked=False, selected=name: checked and self._activate_workflow(selected)
-            )
-            self.workflow_button_group.addButton(button, index)
-            self.workflow_buttons[name] = button
-            workflow_layout.addWidget(button)
-        workflow_layout.addStretch()
-        center_layout.addWidget(self.workflow_bar)
 
         self.series_bar = QFrame()
         self.series_bar.setObjectName("seriesBar")
@@ -633,6 +728,34 @@ class PlotViewer(QDialog):
         self.series_scroll.setMaximumHeight(64)
         self.series_scroll.setWidget(self.series_bar)
         center_layout.addWidget(self.series_scroll)
+
+        self.workspace_toolbar = QFrame()
+        self.workspace_toolbar.setObjectName("workflowBar")
+        workspace_toolbar_layout = QHBoxLayout(self.workspace_toolbar)
+        workspace_toolbar_layout.setContentsMargins(8, 4, 8, 4)
+        workspace_toolbar_layout.setSpacing(4)
+        for label, slot in (
+            ("Tile", self._tile_workspace_documents),
+            ("Plot", lambda: self._activate_workspace_document("plot")),
+            ("Data", lambda: self._activate_workspace_document("table")),
+            ("Results", lambda: self._activate_workspace_document("results")),
+            ("History", lambda: self._activate_workspace_document("history")),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(slot)
+            workspace_toolbar_layout.addWidget(button)
+        self.active_document_label = QLabel("Active: Plot")
+        self.active_document_label.setObjectName("mutedLabel")
+        workspace_toolbar_layout.addWidget(self.active_document_label)
+        workspace_toolbar_layout.addStretch(1)
+        center_layout.addWidget(self.workspace_toolbar)
+
+        self.workspace_mdi = QMdiArea()
+        self.workspace_mdi.setObjectName("uiV2Mdi")
+        self.workspace_mdi.setViewMode(QMdiArea.ViewMode.SubWindowView)
+        self.workspace_mdi.setActivationOrder(QMdiArea.WindowOrder.ActivationHistoryOrder)
+        self.workspace_mdi.subWindowActivated.connect(self._workspace_document_activated)
+        center_layout.addWidget(self.workspace_mdi, 1)
 
         self.plot_panel = QWidget()
         plot_layout = QVBoxLayout(self.plot_panel)
@@ -653,19 +776,6 @@ class PlotViewer(QDialog):
         toolbar_row.addWidget(self.toolbar_toggle)
         plot_layout.addLayout(toolbar_row)
         plot_layout.addWidget(self.cursor_label)
-        self.canvas_tabs = QTabWidget()
-        self.canvas_tabs.setObjectName("canvasTabs")
-        self.canvas_tabs.setDocumentMode(True)
-        self.canvas_tabs.addTab(self.plot_panel, "Plot")
-        center_layout.addWidget(self.canvas_tabs, 1)
-
-        results_page = QWidget()
-        results_layout = QVBoxLayout(results_page)
-        results_layout.setContentsMargins(10, 8, 10, 8)
-        self.results_list = QListWidget()
-        self.results_list.setObjectName("resultsList")
-        self.results_list.addItem("Analysis results will appear here.")
-        results_layout.addWidget(self.results_list)
 
         table_page = QWidget()
         table_page.setObjectName("dataWorkspace")
@@ -709,22 +819,14 @@ class PlotViewer(QDialog):
         apply_table.clicked.connect(self._apply_data_table)
         data_tools.addWidget(apply_table)
         table_layout.addLayout(data_tools)
-        self.canvas_tabs.addTab(table_page, "Data table")
-        self.canvas_tabs.currentChanged.connect(self._canvas_view_changed)
 
-        self.splitter.addWidget(self.center_panel)
-
-        # Inspector, results and history share one full-height right sidebar.
-        # A vertical tab rail avoids the old bottom drawer stealing height from
-        # both the plot and the spreadsheet-style data table.
-        self.right_sidebar = QTabWidget()
-        self.right_sidebar.setObjectName("rightSidebarTabs")
-        self.right_sidebar.setDocumentMode(True)
-        self.right_sidebar.setTabPosition(QTabWidget.TabPosition.West)
-        self.right_sidebar.setMinimumWidth(340)
-        self.right_sidebar.setMaximumWidth(900)
-        self.right_sidebar.addTab(self.controls, "Inspector")
-        self.right_sidebar.addTab(results_page, "Results")
+        results_page = QWidget()
+        results_layout = QVBoxLayout(results_page)
+        results_layout.setContentsMargins(10, 8, 10, 8)
+        self.results_list = QListWidget()
+        self.results_list.setObjectName("resultsList")
+        self.results_list.addItem("Analysis results will appear here.")
+        results_layout.addWidget(self.results_list)
 
         history_page = QWidget()
         history_layout = QVBoxLayout(history_page)
@@ -732,24 +834,160 @@ class PlotViewer(QDialog):
         self.history_list = QListWidget()
         self.history_list.setObjectName("historyList")
         history_layout.addWidget(self.history_list)
-        self.right_sidebar.addTab(history_page, "History")
 
-        # Retain the historical attributes for lightweight extension code.
-        self.detail_tabs = self.right_sidebar
-        self.data_panel = self.right_sidebar
-        self.splitter.addWidget(self.right_sidebar)
+        self.workspace_documents = {}
+        for key, title_text, widget in (
+            ("plot", "Plot", self.plot_panel),
+            ("table", "Data table", table_page),
+            ("results", "Results", results_page),
+            ("history", "History", history_page),
+        ):
+            subwindow = QMdiSubWindow()
+            subwindow.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+            subwindow.setWindowTitle(title_text)
+            subwindow.setWidget(widget)
+            self.workspace_mdi.addSubWindow(subwindow)
+            subwindow.show()
+            self.workspace_documents[key] = subwindow
+
+        self.splitter.addWidget(self.center_panel)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setStretchFactor(2, 0)
-        self.splitter.setSizes([225, 800, 460])
+        self.splitter.setSizes([210, 1050])
 
-        self.controls_toggle = PanelToggleButton(self.right_sidebar, "right", self)
-        self.controls_toggle.setToolTip("Hide Inspector, Results and History")
-        header.addWidget(self.controls_toggle)
+        # Compatibility hosts keep legacy code and extension attributes alive,
+        # but neither is visible in the v2 workspace.
+        self.canvas_tabs = QTabWidget(self)
+        self.canvas_tabs.addTab(QWidget(), "Plot")
+        self.canvas_tabs.addTab(QWidget(), "Data table")
+        self.canvas_tabs.hide()
+        self.canvas_tabs.currentChanged.connect(self._canvas_view_changed)
+
+        self.right_sidebar = QTabWidget(self)
+        self.right_sidebar.hide()
+        self.detail_tabs = self.right_sidebar
+        self.data_panel = self.right_sidebar
+
+        self.tool_host = QWidget(self)
+        self.tool_host.hide()
+        self.tool_host_layout = QVBoxLayout(self.tool_host)
+        self.tool_host_layout.setContentsMargins(0, 0, 0, 0)
+        self.tool_host_layout.addWidget(self.controls)
+
+        # Retain workflow button references for extension compatibility.
+        self.workflow_button_group = QButtonGroup(self)
+        self.workflow_button_group.setExclusive(True)
+        self.workflow_buttons = {}
+        for index, name in enumerate(("Prepare", "Analyze", "Style", "Annotate", "Export")):
+            button = QToolButton(self)
+            button.setCheckable(True)
+            button.hide()
+            button.clicked.connect(
+                lambda checked=False, selected=name: checked and self._open_workflow_dialog(selected)
+            )
+            self.workflow_button_group.addButton(button, index)
+            self.workflow_buttons[name] = button
+
+        self.controls_toggle = QToolButton(self)
+        self.controls_toggle.hide()
         self.project_toggle = PanelToggleButton(self.project_sidebar, "left", self)
-        self.project_toggle.setToolTip("Hide project sidebar")
+        self.project_toggle.setToolTip("Hide Project Explorer")
         header.insertWidget(max(0, header.count() - 1), self.project_toggle)
+        self.project_toggle.toggled.connect(
+            lambda hidden: self.project_sidebar.setVisible(not hidden)
+        )
+
         self._sync_history_list()
+        self._tile_workspace_documents()
+
+    def _activate_workspace_document(self, key):
+        subwindow = self.workspace_documents.get(key)
+        if subwindow is None:
+            return
+        if subwindow.isHidden():
+            subwindow.show()
+        self.workspace_mdi.setActiveSubWindow(subwindow)
+        subwindow.showNormal()
+        subwindow.raise_()
+
+    def _tile_workspace_documents(self):
+        for subwindow in self.workspace_documents.values():
+            if subwindow.isHidden():
+                subwindow.show()
+            subwindow.showNormal()
+        self.workspace_mdi.tileSubWindows()
+
+    def _workspace_document_activated(self, subwindow):
+        if subwindow is None:
+            return
+        key = next(
+            (name for name, candidate in self.workspace_documents.items()
+             if candidate is subwindow),
+            None,
+        )
+        if key is None:
+            return
+        labels = {
+            "plot": "Plot",
+            "table": "Data table",
+            "results": "Results",
+            "history": "History",
+        }
+        self.active_document_label.setText(f"Active: {labels.get(key, key)}")
+        target_tab = {"plot": "Plot", "table": "Data"}.get(key)
+        if target_tab:
+            for index in range(self.ribbon_tabs.count()):
+                if self.ribbon_tabs.tabText(index) == target_tab:
+                    self.ribbon_tabs.setCurrentIndex(index)
+                    break
+        compatibility_index = {"plot": 0, "table": 1}.get(key)
+        if compatibility_index is not None and self.canvas_tabs.currentIndex() != compatibility_index:
+            self.canvas_tabs.blockSignals(True)
+            self.canvas_tabs.setCurrentIndex(compatibility_index)
+            self.canvas_tabs.blockSignals(False)
+
+    def open_axis_properties(self):
+        """Open focused axis properties without exposing the full style toolset."""
+        dialog = AxisPropertiesDialog(self, self)
+        dialog.exec()
+
+    def open_plot_properties(self):
+        """Open focused series and legend properties."""
+        dialog = PlotPropertiesDialog(self, self)
+        dialog.exec()
+
+    def _open_workflow_dialog(self, name):
+        """Show the existing scientific controls on demand without a fixed inspector."""
+        self._activate_workflow(name)
+        existing = getattr(self, "_tool_dialog", None)
+        if existing is not None and existing.isVisible():
+            existing.setWindowTitle(f"{name} — {self.windowTitle()}")
+            existing.raise_()
+            existing.activateWindow()
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"{name} — {self.windowTitle()}")
+        dialog.resize(620, 760)
+        dialog.setMinimumSize(520, 560)
+        layout = QVBoxLayout(dialog)
+        self.controls.setParent(dialog)
+        self.controls.show()
+        layout.addWidget(self.controls, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(dialog.accept)
+        layout.addWidget(buttons)
+
+        def restore_controls(_result=0):
+            self.controls.setParent(self.tool_host)
+            self.tool_host_layout.addWidget(self.controls)
+            self.controls.hide()
+            self._tool_dialog = None
+
+        dialog.finished.connect(restore_controls)
+        self._tool_dialog = dialog
+        dialog.show()
 
     def _activate_workflow(self, name):
         """Show one contextual tool family without changing analysis state."""
@@ -769,11 +1007,8 @@ class PlotViewer(QDialog):
         title, subtitle = descriptions[name]
         self.inspector_title.setText(title)
         self.inspector_subtitle.setText(subtitle)
-        if self.right_sidebar.isHidden():
-            self.controls_toggle.set_panel_visible(True)
-        self.right_sidebar.setCurrentIndex(0)
         if name == "Analyze":
-            self.canvas_tabs.setCurrentIndex(0)
+            self._activate_workspace_document("plot")
 
     def _run_command_search(self):
         """Route a plain-language command search to the relevant workflow."""
@@ -792,9 +1027,9 @@ class PlotViewer(QDialog):
             None,
         )
         if destination:
-            self._activate_workflow(destination)
+            self._open_workflow_dialog(destination)
             if destination == "Prepare" and "table" in query:
-                self.canvas_tabs.setCurrentIndex(1)
+                self._activate_workspace_document("table")
             self.command_search.clear()
             self.command_search.setPlaceholderText(f"Opened {destination} tools")
         else:
@@ -805,9 +1040,26 @@ class PlotViewer(QDialog):
             )
 
     def _canvas_view_changed(self, index):
-        """Keep the inspector relevant when the central document changes."""
-        if index == 1 and hasattr(self, "tabs"):
-            self._activate_workflow("Prepare")
+        """Compatibility bridge from legacy Plot/Data tab calls to v2 documents."""
+        if index == 1:
+            self._activate_workspace_document("table")
+            if hasattr(self, "tabs"):
+                self._activate_workflow("Prepare")
+        elif index == 0:
+            self._activate_workspace_document("plot")
+
+    def _project_tree_selected(self, item, _previous=None):
+        if item is None:
+            return
+        payload = item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, tuple) or len(payload) != 2:
+            return
+        kind, value = payload
+        if kind == "series":
+            if hasattr(self, "file_combo") and value in self.data_dict:
+                self.file_combo.setCurrentText(value)
+        elif kind == "document":
+            self._activate_workspace_document(value)
 
     def _project_series_selected(self, item, _previous=None):
         if item is None or not hasattr(self, "file_combo"):
@@ -841,6 +1093,47 @@ class PlotViewer(QDialog):
         if current_item is not None:
             self.project_data_list.setCurrentItem(current_item)
         self.project_data_list.blockSignals(False)
+        self._sync_project_tree()
+
+    def _sync_project_tree(self):
+        if not hasattr(self, "project_tree"):
+            return
+        self.project_tree.blockSignals(True)
+        self.project_tree.clear()
+
+        data_root = QTreeWidgetItem(["Data"])
+        data_root.setExpanded(True)
+        self.project_tree.addTopLevelItem(data_root)
+        current_tree_item = None
+        for stem in self.stems:
+            settings = state.file_set.get(stem, {})
+            display_name = str(settings.get("custom_name", stem))
+            item = QTreeWidgetItem([display_name])
+            item.setData(0, Qt.ItemDataRole.UserRole, ("series", stem))
+            item.setToolTip(0, f"Source: {stem}")
+            color = QColor(str(settings.get("color", "#2563eb")))
+            if color.isValid():
+                item.setForeground(0, QBrush(color))
+            data_root.addChild(item)
+            if stem == self.current_stem:
+                current_tree_item = item
+
+        documents_root = QTreeWidgetItem(["Documents"])
+        documents_root.setExpanded(True)
+        self.project_tree.addTopLevelItem(documents_root)
+        for label, key in (
+            ("Plot", "plot"),
+            ("Data table", "table"),
+            ("Results", "results"),
+            ("History", "history"),
+        ):
+            item = QTreeWidgetItem([label])
+            item.setData(0, Qt.ItemDataRole.UserRole, ("document", key))
+            documents_root.addChild(item)
+
+        if current_tree_item is not None:
+            self.project_tree.setCurrentItem(current_tree_item)
+        self.project_tree.blockSignals(False)
 
     def _sync_series_chips(self):
         if not hasattr(self, "series_chip_layout"):
@@ -957,9 +1250,15 @@ class PlotViewer(QDialog):
         )
         edit_menu.addAction(formula_action)
         edit_menu.addSeparator()
+        axis_properties = QAction("Axis &properties…", self)
+        axis_properties.triggered.connect(self.open_axis_properties)
+        edit_menu.addAction(axis_properties)
+        plot_properties = QAction("Plot &properties…", self)
+        plot_properties.triggered.connect(self.open_plot_properties)
+        edit_menu.addAction(plot_properties)
         rename_legend = QAction("Edit selected &legend name", self)
         rename_legend.triggered.connect(
-            lambda: (self._activate_workflow("Style"), self._edit_selected_legend_name())
+            lambda: (self._open_workflow_dialog("Style"), self._edit_selected_legend_name())
         )
         edit_menu.addAction(rename_legend)
 
@@ -974,36 +1273,39 @@ class PlotViewer(QDialog):
         history_menu.addAction(redo_action)
 
         view_menu = menu_bar.addMenu("&View")
-        self.view_project_action = QAction("Project and data sidebar", self)
-        self.view_controls_action = QAction("Inspector, results and history sidebar", self)
+        self.view_project_action = QAction("Project Explorer", self)
+        self.view_project_action.setCheckable(True)
+        self.view_project_action.setChecked(True)
+        view_menu.addAction(self.view_project_action)
+        self.view_project_action.toggled.connect(self.project_sidebar.setVisible)
+
+        self.view_controls_action = QAction("Open current tool dialog", self)
+        self.view_controls_action.triggered.connect(
+            lambda: self._open_workflow_dialog("Prepare")
+        )
+        view_menu.addAction(self.view_controls_action)
+
         self.view_toolbar_action = QAction("Plot navigation toolbar", self)
-        for action in (
-            self.view_project_action, self.view_controls_action, self.view_toolbar_action,
-        ):
-            action.setCheckable(True)
-            action.setChecked(True)
-            view_menu.addAction(action)
-        self.view_project_action.toggled.connect(self.project_toggle.set_panel_visible)
-        self.view_controls_action.toggled.connect(self.controls_toggle.set_panel_visible)
-        self.view_toolbar_action.toggled.connect(self.toolbar_toggle.set_panel_visible)
-        self.project_toggle.toggled.connect(
-            lambda hidden: self.view_project_action.setChecked(not hidden)
-        )
-        self.controls_toggle.toggled.connect(
-            lambda hidden: self.view_controls_action.setChecked(not hidden)
-        )
+        self.view_toolbar_action.setCheckable(True)
+        self.view_toolbar_action.setChecked(True)
+        self.view_toolbar_action.toggled.connect(self.toolbar.setVisible)
         self.toolbar_toggle.toggled.connect(
             lambda hidden: self.view_toolbar_action.setChecked(not hidden)
         )
+        view_menu.addAction(self.view_toolbar_action)
+
         view_menu.addSeparator()
-        plot_workspace = QAction("Show plot workspace", self)
+        plot_workspace = QAction("Show plot document", self)
         plot_workspace.setShortcut(QKeySequence("Ctrl+1"))
-        plot_workspace.triggered.connect(lambda: self.canvas_tabs.setCurrentIndex(0))
+        plot_workspace.triggered.connect(lambda: self._activate_workspace_document("plot"))
         view_menu.addAction(plot_workspace)
-        table_workspace = QAction("Show data-table workspace", self)
+        table_workspace = QAction("Show data-table document", self)
         table_workspace.setShortcut(QKeySequence("Ctrl+2"))
-        table_workspace.triggered.connect(lambda: self.canvas_tabs.setCurrentIndex(1))
+        table_workspace.triggered.connect(lambda: self._activate_workspace_document("table"))
         view_menu.addAction(table_workspace)
+        tile_workspace = QAction("Tile workspace documents", self)
+        tile_workspace.triggered.connect(self._tile_workspace_documents)
+        view_menu.addAction(tile_workspace)
 
         analysis_menu = menu_bar.addMenu("&Analysis")
         analysis_actions = []
@@ -1073,7 +1375,7 @@ class PlotViewer(QDialog):
                 add_action, replace_action, None, figure_action, export_action, save_action,
                 None, close_action,
             ],
-            "Edit": [apply_table, formula_action, None, rename_legend],
+            "Edit": [apply_table, formula_action, None, axis_properties, plot_properties, rename_legend],
             "History": [undo_action, redo_action],
             "View": [
                 self.view_project_action, self.view_controls_action,
@@ -2842,6 +3144,14 @@ class PlotViewer(QDialog):
 
     def on_click(self, event):
         mode = self.click_mode.currentData()
+        if (
+            getattr(event, "dblclick", False)
+            and event.inaxes is not None
+            and mode == "none"
+            and self.annotation_mgr.active_tool == "none"
+        ):
+            self.open_axis_properties()
+            return
         if mode == "none":
             stem = self._axes_to_stem.get(event.inaxes)
             if stem and stem != self.current_stem and self.annotation_mgr.active_tool == "none":
@@ -2958,14 +3268,14 @@ class PlotViewer(QDialog):
                 if result and not any(abs(item[0] - result[0]) < 0.01 for item in results):
                     results.append(result)
             self.update_plot()
-            self.right_sidebar.setCurrentIndex(1)
+            self._activate_workspace_document("results")
             return
         existing = fs.setdefault("labels", [])
         for index in peaks:
             if not any(abs(item[0] - x[index]) < (0.001 if state.technique == "LIBS" else 0.1) for item in existing):
                 existing.append((x[index], y[index], (f"{x[index]:.3f}" if state.technique == "LIBS" else f"{x[index]:.1f}")))
         self.update_plot()
-        self.right_sidebar.setCurrentIndex(1)
+        self._activate_workspace_document("results")
 
     def calculate_xrd_peak(self, x_click, x, y):
         x_values = np.asarray(x, dtype=float)

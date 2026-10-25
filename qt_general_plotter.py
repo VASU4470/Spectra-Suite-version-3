@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QDialog, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMenu,
     QListWidget, QMessageBox, QPushButton, QScrollArea, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 from annotations import AnnotationManager
 from column_math import FormulaError, evaluate_column_formula
@@ -25,6 +25,7 @@ from qt_export import export_figure_dialog
 from report_export import ExportItem
 from qt_import_support import install_import_support, open_curve_in_2d
 from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
+from qt_ui_v2_shared import park_panel, show_panel_dialog
 from qt_widgets import (
     AnnotationToolBar, ColumnFormulaDialog, CompactNavigationToolbar, PanelToggleButton, compact_action_bar,
 )
@@ -417,12 +418,15 @@ class GeneralPlotter(QWidget):
         plot_button = QPushButton("Plot / refresh"); plot_button.setObjectName("primary"); plot_button.clicked.connect(self.plot_data)
         controls_layout.addWidget(plot_button); controls_layout.addStretch()
         self.controls_scroll = QScrollArea(); self.controls_scroll.setWidgetResizable(True)
-        self.controls_scroll.setWidget(controls); self.controls_scroll.setMinimumWidth(260)
-        self.splitter.addWidget(self.controls_scroll)
-        self.splitter.setSizes([460, 650, 420])
+        self.controls_scroll.setWidget(controls); self.controls_scroll.setMinimumWidth(360)
+        park_panel(self, self.controls_scroll, host_name="_general_options_host")
+        self.splitter.setSizes([460, 980])
 
         self.data_toggle = PanelToggleButton(self.data_panel, "left", self)
-        self.options_toggle = PanelToggleButton(self.controls_scroll, "right", self)
+        self.options_toggle = QToolButton()
+        self.options_toggle.setText("Plot options…")
+        self.options_toggle.setToolTip("Open plot, axis, legend and annotation options")
+        self.options_toggle.clicked.connect(lambda: self._set_controls_visible(True))
         panel_header = QHBoxLayout()
         panel_header.addWidget(self.data_toggle)
         drop_hint = QLabel("Drop data files onto the table or plot")
@@ -433,12 +437,12 @@ class GeneralPlotter(QWidget):
         self.data_toggle.toggled.connect(
             lambda hidden: self.panel_actions["Data table"].setChecked(not hidden)
         )
-        self.options_toggle.toggled.connect(
-            lambda hidden: self.panel_actions["Plot options"].setChecked(not hidden)
-        )
         self.toolbar_toggle.toggled.connect(
             lambda hidden: self.panel_actions["Plot toolbar"].setChecked(not hidden)
         )
+        self.panel_actions["Plot options"].blockSignals(True)
+        self.panel_actions["Plot options"].setChecked(False)
+        self.panel_actions["Plot options"].blockSignals(False)
 
         self.x_column.currentTextChanged.connect(self._mapping_changed)
         self.y_columns.itemSelectionChanged.connect(self._mapping_changed)
@@ -459,7 +463,16 @@ class GeneralPlotter(QWidget):
         self.data_toggle.set_panel_visible(visible)
 
     def _set_controls_visible(self, visible):
-        self.options_toggle.set_panel_visible(visible)
+        if visible:
+            show_panel_dialog(
+                self, self.controls_scroll, "Plot Properties",
+                dialog_name="_general_options_dialog",
+                host_name="_general_options_host",
+            )
+        else:
+            dialog = getattr(self, "_general_options_dialog", None)
+            if dialog is not None:
+                dialog.close()
 
     def _set_toolbar_visible(self, visible):
         self.toolbar_toggle.set_panel_visible(visible)

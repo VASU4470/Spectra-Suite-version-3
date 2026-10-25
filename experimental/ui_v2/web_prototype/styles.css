@@ -1,0 +1,82 @@
+:root{
+  --bg:#edf1f6;--panel:#f7f9fc;--line:#cfd7e3;--text:#1c2736;--muted:#66768a;
+  --accent:#2f67d8;--accent-soft:#e9f0ff;--white:#fff;--shadow:0 8px 24px rgba(36,49,66,.12);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.app-shell{height:100vh;display:grid;grid-template-rows:34px 38px 90px 1fr 26px}
+.titlebar{display:flex;align-items:center;justify-content:space-between;padding:0 12px;background:#1f2937;color:#fff;font-size:13px}
+.brand span{opacity:.65;font-weight:400;margin-left:8px}
+.window-actions{letter-spacing:10px}
+.ribbon-tabs{display:flex;align-items:end;background:#fff;border-bottom:1px solid var(--line);padding:0 10px}
+.ribbon-tabs .tab{height:37px;padding:0 14px;border:0;background:transparent;color:#324155}
+.ribbon-tabs .tab.active{color:var(--accent);border-bottom:3px solid var(--accent);font-weight:700}
+.ribbon-spacer{flex:1}
+.command-search{margin:6px 4px 6px 12px;width:220px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:#f8fafc}
+.ribbon{display:flex;gap:8px;align-items:stretch;padding:8px 10px;background:#fff;border-bottom:1px solid var(--line);overflow-x:auto}
+.ribbon-group{display:flex;gap:6px;align-items:center;padding:0 10px;border-right:1px solid #dde3eb;position:relative}
+.ribbon-group:last-child{border-right:0}
+.ribbon-group .group-title{position:absolute;bottom:-2px;left:0;right:0;text-align:center;color:var(--muted);font-size:10px}
+.ribbon-btn{min-width:68px;height:58px;border:1px solid transparent;border-radius:6px;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#25364a}
+.ribbon-btn:hover{background:var(--accent-soft);border-color:#cedcff}
+.ribbon-btn .ico{font-size:22px}
+.ribbon-btn.small{min-width:86px;height:28px;flex-direction:row;justify-content:flex-start}
+.workspace-grid{min-height:0;display:grid;grid-template-columns:220px 1fr}
+.project-panel{background:#f8fafc;border-right:1px solid var(--line);min-width:0;transition:.2s}
+.project-panel.collapsed{width:34px;overflow:hidden}
+.panel-heading{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid var(--line)}
+.panel-heading button{border:0;background:transparent;font-size:20px}
+.project-tree{padding:8px}
+.tree-root{font-weight:700;padding:6px 4px}
+.tree-root.secondary{margin-top:10px}
+.tree-item{width:100%;text-align:left;border:0;background:transparent;padding:7px 10px 7px 22px;border-radius:5px;color:#35445a}
+.tree-item:hover,.tree-item.active{background:var(--accent-soft);color:#164aa8}
+.document-area{min-width:0;min-height:0;display:grid;grid-template-rows:36px 1fr}
+.document-toolbar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#f5f7fa;border-bottom:1px solid var(--line)}
+.document-toolbar button{border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 10px}
+.context-label{margin-left:8px;color:var(--muted);font-size:12px}
+.doc-canvas{min-height:0;display:grid;gap:8px;padding:8px;background:#dfe5ed}
+.doc-canvas.tiled{grid-template-columns:minmax(280px,.8fr) minmax(420px,1.2fr)}
+.doc-canvas.maximized{grid-template-columns:1fr}
+.doc-window{background:#fff;border:1px solid #bfc8d4;border-radius:5px;box-shadow:var(--shadow);min-width:0;min-height:0;display:grid;grid-template-rows:32px 1fr;overflow:hidden}
+.doc-window.hidden{display:none}
+.doc-window.max-only{display:grid}
+.doc-title{display:flex;align-items:center;justify-content:space-between;padding:0 8px;background:#f7f9fc;border-bottom:1px solid var(--line);font-size:12px;font-weight:700}
+.doc-title button{border:0;background:transparent;border-radius:4px}
+.doc-title button:hover{background:#e7ecf3}
+.table-wrap{overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{border:1px solid #dce2e9;padding:7px 9px;text-align:right}
+th:first-child,td:first-child{text-align:center;background:#f4f6f9}
+th{position:sticky;top:0;background:#eef2f7}
+.plot-surface{padding:12px;display:flex;align-items:center;justify-content:center;overflow:auto}
+.plot-surface svg{width:100%;height:100%;max-height:520px;background:#fff}
+.plot-bg{fill:#fff;stroke:#cfd6df}
+.axis{stroke:#35445a;stroke-width:1.4}
+.spectrum{fill:none;stroke:#2d63c8;stroke-width:2.5}
+.axis-label,.plot-label{font-size:16px;fill:#324155}
+.y-label{transform:rotate(-90deg);transform-origin:17px 215px}
+.statusbar{display:flex;align-items:center;gap:14px;padding:0 10px;background:#1f2937;color:#e5e7eb;font-size:11px}
+.statusbar .grow{flex:1}
+dialog{border:0;border-radius:10px;padding:0;box-shadow:0 20px 60px rgba(0,0,0,.3);width:min(680px,90vw)}
+dialog::backdrop{background:rgba(15,23,42,.35)}
+.dialog-card{padding:0}
+.dialog-card>header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
+.dialog-card h2{margin:0;font-size:18px}
+.icon-close{border:0;background:transparent;font-size:22px}
+.axis-choice,.dialog-tabs{display:flex;gap:6px;padding:10px 16px;border-bottom:1px solid #e3e7ed}
+.axis-pill,.dialog-tab{border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 10px}
+.axis-pill.active,.dialog-tab.active{background:var(--accent-soft);border-color:#b7caff;color:#184ca8}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px}
+.form-grid label{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:8px;font-size:13px}
+.form-grid input,.form-grid select{padding:7px;border:1px solid var(--line);border-radius:5px}
+.dialog-card>footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
+.dialog-card>footer button{padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:5px}
+.dialog-card>footer .primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+@media(max-width:900px){
+  .workspace-grid{grid-template-columns:170px 1fr}
+  .doc-canvas.tiled{grid-template-columns:1fr}
+  .command-search{width:160px}
+}

@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.6.0-rc.1 — Redesigned workspace and Learning Center
+
+- Introduce the redesigned scientific workspace and shared UI-v2 presentation infrastructure in the production application.
+- Integrate the Learning Center / in-app user manual and scientific guidance into the single-window workflow.
+- Add shared property and presentation components used by spectroscopy and general plotting workspaces.
+- Extend regression coverage for the redesigned workspace, Learning Center content, document behavior, and scientific conventions.
+- Harden the PySide6 CI smoke-test harness so completed successful test results are preserved even if Qt/Matplotlib teardown later crashes or hangs.
+- Preserve existing scientific calculations, processing defaults, import/export behavior, saved-session compatibility, updater behavior, and preview/Coming Soon labels.
+
 ## 3.5.3-rc.1 — Ribbon action placement
 
 - Restore “+ New analysis” at the far right of the tab ribbon.

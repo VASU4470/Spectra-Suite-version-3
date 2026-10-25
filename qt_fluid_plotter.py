@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMessageBox,
     QPushButton, QInputDialog, QScrollArea, QSpinBox, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 from fluid_reader import TecplotField, aligned_difference, read_tecplot
@@ -21,6 +21,7 @@ from qt_export import export_figure_dialog
 from report_export import ExportItem
 from qt_import_support import install_import_support, open_curve_in_2d
 from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
+from qt_ui_v2_shared import park_panel, show_panel_dialog
 from qt_widgets import CompactNavigationToolbar, PanelToggleButton
 
 
@@ -82,8 +83,19 @@ class FluidPlotter(QWidget):
         all_button=QPushButton("Plot all"); all_button.clicked.connect(self.plot_all)
         controls_layout.addWidget(selected); controls_layout.addWidget(all_button); controls_layout.addStretch()
         self.controls_scroll=QScrollArea(); self.controls_scroll.setWidgetResizable(True); self.controls_scroll.setWidget(controls)
-        self.splitter.addWidget(self.controls_scroll); self.splitter.setSizes([330,850,360])
-        self.data_toggle=PanelToggleButton(self.data_panel,"left",self); self.controls_toggle=PanelToggleButton(self.controls_scroll,"right",self)
+        self.controls_scroll.setMinimumWidth(380)
+        park_panel(self, self.controls_scroll, host_name="_fluid_options_host")
+        self.splitter.setSizes([330,1180])
+        self.data_toggle=PanelToggleButton(self.data_panel,"left",self)
+        self.controls_toggle=QToolButton(); self.controls_toggle.setText("Fluid options…")
+        self.controls_toggle.setToolTip("Open fluid plot and field options")
+        self.controls_toggle.clicked.connect(
+            lambda: show_panel_dialog(
+                self, self.controls_scroll, "Fluid Plot Properties",
+                dialog_name="_fluid_options_dialog",
+                host_name="_fluid_options_host",
+            )
+        )
         top.insertWidget(5,self.data_toggle); top.insertWidget(6,self.controls_toggle)
         self.plot_type.currentTextChanged.connect(self.plot_selected); self.variable.currentTextChanged.connect(self.plot_selected)
         self.colormap.currentTextChanged.connect(self.plot_selected); self.levels.valueChanged.connect(self.plot_selected)
