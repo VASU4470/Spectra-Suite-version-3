@@ -21,6 +21,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,15 +68,30 @@ def parent() -> int:
         pass
 
     command = [sys.executable, str(Path(__file__).resolve()), "--worker"]
-    completed = subprocess.run(command, cwd=ROOT, check=False)
+    process = subprocess.Popen(command, cwd=ROOT)
+    marker_seen = False
+    while process.poll() is None:
+        if MARKER.is_file():
+            marker_seen = True
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                # The complete unittest result is already recorded. Any process
+                # still alive here is stuck in Qt/Matplotlib interpreter teardown.
+                process.kill()
+                process.wait()
+            break
+        time.sleep(0.1)
+
+    returncode = process.returncode if process.returncode is not None else 1
 
     if not MARKER.is_file():
         print(
             "GUI smoke worker did not record a completed unittest result; "
-            f"worker exit code was {completed.returncode}.",
+            f"worker exit code was {returncode}.",
             file=sys.stderr,
         )
-        return completed.returncode or 1
+        return returncode or 1
 
     try:
         payload = json.loads(MARKER.read_text(encoding="utf-8"))
@@ -96,11 +112,11 @@ def parent() -> int:
         )
         return 1
 
-    if completed.returncode:
+    if returncode:
         print(
             "GUI smoke assertions passed "
             f"({tests_run} tests); ignoring post-test Qt teardown exit "
-            f"{completed.returncode}.",
+            f"{returncode}.",
             file=sys.stderr,
         )
     else:
