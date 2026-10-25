@@ -23,17 +23,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MPLBACKEND", "QtAgg")
 
 
-def main() -> int:
+def main() -> None:
     suite = unittest.defaultTestLoader.discover("tests")
     result = unittest.TextTestRunner(verbosity=2).run(suite)
-    return 0 if result.wasSuccessful() else 1
+    code = 0 if result.wasSuccessful() else 1
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Exit while the suite/result objects are still alive.  Returning from
+    # this function can begin Qt/Matplotlib object destruction on Windows
+    # before an outer os._exit() is reached.
+    os._exit(code)
 
 
 if __name__ == "__main__":
-    code = main()
-    sys.stdout.flush()
-    sys.stderr.flush()
-    # The normal interpreter-finalization path can crash Qt/Matplotlib after
-    # the suite has already completed successfully.  Exit immediately with the
-    # actual unittest result instead of running process-global Qt destructors.
-    os._exit(code)
+    main()
