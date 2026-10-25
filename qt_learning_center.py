@@ -310,7 +310,10 @@ class LearningCenterDialog(QDialog):
         heading.setStyleSheet("font-size: 18px; font-weight: 700;")
         root.addWidget(heading)
 
-        self.search = QLineEdit()\n        self.search.setPlaceholderText('Search topics and scientific explanations (offline)')\n        root.addWidget(self.search)\n        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText('Search topics and scientific explanations (offline)')
+        root.addWidget(self.search)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         root.addWidget(splitter, 1)
 
         self.topic_list = QListWidget()
@@ -329,7 +332,10 @@ class LearningCenterDialog(QDialog):
 
         last_category = None
         target_row = 0
-        self._all_topics = load_topics()\n        for topic in self._all_topics:\n            category, title, html = topic[:3]\n            topic_id = topic[3] if len(topic) > 3 else title
+        self._all_topics = load_topics()
+        for topic in self._all_topics:
+            category, title, html = topic[:3]
+            topic_id = topic[3] if len(topic) > 3 else title
             if category != last_category:
                 header = QListWidgetItem(category)
                 header.setFlags(Qt.ItemFlag.NoItemFlags)
@@ -340,12 +346,15 @@ class LearningCenterDialog(QDialog):
                 last_category = category
             item = QListWidgetItem(f"   {title}")
             item.setData(Qt.ItemDataRole.UserRole, html)
-            item.setData(Qt.ItemDataRole.UserRole + 1, title)\n            item.setData(Qt.ItemDataRole.UserRole + 2, topic_id)\n            item.setData(Qt.ItemDataRole.UserRole + 3, category)
+            item.setData(Qt.ItemDataRole.UserRole + 1, title)
+            item.setData(Qt.ItemDataRole.UserRole + 2, topic_id)
+            item.setData(Qt.ItemDataRole.UserRole + 3, category)
             self.topic_list.addItem(item)
             if initial_topic and (initial_topic == topic_id or initial_topic.lower() in title.lower()):
                 target_row = self.topic_list.count() - 1
 
-        self.search.textChanged.connect(self._filter_topics)\n        self.topic_list.currentItemChanged.connect(self._topic_changed)
+        self.search.textChanged.connect(self._filter_topics)
+        self.topic_list.currentItemChanged.connect(self._topic_changed)
         self.topic_list.setCurrentRow(target_row if target_row else 1)
 
     def _topic_changed(self, item, _previous=None):
