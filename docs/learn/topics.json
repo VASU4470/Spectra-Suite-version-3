@@ -82,13 +82,13 @@
     {
       "id": "analysis.scherrer",
       "category": "Analysis Science",
-      "title": "Scherrer estimate",
+      "title": "Scherrer crystallite size",
       "html": "<h2>Scherrer crystallite-size calculation</h2><p><b>Equation:</b> D = Kλ/(β cos θ). D is the coherent diffraction-domain size; K is dimensionless shape factor; λ and D share the same length unit; β is broadening in radians of 2θ; and θ is half the peak position angle. For λ = 0.15406 nm and K = 0.9, D is in nm.</p><p>In the source snapshot the XRD workflow is a simple FWHM-based Scherrer estimate. It does not automatically remove instrumental broadening or strain broadening, and the result should not be called measured particle diameter. Compare instrument standards, line-shape corrections and several reflections independently before making structural claims.</p><p><b>Reference:</b> Patterson, A. L. (1939), The Scherrer Formula for X-Ray Particle Size Determination, Physical Review 56, 978–982.</p>"
     },
     {
       "id": "analysis.tauc",
       "category": "Analysis Science",
-      "title": "Tauc and Urbach",
+      "title": "Tauc analysis",
       "html": "<h2>Tauc and Urbach analysis</h2><p>The Tauc model linearizes an assumed absorption-edge relation. SpectraSuite constructs (αE)^r with transition-specific exponent r and fits ordinate = mE + b. The extrapolated energy intercept is E<sub>g</sub> = −b/m. Current code rejects non-positive slopes and non-physical intercepts, reports R² and a propagated regression uncertainty where obtainable, and warns on poorly linear or excessive-extrapolation intervals.</p><p>Urbach energy follows α(E) ∝ exp(E/E<sub>U</sub>) over an appropriate exponential tail; fit ln α versus E and compute E<sub>U</sub> = 1/m for positive slope. The relative-absorption proxy, diffuse-reflectance transform and selected energy interval may invalidate naive comparisons between samples.</p><p><b>References:</b> Tauc, J., Grigorovici, R., and Vancu, A. (1966), Physica Status Solidi 15, 627–637; Urbach, F. (1953), Physical Review 92, 1324.</p>"
     },
     {
@@ -106,7 +106,7 @@
     {
       "id": "science.references",
       "category": "Equations & References",
-      "title": "Equations and sources",
+      "title": "Equations used by SpectraSuite",
       "html": "<h2>Equations and scientific references</h2><p><b>Bragg:</b> nλ=2d sinθ (λ,d lengths; θ half of diffraction 2θ).</p><p><b>Scherrer:</b> D=Kλ/(β cosθ); broadening β in radians, K dimensionless.</p><p><b>Absorbance:</b> A=−log₁₀ T, T fractional transmittance.</p><p><b>Kubelka–Munk:</b> F(R)=(1−R)²/(2R), R fractional diffuse reflectance, subject to scattering and optical-model assumptions.</p><p><b>Tauc:</b> fit (αE)^r = mE+b, E<sub>g</sub>=−b/m under assumed transition and valid edge region.</p><p><b>Urbach:</b> lnα = E/E<sub>U</sub> + constant in selected tail region.</p><p><b>Gaussian:</b> A exp[−(x−μ)²/(2σ²)].</p><h3>Further reading</h3><ol><li>Griffiths & de Haseth, Fourier Transform Infrared Spectrometry, 2nd ed., Wiley (2007).</li><li>Cullity & Stock, Elements of X-Ray Diffraction, 3rd ed., Prentice Hall (2001).</li><li>Patterson (1939), Physical Review 56, 978–982, doi:10.1103/PhysRev.56.978.</li><li>Hollas, Modern Spectroscopy, 4th ed., Wiley (2004).</li><li>Tauc, Grigorovici & Vancu (1966), physica status solidi (b) 15, 627–637, doi:10.1002/pssb.19660150224.</li><li>Urbach (1953), Physical Review 92, 1324.</li><li>Savitzky & Golay (1964), Analytical Chemistry 36, 1627–1639, doi:10.1021/ac60214a047.</li><li>Eilers & Boelens (2005), Baseline Correction with Asymmetric Least Squares, Leiden University report.</li><li>Brundle, Evans & Wilson (eds.), Encyclopedia of Materials Characterization, Butterworth-Heinemann (1992).</li><li>Cremers & Radziemski, Handbook of Laser-Induced Breakdown Spectroscopy, 2nd ed., Wiley (2013).</li></ol><p>These works explain underlying science; implementations and defaults must be checked against SpectraSuite code rather than inferred from textbooks.</p>"
     },
     {
