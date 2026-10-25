@@ -40,6 +40,7 @@ from config import SessionState, state
 from dataset_reader import discover_many
 from dataset_reader import SpectrumDataset
 from qt_import_support import install_import_support
+from qt_learning_center import LearningCenterDialog
 from qt_plot_viewer import PlotViewer
 from qt_theme import AppearanceDialog, LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_updates import (
@@ -753,7 +754,7 @@ class SpectraSuiteWindow(QMainWindow):
         self._shell_ribbon_pages = {}
         for tab_name in (
             "Home", "Data", "Plot", "Process", "Analyze",
-            "Annotate", "View", "Export", "Help",
+            "Annotate", "View", "Export", "Learn", "Help",
         ):
             page = QWidget()
             page_layout = QHBoxLayout(page)
@@ -802,6 +803,13 @@ class SpectraSuiteWindow(QMainWindow):
 
         ribbon_button("Export", "Export", self._ribbon_export)
         ribbon_button("Export", "Save figure", self._ribbon_save_figure)
+
+        ribbon_button("Learn", "User manual", lambda: self._open_learning_center("User Manual"))
+        ribbon_button("Learn", "Science of analysis", lambda: self._open_learning_center("Scientific workflow"))
+        ribbon_button("Learn", "Techniques", lambda: self._open_learning_center("FT-IR"))
+        ribbon_button("Learn", "Instrumentation", lambda: self._open_learning_center("FT-IR"))
+        ribbon_button("Learn", "Processing", lambda: self._open_learning_center("Baseline correction"))
+        ribbon_button("Learn", "Equations", lambda: self._open_learning_center("Equations used"))
 
         ribbon_button("Help", "Updates", self._ribbon_check_updates)
         ribbon_button("Help", "Privacy", self._ribbon_privacy)
@@ -946,6 +954,10 @@ class SpectraSuiteWindow(QMainWindow):
         elif hasattr(widget, "export_graph"):
             widget.export_graph()
 
+    def _open_learning_center(self, topic=None):
+        dialog = LearningCenterDialog(self, initial_topic=topic)
+        dialog.exec()
+
     def _ribbon_check_updates(self):
         controller = getattr(self, "update_controller", None)
         if controller is not None:
@@ -974,6 +986,7 @@ class SpectraSuiteWindow(QMainWindow):
             "Annotate": is_spectroscopy or hasattr(widget, "annotation_tool"),
             "View": True,
             "Export": not is_home and not is_import,
+            "Learn": True,
             "Help": True,
         }
         for index in range(self.shell_ribbon.count()):
