@@ -22,6 +22,7 @@ from dataset_reader import SpectrumDataset
 from launcher import WORKSPACES, WelcomeDashboard, startup_smoke_test, workspace_command
 from qt_shell import InlineImportPage
 from qt_general_plotter import GeneralPlotter
+from qt_learning_center import LearningCenterDialog
 from qt_plot_viewer import ExportOptionsDialog, PlotViewer, TextAnnotationDialog
 from qt_ui_v2_properties import AxisPropertiesDialog, PlotPropertiesDialog
 from qt_setup import DatasetSelectionDialog, SetupDialog
@@ -103,7 +104,7 @@ class StartupTests(unittest.TestCase):
         self.assertIs(dashboard.document_tabs.widget(0), dashboard.home_page)
         self.assertEqual(
             [dashboard.shell_ribbon.tabText(i) for i in range(dashboard.shell_ribbon.count())],
-            ["Home", "Data", "Plot", "Process", "Analyze", "Annotate", "View", "Export", "Help"],
+            ["Home", "Data", "Plot", "Process", "Analyze", "Annotate", "View", "Export", "Learn", "Help"],
         )
         self.assertEqual(
             dashboard.shell_ribbon.tabText(dashboard.shell_ribbon.currentIndex()), "Home"
@@ -552,6 +553,24 @@ class StartupTests(unittest.TestCase):
 
         viewer._skip_close_prompt = True
         viewer.close()
+
+    def test_learning_center_contains_science_and_technique_guidance(self):
+        dialog = LearningCenterDialog(initial_topic="Scherrer")
+        dialog.show()
+        self.app.processEvents()
+
+        labels = [
+            dialog.topic_list.item(i).text().strip()
+            for i in range(dialog.topic_list.count())
+        ]
+        self.assertIn("Science of Analysis", labels)
+        self.assertIn("FT-IR", labels)
+        self.assertIn("XRD", labels)
+        self.assertIn("Tauc analysis", labels)
+        self.assertIn("Scherrer crystallite size", labels)
+        self.assertIn("Equations used by SpectraSuite", labels)
+        self.assertIn("Scherrer", dialog.content.toPlainText())
+        dialog.close()
 
     def test_shared_x_spectra_use_one_editable_x_column_and_multiple_y_columns(self):
         reset_state("UVVIS")
