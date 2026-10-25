@@ -25,13 +25,40 @@ os.environ.setdefault("MPLBACKEND", "QtAgg")
 
 def main() -> None:
     suite = unittest.defaultTestLoader.discover("tests")
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
-    code = 0 if result.wasSuccessful() else 1
+    stream = unittest.runner._WritelnDecorator(sys.stderr)
+    result = unittest.TextTestResult(stream, descriptions=True, verbosity=2)
+    result.startTestRun()
+    started = __import__("time").perf_counter()
+    try:
+        suite(result)
+    finally:
+        result.stopTestRun()
+    elapsed = __import__("time").perf_counter() - started
+
+    stream.writeln()
+    stream.writeln("-" * 70)
+    run = result.testsRun
+    stream.writeln(f"Ran {run} test{'s' if run != 1 else ''} in {elapsed:.3f}s")
+    stream.writeln()
+    if result.wasSuccessful():
+        stream.writeln("OK")
+        code = 0
+    else:
+        details = []
+        if result.failures:
+            details.append(f"failures={len(result.failures)}")
+        if result.errors:
+            details.append(f"errors={len(result.errors)}")
+        if result.skipped:
+            details.append(f"skipped={len(result.skipped)}")
+        stream.writeln("FAILED" + (f" ({', '.join(details)})" if details else ""))
+        code = 1
+
     sys.stdout.flush()
     sys.stderr.flush()
-    # Exit while the suite/result objects are still alive.  Returning from
-    # this function can begin Qt/Matplotlib object destruction on Windows
-    # before an outer os._exit() is reached.
+    # Do not return through unittest.TextTestRunner.run(): on Windows the
+    # PySide6/Matplotlib suite can crash while that runner unwinds even after
+    # printing a successful summary. Exit with the real TestResult instead.
     os._exit(code)
 
 
