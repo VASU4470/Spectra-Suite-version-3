@@ -56,9 +56,12 @@ def main() -> None:
 
     sys.stdout.flush()
     sys.stderr.flush()
-    # Do not return through unittest.TextTestRunner.run(): on Windows the
-    # PySide6/Matplotlib suite can crash while that runner unwinds even after
-    # printing a successful summary. Exit with the real TestResult instead.
+    # Do not return through Python/Qt teardown. On Windows, a Qt-loaded
+    # process has been observed to turn os._exit(0) into exit code 1 in CI, so
+    # use the operating-system process exit directly. POSIX uses os._exit.
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.kernel32.ExitProcess(code)
     os._exit(code)
 
 
