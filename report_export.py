@@ -25,7 +25,7 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
 from app_version import APP_VERSION
-from plot_export import figure_bytes, save_figure
+from plot_export import DEFAULT_FIGURE_DPI, DEFAULT_TRIM_MARGINS, figure_bytes, save_figure
 
 
 @dataclass
@@ -187,14 +187,30 @@ def export_batch(items, folder, *, extension="pdf", options=None, include_data=T
     stage = Path(tempfile.mkdtemp(prefix=".spectrasuite-export-", dir=destination))
     target = destination / ("SpectraSuite_" + datetime.now().strftime("%Y%m%d_%H%M%S_") + stage.name.rsplit("-", 1)[-1])
     manifest = []
+    figure_options = dict(options or {})
     try:
         for index, item in enumerate(items):
             if progress:
                 progress(index, len(items), item.name)
             stem = f"{index + 1:03d}_{safe_name(item.name)}"
             files = []
+            entry = {"name": item.name, "source": item.source, "files": files,
+                     "results": f"{stem}_results.txt", "settings": f"{stem}_settings.json"}
             if include_figures:
-                files.append(save_figure(item.figure(), stage / f"{stem}_plot.{extension}", **(options or {})).name)
+                figure = item.figure()
+                size = figure_options.get("size_inches")
+                if size is None:
+                    size = figure.get_size_inches()
+                path = save_figure(figure, stage / f"{stem}_plot.{extension}", **figure_options)
+                files.append(path.name)
+                entry["figure_export"] = {
+                    "file": path.name,
+                    "format": extension,
+                    "requested_size_inches": [float(dimension) for dimension in size],
+                    "dpi": int(figure_options.get("dpi", DEFAULT_FIGURE_DPI)),
+                    "transparent": bool(figure_options.get("transparent", False)),
+                    "trim_outer_margins": bool(figure_options.get("tight", DEFAULT_TRIM_MARGINS)),
+                }
             if include_data and item.data is not None:
                 name = f"{stem}_data.csv"
                 item.data.to_csv(stage / name, index=False)
@@ -206,8 +222,7 @@ def export_batch(items, folder, *, extension="pdf", options=None, include_data=T
                     files.append(name)
             (stage / f"{stem}_results.txt").write_text("\n".join(item.results) or "No stored analysis results.", encoding="utf-8")
             (stage / f"{stem}_settings.json").write_text(json.dumps(json_value(item.settings), indent=2, ensure_ascii=False), encoding="utf-8")
-            manifest.append({"name": item.name, "source": item.source, "files": files,
-                             "results": f"{stem}_results.txt", "settings": f"{stem}_settings.json"})
+            manifest.append(entry)
         if include_report:
             save_pdf_report(items, stage / "report.pdf", options=options, progress=progress)
         (stage / "manifest.json").write_text(json.dumps({"version": APP_VERSION, "datasets": manifest}, indent=2, ensure_ascii=False), encoding="utf-8")

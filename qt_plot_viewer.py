@@ -106,6 +106,10 @@ UV_SIGNAL_TRANSFORMS = (
 )
 
 
+XRD_SCHERRER_SHAPE_FACTOR = 0.9
+XRD_SCHERRER_WAVELENGTH_NM = 0.15406
+
+
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.generic):
@@ -2998,7 +3002,7 @@ class PlotViewer(QDialog):
             fwhm = 0.0
         size = 0.0
         if fwhm > 0:
-            size = (0.9 * 0.15406) / (np.radians(fwhm) * np.cos(np.radians(peak_x / 2)))
+            size = (XRD_SCHERRER_SHAPE_FACTOR * XRD_SCHERRER_WAVELENGTH_NM) / (np.radians(fwhm) * np.cos(np.radians(peak_x / 2)))
         return peak_x, peak_y, fwhm, size
 
     def auto_find_xrd_peaks(self):
@@ -3304,6 +3308,12 @@ class PlotViewer(QDialog):
             settings = {"technique": state.technique, "processing": fs,
                         "axes": copy.deepcopy(state.global_set), "original_points": len(self.data_dict[stem][0])}
             settings["processing"] = {k: v for k, v in fs.items() if k not in {"labels", "areas", "xrd_peaks", "deconvs"}}
+            if state.technique == "XRD" and fs.get("xrd_peaks"):
+                settings["scherrer"] = {
+                    "shape_factor": XRD_SCHERRER_SHAPE_FACTOR,
+                    "wavelength_nm": XRD_SCHERRER_WAVELENGTH_NM,
+                    "fwhm_unit": "degrees 2θ",
+                }
             xlabel = state.global_set.get("xlabel", "X") or "X"
             ylabel = state.global_set.get("ylabel", "Y") or "Y"
             if ylabel == xlabel:

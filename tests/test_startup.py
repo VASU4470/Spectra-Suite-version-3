@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import sys
 import unittest
 from unittest.mock import patch
@@ -61,6 +64,35 @@ class StartupTests(unittest.TestCase):
 
     def test_dashboard_smoke_entry_point(self):
         self.assertEqual(startup_smoke_test(), 0)
+
+    def test_legacy_xrd_session_and_corrupt_session_handling(self):
+        reset_state("XRD")
+        state.all_data = [("old scan", np.linspace(20, 30, 21), np.linspace(1, 8, 21))]
+        state.init_file_settings()
+        state.file_set["old scan"]["smooth"] = 0
+        payload = {
+            "settings": state.settings, "global_set": state.global_set, "file_set": state.file_set,
+            "all_data": [[name, x.tolist(), y.tolist()] for name, x, y in state.all_data],
+        }
+        dashboard = WelcomeDashboard()
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "legacy.json"
+            with patch("qt_shell.QFileDialog.getOpenFileName", return_value=(str(path), "")), \
+                 patch("qt_shell.QMessageBox.critical") as error:
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                dashboard.open_session()
+                self.assertEqual(state.technique, "XRD")
+                self.assertEqual(state.file_set["old scan"]["smooth"], 0)
+                self.assertEqual(dashboard.document_tabs.count(), 2)
+                error.assert_not_called()
+                active_state = state.__dict__
+                payload["all_data"][0][2].pop()
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                dashboard.open_session()
+                error.assert_called_once()
+                self.assertIn("equally sized", error.call_args.args[2])
+                self.assertIs(state.__dict__, active_state)
+                self.assertEqual(dashboard.document_tabs.count(), 2)
 
     def test_workspace_commands_cover_source_and_frozen_builds(self):
         program, arguments = workspace_command("ir")
