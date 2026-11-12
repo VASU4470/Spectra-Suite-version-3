@@ -1,0 +1,180 @@
+{
+  "ir": [
+    {
+      "title": "Reading absorption bands",
+      "file": "Transmission bands.csv",
+      "units": "Wavenumber (cm⁻¹); Transmittance (%)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. Two Gaussian dips on a constant transmission background.",
+      "steps": [
+        "Open the example and confirm the descending wavenumber axis and the % transmittance scale.",
+        "Locate the two downward bands near 2920 and 1720 cm⁻¹. In Analyze, hover over the tools to find the valley selection tool.",
+        "Compare the band positions in the raw trace. Confirm the signal representation before comparing band intensities or areas."
+      ],
+      "expected": "Transmittance minima near 1720 and 2920 cm⁻¹ on a descending wavenumber axis.",
+      "figure": "ir.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    },
+    {
+      "title": "Measured polystyrene sheet",
+      "file": "Measured polystyrene.csv",
+      "kind": "Measured",
+      "units": "Wavenumber (cm⁻¹); transmittance (%).",
+      "provenance": "Fabio Corradini, uFTIR reference data. Agilent Cary 620 microscope, transmission, 4× objective, 8 cm⁻¹ resolution, 8 sample scans and 16 background scans. One measured pixel (24, 72). Converted from the deposited absorbance with %T = 100 × 10⁻ᴬ. All 572 points are retained.",
+      "source": "https://github.com/fcorra/uFTIR/tree/master/data-raw",
+      "license": "GPL-3.0 (upstream uFTIR). Source vector archive and license are bundled in docs/learn/sources.",
+      "expected": "A strong trough near 1601 cm⁻¹ and several near-zero troughs between about 2860 and 3050 cm⁻¹. Several source absorbance values reach exactly 8, so band depths in those regions are unreliable.",
+      "steps": [
+        "Open the example and turn smoothing off to compare with the reference plot. Confirm the descending wavenumber axis and the percent transmittance scale.",
+        "Zoom around 1600 cm⁻¹. Use the Data table to locate the lowest transmittance in that local region. Compare with the nominal band near 1601 cm⁻¹.",
+        "Inspect the near-zero transmittance region around the C–H bands. The deposited values reach a common absorbance ceiling there. Practice comparing positions and avoid quantitative peak heights or areas in those troughs."
+      ],
+      "figure": "measured-polystyrene.png",
+      "caption": "Measured pixel spectrum converted from absorbance to percent transmittance. No smoothing or baseline correction was applied."
+    }
+  ],
+  "xrd": [
+    {
+      "title": "Measuring diffraction peak width",
+      "file": "Diffraction peak width.csv",
+      "units": "2θ (degrees); Intensity (a.u.)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. Two Gaussian peaks on a constant intensity background.",
+      "steps": [
+        "Locate the peak near 32° in 2θ.",
+        "Use Analyze to find the peak and check Show FWHM and grain size. Disable smoothing for comparison with the nominal raw width.",
+        "Compare the position and width with the library. Follow the Scherrer guide to see how the width enters a size estimate."
+      ],
+      "expected": "Peaks near 32° and 46°. The first raw peak has a nominal FWHM of about 1.18° in 2θ.",
+      "figure": "xrd.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    },
+    {
+      "title": "Measured LaB₆ reference powder",
+      "file": "Measured lanthanum hexaboride.csv",
+      "kind": "Measured",
+      "units": "2θ (degrees); intensity (counts).",
+      "provenance": "NIST SRM 660c lanthanum hexaboride pattern distributed in the Advanced Photon Source GSAS-II tutorial, Create Instrument Parameter File. The tutorial identifies Cu Kα lab data. All 8,378 original counts were retained and the angle grid was reconstructed from the GSAS bank header.",
+      "source": "https://advancedphotonsource.github.io/GSAS-II-tutorials/CWInstDemo/FindProfParamCW.html",
+      "license": "GSAS-II tutorial repository redistribution notice. The upstream data and full notice are bundled in docs/learn/sources.",
+      "expected": "Strong reflections near 21.28°, 30.32° and 37.37° 2θ. At higher angles, a close pair near 67.49° and 67.67° illustrates why a single-peak width can be misleading.",
+      "steps": [
+        "Open the example and turn smoothing off. Zoom near 30.3° and compare the sampled peak maximum with the reference result.",
+        "Use Analyze to inspect the width of the isolated peak. Record the selected background, the measured FWHM and the 2θ step of about 0.01313°.",
+        "Zoom near 67.5° and compare the close peaks with the isolated reflection. Use the standard to learn about instrument line shape. A raw width from this pattern is insufficient for a specimen crystallite-size result."
+      ],
+      "figure": "measured-lab6.png",
+      "caption": "Measured powder pattern with original counts, displayed without processing."
+    }
+  ],
+  "uvvis": [
+    {
+      "title": "Locating an absorption maximum",
+      "file": "Absorption maximum.csv",
+      "units": "Wavelength (nm); Absorbance (dimensionless)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. A single Gaussian band on a constant absorbance background.",
+      "steps": [
+        "Check that wavelength is in nm and the signal is absorbance.",
+        "Find the band maximum near 530 nm using the plot or data table.",
+        "Compare the peak with the expected raw absorbance of about 0.76. Keep the signal in absorbance for this exercise."
+      ],
+      "expected": "A maximum near 530 nm, with raw absorbance about 0.76.",
+      "figure": "uvvis.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    }
+  ],
+  "raman": [
+    {
+      "title": "Inspecting peaks on a sloping background",
+      "file": "Raman baseline.csv",
+      "units": "Raman shift (cm⁻¹); Intensity (a.u.)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. Two Gaussian bands on a linear background.",
+      "steps": [
+        "Locate the two bands near 520 and 1000 cm⁻¹.",
+        "Notice that the background increases with Raman shift. Compare the original trace with a baseline-corrected trace.",
+        "Compare heights only after choosing a consistent background and method."
+      ],
+      "expected": "Two prominent bands near 520 and 1000 cm⁻¹ above a rising background.",
+      "figure": "raman.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    }
+  ],
+  "general": [
+    {
+      "title": "Plotting a calibration line",
+      "file": "Calibration line.csv",
+      "units": "Concentration (mmol/L); Absorbance (dimensionless)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. An exact linear response with a small intercept.",
+      "steps": [
+        "Check the X mapping for concentration and the Y mapping for absorbance.",
+        "Use Plot / refresh after changing mappings. Check the axis units and the intercept.",
+        "Compare the points with the straight-line response. Treat the bundled points as illustrative rather than an experimental calibration."
+      ],
+      "expected": "A straight line from absorbance 0.02 at 0 mmol/L to 0.98 at 6 mmol/L.",
+      "figure": "general.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    }
+  ],
+  "plot3d": [
+    {
+      "title": "Visualizing a two-dimensional height field",
+      "file": "Gaussian height field.csv",
+      "units": "X (mm); Y (mm); Z (mm)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. A sampled Gaussian height field.",
+      "steps": [
+        "Check the X, Y and Z mappings and confirm all three axes are in millimetres.",
+        "Compare a point view with a surface view using the plot-type selector.",
+        "Rotate the view to see the central mound. Compare the height at the origin with the 5 mm expected value."
+      ],
+      "expected": "A symmetric mound with a height of 5 mm at the origin.",
+      "figure": "plot3d.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    }
+  ],
+  "xps": [
+    {
+      "title": "Inspecting a binding-energy peak",
+      "file": "Binding-energy peak.csv",
+      "units": "Binding energy (eV); Intensity (a.u.)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. A single Gaussian peak on a constant intensity background.",
+      "steps": [
+        "Confirm binding energy in eV and intensity in arbitrary units.",
+        "Locate the peak near 285 eV and inspect the display axis direction.",
+        "Treat the energy as a synthetic peak position. A chemical assignment requires appropriate calibration and supporting evidence."
+      ],
+      "expected": "A peak near 285 eV. The synthetic data carry no chemical assignment.",
+      "figure": "xps.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    }
+  ],
+  "libs": [
+    {
+      "title": "Viewing two emission lines",
+      "file": "Emission lines.csv",
+      "units": "Wavelength (nm); Intensity (a.u.)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. Two Gaussian emission lines on a constant background.",
+      "steps": [
+        "Check wavelength in nm and intensity in arbitrary units.",
+        "Locate the two lines at about 450 and 462 nm. Compare their heights.",
+        "Treat these as unassigned synthetic lines. Confirm real assignments with reference lines, spectral resolution and possible interferences."
+      ],
+      "expected": "Lines near 450 and 462 nm, with the 450 nm line taller.",
+      "figure": "libs.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    }
+  ],
+  "fluid": [
+    {
+      "title": "Viewing a velocity field on a grid",
+      "file": "Velocity profile.csv",
+      "units": "X (m); Y (m); Speed (m/s)",
+      "provenance": "Synthetic teaching data generated for SpectraSuite. An analytic parabolic speed profile sampled on a regular grid.",
+      "steps": [
+        "Select Speed (m/s) as the plotted variable and inspect the color scale.",
+        "Choose Profile along Y, set the slice near the middle of X, then select Plot selected.",
+        "The profile peaks near the center of Y and reaches zero at both outer boundaries. Check the distance units before reporting a gradient."
+      ],
+      "expected": "Speed is 1 m/s at Y = 0 and zero at the outer Y boundaries.",
+      "figure": "fluid.png",
+      "caption": "Reference plot from the bundled synthetic dataset."
+    }
+  ]
+}

@@ -65,6 +65,24 @@ class ExportEngineTests(unittest.TestCase):
             fit_file = next(name for name in manifest["datasets"][0]["files"] if "deconvolution_1" in name)
             pd.testing.assert_frame_equal(pd.read_csv(output / fit_file), items[0].extra_data["deconvolution_1"])
 
+    def test_manifest_records_figure_options_without_pdf_report(self):
+        with TemporaryDirectory() as folder:
+            output = export_batch(
+                [sample_item()], folder, extension="png", include_report=False,
+                options={"size_inches": (3.5, 2.5), "dpi": 120,
+                         "tight": False, "transparent": True},
+            )
+            entry = json.loads((output / "manifest.json").read_text())["datasets"][0]
+            self.assertEqual(entry["figure_export"], {
+                "file": entry["files"][0], "format": "png",
+                "requested_size_inches": [3.5, 2.5], "dpi": 120,
+                "transparent": True, "trim_outer_margins": False,
+            })
+            self.assertFalse((output / "report.pdf").exists())
+            from PIL import Image
+            with Image.open(output / entry["figure_export"]["file"]) as figure:
+                self.assertEqual(figure.size, (420, 300))
+
     def test_batch_failure_and_report_failure_preserve_existing_files(self):
         good = sample_item()
         def fail():
@@ -194,6 +212,9 @@ class ExportUITests(unittest.TestCase):
         state.file_set["sample"]["xrd_peaks"] = [(15., 10., .2, 12.), (25., 10., .3, 28.)]
         state.file_set["sample"]["deconvs"] = [(10., 30., [10., 10.], [2., 20., 1.], 1, True)]
         item = viewer.export_items()[0]
+        self.assertEqual(item.settings["scherrer"], {
+            "shape_factor": .9, "wavelength_nm": .15406, "fwhm_unit": "degrees 2θ",
+        })
         self.assertIn("Average crystallite size: 20 nm", item.results)
         self.assertIn("Standard deviation: 8 nm", item.results)
         fit = item.extra_data["deconvolution_1"]

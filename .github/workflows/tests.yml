@@ -50,6 +50,7 @@ jobs:
         run: >-
           python -m PyInstaller --noconfirm --clean --onedir
           --name SpectraSuite-CI --add-data "icon.png:."
+          --add-data "docs/learn:docs/learn"
           --add-data "ir_icon.svg:." --add-data "xrd_icon.svg:."
           --add-data "uvvis_icon.svg:." --add-data "raman_icon.svg:."
           --add-data "plot_icon.svg:." --add-data "multiaxis_icon.svg:."
@@ -63,6 +64,7 @@ jobs:
 
       - name: Run the packaged startup check
         env:
+          SPECTRASUITE_DISABLE_UPDATE_CHECK: "1"
           QT_QPA_PLATFORM: offscreen
           MPLBACKEND: QtAgg
         shell: python

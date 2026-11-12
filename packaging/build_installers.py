@@ -46,6 +46,7 @@ def build_bundle():
     assets += sorted(ROOT.glob("*_icon_taskbar.png"))
     for asset in assets:
         args += ["--add-data", f"{asset.name}:."]
+    args += ["--add-data", "docs/learn:docs/learn"]
     for package in ("PySide6", "shiboken6", "numpy", "scipy", "pandas", "matplotlib",
                     "openpyxl", "xlrd", "Pillow"):
         args += ["--copy-metadata", package]

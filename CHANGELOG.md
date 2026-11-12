@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.5.4-rc.1 — Offline learning and reproducible exports
+
+- Add an illustrated User Manual, searchable Learning Center and offline Example Library to the 3.5 workspace.
+- Include 11 worked examples, including measured polystyrene FT-IR and LaB₆ powder XRD, with provenance and license notices.
+- Record figure settings in bundle manifests and Scherrer inputs in XRD export settings.
+- Improve imports of instrument text files with preambles and incomplete rows, and report malformed session data more clearly.
+
 ## 3.5.3-rc.1 — Ribbon action placement
 
 - Restore “+ New analysis” at the far right of the tab ribbon.

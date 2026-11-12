@@ -39,6 +39,7 @@ from config import SessionState, state
 from dataset_reader import discover_many
 from dataset_reader import SpectrumDataset
 from qt_import_support import install_import_support
+from qt_learning_center import LearningCenterDialog
 from qt_plot_viewer import PlotViewer
 from qt_theme import AppearanceDialog, LIGHT_STYLE, apply_theme, apply_window_icon
 from qt_updates import (
@@ -664,6 +665,7 @@ class SpectraSuiteWindow(QMainWindow):
         self._document_states: dict[QWidget, dict] = {}
         self._active_state_widget = None
         self._skip_close_prompt = False
+        self._learning_center = None
         self.setObjectName("spectraSuiteWindow")
         self.setWindowTitle(f"SpectraSuite {APP_VERSION}")
         self.resize(1500, 900)
@@ -848,6 +850,9 @@ class SpectraSuiteWindow(QMainWindow):
         self.appearance_action = QAction("&Appearance…", self)
         self.appearance_action.triggered.connect(self._show_appearance)
 
+        self.learning_center_action = QAction("Learning Center…", self)
+        self.learning_center_action.triggered.connect(self.show_learning_center)
+
         self.edition_action = QAction("Community edition · Offline-ready", self)
         self.edition_action.setEnabled(False)
         self.email_updates_action = QAction("Get &update emails…", self)
@@ -880,6 +885,7 @@ class SpectraSuiteWindow(QMainWindow):
                 self.account_options_action,
             ],
             "Help": [
+                self.learning_center_action, None,
                 self.check_update_action, self.automatic_update_action, None, about,
             ],
         }
@@ -978,7 +984,27 @@ class SpectraSuiteWindow(QMainWindow):
         plotter.import_digitized(curve)
         return plotter
 
-    def launch_workspace(self, workspace):
+    def show_learning_center(self):
+        if self._learning_center is None:
+            self._learning_center = LearningCenterDialog(
+                self.resource_path, self.workspaces, self
+            )
+            self._learning_center.exampleRequested.connect(self._open_learning_example)
+        self._learning_center.show()
+        self._learning_center.raise_()
+        self._learning_center.activateWindow()
+
+    def _open_learning_example(self, workspace_key, filename):
+        workspace = next(item for item in self.workspaces if item.key == workspace_key)
+        path = self.resource_path(f"docs/learn/examples/{filename}")
+        if not path.is_file():
+            QMessageBox.warning(self._learning_center, "Example unavailable",
+                                f"The bundled dataset {filename} could not be found.")
+            return
+        self._learning_center.hide()
+        self.launch_workspace(workspace, example_path=path)
+
+    def launch_workspace(self, workspace, *, example_path=None):
         if workspace.coming_soon:
             return
         if workspace.key in SPECTROSCOPY:
@@ -991,22 +1017,43 @@ class SpectraSuiteWindow(QMainWindow):
                 f"Import {SPECTROSCOPY[workspace.key]['label']}",
             )
             self.document_tabs.setCurrentIndex(index)
-            QTimer.singleShot(0, page.choose_files)
+            if example_path is None:
+                QTimer.singleShot(0, page.choose_files)
+            else:
+                page.add_paths([example_path])
             return
         if workspace.key == "general":
             from qt_general_plotter import GeneralPlotter
 
-            self._add_widget_document(GeneralPlotter(), workspace, "2D Plot")
+            plotter = GeneralPlotter()
+            self._add_widget_document(plotter, workspace, "2D Plot")
+            if example_path is not None:
+                plotter.load_paths([example_path])
+                if plotter.loaded_files:
+                    plotter.y_columns.item(1).setSelected(True)
+                    plotter.xlabel_edit.setText(plotter.x_column.currentText())
+                    plotter.ylabel_edit.setText(plotter.y_columns.item(1).text())
+                    plotter.plot_data()
             return
         if workspace.key == "fluid":
             from qt_fluid_plotter import FluidPlotter
 
-            self._add_widget_document(FluidPlotter(), workspace, "Fluid dynamics")
+            plotter = FluidPlotter()
+            self._add_widget_document(plotter, workspace, "Fluid dynamics")
+            if example_path is not None:
+                plotter.load_paths([example_path])
             return
         if workspace.key == "plot3d":
             from qt_3d_plotter import Plot3D
 
-            self._add_widget_document(Plot3D(), workspace, "3D Plot")
+            plotter = Plot3D()
+            self._add_widget_document(plotter, workspace, "3D Plot")
+            if example_path is not None:
+                plotter.load_paths([example_path])
+                if plotter.loaded_files:
+                    plotter.xlabel_edit.setText(plotter.x_column.currentText())
+                    plotter.ylabel_edit.setText(plotter.y_column.currentText())
+                    plotter.zlabel_edit.setText(plotter.z_column.currentText())
 
     def _cancel_import(self, page):
         index = self.document_tabs.indexOf(page)
@@ -1176,6 +1223,10 @@ class SpectraSuiteWindow(QMainWindow):
             return
         try:
             data = json.loads(Path(filename).read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("A session must contain a JSON object.")
+            if not all(isinstance(data.get(key), dict) for key in ("settings", "file_set", "global_set")):
+                raise ValueError("The session is missing valid settings, dataset settings or plot settings.")
             technique = data.get("technique") or self._infer_session_technique(data)
             workspace_key = {
                 "FTIR": "ir", "XRD": "xrd", "UVVIS": "uvvis", "RAMAN": "raman",
@@ -1189,6 +1240,15 @@ class SpectraSuiteWindow(QMainWindow):
                 (stem, np.asarray(x, dtype=float), np.asarray(y, dtype=float))
                 for stem, x, y in data["all_data"]
             ]
+            if not fresh.all_data:
+                raise ValueError("The session contains no datasets.")
+            for name, x, y in fresh.all_data:
+                if not isinstance(name, str) or not name:
+                    raise ValueError("Each session dataset needs a name.")
+                if x.ndim != 1 or x.shape != y.shape or not x.size:
+                    raise ValueError(f"Dataset {name!r} must have equally sized, non-empty X and Y columns.")
+                if not isinstance(data["file_set"].get(name), dict):
+                    raise ValueError(f"Dataset {name!r} is missing its saved settings.")
             fresh.master_folder = data.get("master_folder")
             fresh.file_set = data["file_set"]
             fresh.global_set = data["global_set"]
