@@ -24,7 +24,7 @@ jobs:
         include:
           - os: windows-2022
             target: windows-x64
-          - os: macos-14
+          - os: macos-15
             target: macos-arm64
           - os: macos-15-intel
             target: macos-x86_64
@@ -48,7 +48,7 @@ jobs:
         run: |
           python -m compileall -q .
           python -m pyflakes .
-          python -m unittest discover -s tests -v
+          python ci/run_gui_smoke.py
       - name: Record exact source commit
         shell: bash
         run: |

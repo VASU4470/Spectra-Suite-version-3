@@ -6,6 +6,7 @@ from xml.etree import ElementTree
 from PIL import Image, ImageChops
 from pypdf import PdfReader
 from tempfile import TemporaryDirectory
+import io
 import unittest
 
 from matplotlib.figure import Figure
@@ -59,7 +60,10 @@ class PlotExportTests(unittest.TestCase):
             svg = ElementTree.parse(paths["svg"]).getroot()
             self.assertEqual(tuple(map(float, svg.attrib["viewBox"].split())), (0, 0, 252, 180))
             for extension in ("png", "tiff"):
-                with self.subTest(extension=extension), Image.open(paths[extension]) as image:
+                # Read from memory: an open handle on the exported file would stop Windows
+                # from deleting the temporary folder (WinError 32).
+                with self.subTest(extension=extension), Image.open(
+                        io.BytesIO(paths[extension].read_bytes())) as image:
                     self.assertEqual(image.size, (840, 600))
                     self.assertAlmostEqual(image.info["dpi"][0], 240, delta=.1)
                     rgb = image.convert("RGB")
