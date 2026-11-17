@@ -130,6 +130,53 @@ def startup_smoke_test() -> int:
         "multiaxis", "fluid", "xps", "libs",
     }:
         raise RuntimeError("The dashboard did not create every workspace button")
+    # Open the bundled help and every example using the installed application.
+    window.learning_center_action.trigger()
+    learning = window._learning_center
+    if learning.tabs.count() != 3 or not all(
+        learning.tabs.widget(index).entries for index in range(3)
+    ):
+        raise RuntimeError("The bundled manual, guidance or examples are unavailable")
+    expected = {workspace.key for workspace in WORKSPACES if not workspace.coming_soon}
+    if {entry["workspace"] for entry in learning.examples} != expected:
+        raise RuntimeError("The Example Library does not cover every available workspace")
+    measured = [entry for entry in learning.examples if entry.get("kind") == "Measured"]
+    if {entry["workspace"] for entry in measured} != {"ir", "xrd"}:
+        raise RuntimeError("Measured FT-IR and XRD examples are unavailable")
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QTextDocument
+
+    checked_figures = set()
+    for index in range(3):
+        page = learning.tabs.widget(index)
+        document = page.content.document()
+        for row, entry in enumerate(page.entries):
+            figure = entry.get("figure")
+            if figure:
+                page.items.setCurrentRow(row)
+                url = QUrl(f"figures/{figure}")
+                image = document.resource(QTextDocument.ResourceType.ImageResource, url)
+                if image is None or image.isNull():
+                    raise RuntimeError(f"Bundled Learning Center figure did not load: {figure}")
+                checked_figures.add(figure)
+    if not checked_figures:
+        raise RuntimeError("The Learning Center has no bundled figures")
+    guide = learning.tabs.widget(1)
+    guide.search.setText("Scherrer")
+    if not guide.visible_entries or "Scherrer" not in guide.content.toPlainText():
+        raise RuntimeError("Learning Center search did not find the Scherrer guide")
+    learning.tabs.setCurrentWidget(learning.library)
+    for row, entry in enumerate(learning.examples):
+        learning.library.items.setCurrentRow(row)
+        learning.open_button.click()
+        app.processEvents()
+        document = window.document_tabs.currentWidget()
+        if window.document_tabs.count() != 2 or not any(
+            axis.has_data() for axis in document.figure.axes
+        ):
+            raise RuntimeError(f"Bundled example did not plot: {entry['workspace']}")
+        window._remove_tab(window.document_tabs.currentIndex())
+        app.processEvents()
     # Exercise the real export path inside every installed/frozen build.
     from tempfile import TemporaryDirectory
     from matplotlib.figure import Figure
@@ -174,7 +221,7 @@ def startup_smoke_test() -> int:
     canvas.close()
     window.close()
     app.processEvents()
-    print("SpectraSuite startup, figure/report export, PDF preview, LIBS ZIP and digitizer smoke test passed")
+    print("SpectraSuite startup, figure/report export, PDF preview, LIBS ZIP, digitizer and offline Learning Center smoke test passed")
     return 0
 
 

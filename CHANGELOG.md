@@ -1,13 +1,11 @@
 # Changelog
 
-## 3.6.0-rc.1 — Redesigned workspace and Learning Center
+## 3.5.4-rc.1 — Offline learning and reproducible exports
 
-- Introduce the redesigned scientific workspace and shared UI-v2 presentation infrastructure in the production application.
-- Integrate the Learning Center / in-app user manual and scientific guidance into the single-window workflow.
-- Add shared property and presentation components used by spectroscopy and general plotting workspaces.
-- Extend regression coverage for the redesigned workspace, Learning Center content, document behavior, and scientific conventions.
-- Harden the PySide6 CI smoke-test harness so completed successful test results are preserved even if Qt/Matplotlib teardown later crashes or hangs.
-- Preserve existing scientific calculations, processing defaults, import/export behavior, saved-session compatibility, updater behavior, and preview/Coming Soon labels.
+- Add an illustrated User Manual, searchable Learning Center and offline Example Library to the 3.5 workspace.
+- Include 11 worked examples, including measured polystyrene FT-IR and LaB₆ powder XRD, with provenance and license notices.
+- Record figure settings in bundle manifests and Scherrer inputs in XRD export settings.
+- Improve imports of instrument text files with preambles and incomplete rows, and report malformed session data more clearly.
 
 ## 3.5.3-rc.1 — Ribbon action placement
 

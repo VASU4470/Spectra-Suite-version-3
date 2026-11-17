@@ -2,7 +2,7 @@ name: Cross-platform tests
 
 on:
   push:
-    branches: [main, feature/ui-workspace-redesign]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -44,12 +44,13 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           MPLBACKEND: QtAgg
-        run: python ci/run_gui_smoke.py
+        run: python -m unittest discover -s tests -v
 
       - name: Build application with PyInstaller
         run: >-
           python -m PyInstaller --noconfirm --clean --onedir
           --name SpectraSuite-CI --add-data "icon.png:."
+          --add-data "docs/learn:docs/learn"
           --add-data "ir_icon.svg:." --add-data "xrd_icon.svg:."
           --add-data "uvvis_icon.svg:." --add-data "raman_icon.svg:."
           --add-data "plot_icon.svg:." --add-data "multiaxis_icon.svg:."
@@ -63,6 +64,7 @@ jobs:
 
       - name: Run the packaged startup check
         env:
+          SPECTRASUITE_DISABLE_UPDATE_CHECK: "1"
           QT_QPA_PLATFORM: offscreen
           MPLBACKEND: QtAgg
         shell: python

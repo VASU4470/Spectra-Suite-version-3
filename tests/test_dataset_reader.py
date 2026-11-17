@@ -6,7 +6,7 @@ import unittest
 
 import pandas as pd
 
-from dataset_reader import discover_spectra
+from dataset_reader import discover_many, discover_spectra
 
 
 class DatasetReaderTests(unittest.TestCase):
@@ -31,6 +31,23 @@ class DatasetReaderTests(unittest.TestCase):
             datasets = discover_spectra(path)
         self.assertEqual(len(datasets), 2)
         self.assertEqual(datasets[0].x.tolist(), [1.0, 2.0, 3.0])
+
+    def test_instrument_preamble_and_incomplete_rows_do_not_hide_spectrum(self):
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "instrument.txt"
+            path.write_text(
+                "Instrument model 123\nOperator: laboratory\n"
+                "Wavenumber;Signal\n4000;1.2\n3999;\n3998;invalid\n"
+                "3997;1.5\n3996;Inf\n3995;1.8\n",
+                encoding="utf-8",
+            )
+            bad = Path(folder) / "invalid.csv"
+            bad.write_text("X,Y\n1,none\n2,5\n", encoding="utf-8")
+            datasets, failures = discover_many([path, bad])
+            self.assertEqual(datasets[0].x.tolist(), [4000., 3997., 3995.])
+            self.assertEqual(datasets[0].y.tolist(), [1.2, 1.5, 1.8])
+            self.assertEqual(failures[0][0], "invalid.csv")
+            self.assertIn("at least 3 finite pairs", failures[0][1])
 
     def test_every_excel_sheet_is_discovered(self):
         with TemporaryDirectory() as folder:

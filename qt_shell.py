@@ -30,7 +30,6 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTabBar,
     QTabWidget,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -144,36 +143,6 @@ QTabWidget#documentTabs::pane { border: none; background-color: #f4f7fb; }
 QTabWidget#documentTabs > QTabBar::tab {
     min-width: 85px;
     padding: 6px 12px;
-}
-QTabWidget#shellRibbon::pane {
-    background-color: #ffffff;
-    border: none;
-    border-top: 1px solid #e2e8f0;
-    border-bottom: 1px solid #cfd7e3;
-}
-QTabWidget#shellRibbon QTabBar::tab {
-    background-color: #ffffff;
-    color: #334155;
-    border: none;
-    border-bottom: 3px solid transparent;
-    padding: 7px 13px;
-}
-QTabWidget#shellRibbon QTabBar::tab:selected {
-    color: #1d4ed8;
-    background-color: #ffffff;
-    border-bottom: 3px solid #2563eb;
-    font-weight: 700;
-}
-QToolButton#shellRibbonButton {
-    background-color: transparent;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    min-width: 72px;
-    padding: 7px 10px;
-}
-QToolButton#shellRibbonButton:hover {
-    background-color: #e9f0ff;
-    border-color: #cedcff;
 }
 """
 
@@ -696,6 +665,7 @@ class SpectraSuiteWindow(QMainWindow):
         self._document_states: dict[QWidget, dict] = {}
         self._active_state_widget = None
         self._skip_close_prompt = False
+        self._learning_center = None
         self.setObjectName("spectraSuiteWindow")
         self.setWindowTitle(f"SpectraSuite {APP_VERSION}")
         self.resize(1500, 900)
@@ -745,79 +715,6 @@ class SpectraSuiteWindow(QMainWindow):
         self.update_banner.hide()
         central_layout.addWidget(self.update_banner)
 
-        # UI v2 persistent command ribbon.  It routes commands to the active
-        # document without owning scientific calculations itself.
-        self.shell_ribbon = QTabWidget()
-        self.shell_ribbon.setObjectName("shellRibbon")
-        self.shell_ribbon.setDocumentMode(True)
-        self.shell_ribbon.tabBar().setExpanding(False)
-        self._shell_ribbon_pages = {}
-        for tab_name in (
-            "Home", "Data", "Plot", "Process", "Analyze",
-            "Annotate", "View", "Export", "Learn", "Help",
-        ):
-            page = QWidget()
-            page_layout = QHBoxLayout(page)
-            page_layout.setContentsMargins(8, 4, 8, 4)
-            page_layout.setSpacing(5)
-            self._shell_ribbon_pages[tab_name] = (page, page_layout)
-            self.shell_ribbon.addTab(page, tab_name)
-
-        def ribbon_button(tab_name, text, slot, tooltip=""):
-            _page, layout = self._shell_ribbon_pages[tab_name]
-            button = QToolButton()
-            button.setObjectName("shellRibbonButton")
-            button.setText(text)
-            button.setToolTip(tooltip or text)
-            button.setAccessibleName(tooltip or text)
-            button.clicked.connect(slot)
-            layout.addWidget(button)
-            return button
-
-        ribbon_button("Home", "New analysis", self.show_home)
-        ribbon_button("Home", "Open session", self.open_session)
-        ribbon_button("Home", "Image to data", self.open_digitizer)
-        ribbon_button("Home", "Save", self._ribbon_save_current)
-
-        ribbon_button("Data", "Add data", self._ribbon_add_data)
-        ribbon_button("Data", "Data table", self._ribbon_show_data)
-        ribbon_button("Data", "Apply / refresh", self._ribbon_apply_data)
-
-        ribbon_button("Plot", "Plot", self._ribbon_show_plot)
-        ribbon_button("Plot", "Axis properties", self._ribbon_axis_properties)
-        ribbon_button("Plot", "Plot properties", self._ribbon_plot_properties)
-        ribbon_button("Plot", "Fit view", self._ribbon_fit_view)
-
-        ribbon_button("Process", "Prepare", lambda: self._ribbon_workflow("Prepare"))
-        ribbon_button("Process", "Processing options", lambda: self._ribbon_workflow("Prepare"))
-
-        ribbon_button("Analyze", "Analysis tools", lambda: self._ribbon_workflow("Analyze"))
-        ribbon_button("Analyze", "Auto peaks", self._ribbon_auto_peaks)
-
-        ribbon_button("Annotate", "Annotation tools", lambda: self._ribbon_workflow("Annotate"))
-
-        ribbon_button("View", "Project / Data", self._ribbon_toggle_project)
-        ribbon_button("View", "Tile", self._ribbon_tile_documents)
-        ribbon_button("View", "Home", self.show_home)
-        ribbon_button("View", "Appearance", self._show_appearance)
-
-        ribbon_button("Export", "Export", self._ribbon_export)
-        ribbon_button("Export", "Save figure", self._ribbon_save_figure)
-
-        ribbon_button("Learn", "User manual", lambda: self._open_learning_center("manual.getting_started"))
-        ribbon_button("Learn", "Science of analysis", lambda: self._open_learning_center("science.instrumentation"))
-        ribbon_button("Learn", "Techniques", lambda: self._open_learning_center("technique.ftir"))
-        ribbon_button("Learn", "Instrumentation", lambda: self._open_learning_center("technique.ftir"))
-        ribbon_button("Learn", "Processing", lambda: self._open_learning_center("processing.baseline"))
-        ribbon_button("Learn", "Equations", lambda: self._open_learning_center("science.references"))
-
-        ribbon_button("Help", "Updates", self._ribbon_check_updates)
-        ribbon_button("Help", "Privacy", self._ribbon_privacy)
-
-        for _page, layout in self._shell_ribbon_pages.values():
-            layout.addStretch(1)
-        central_layout.addWidget(self.shell_ribbon)
-
         self.document_tabs = QTabWidget()
         self.document_tabs.setObjectName("documentTabs")
         self.document_tabs.setDocumentMode(True)
@@ -835,169 +732,6 @@ class SpectraSuiteWindow(QMainWindow):
         new_button.setToolTip("Return to Home and start another analysis")
         new_button.clicked.connect(self.show_home)
         self.document_tabs.setCornerWidget(new_button, Qt.Corner.TopRightCorner)
-        self._sync_ribbon_context(self.home_page)
-
-    def _current_document(self):
-        return self.document_tabs.currentWidget() if hasattr(self, "document_tabs") else None
-
-    def _ribbon_save_current(self):
-        widget = self._current_document()
-        if widget is None or widget is self.home_page:
-            return
-        if hasattr(widget, "save_session"):
-            widget.save_session(save_as=True)
-        elif hasattr(widget, "save_project"):
-            widget.save_project()
-        elif hasattr(widget, "save_data"):
-            widget.save_data()
-
-    def _ribbon_add_data(self):
-        widget = self._current_document()
-        if hasattr(widget, "choose_files"):
-            widget.choose_files()
-        elif hasattr(widget, "add_files"):
-            widget.add_files()
-        elif hasattr(widget, "add_file"):
-            widget.add_file()
-        else:
-            self.show_home()
-
-    def _ribbon_show_data(self):
-        widget = self._current_document()
-        if hasattr(widget, "_activate_workspace_document"):
-            widget._activate_workspace_document("table")
-        elif hasattr(widget, "table"):
-            widget.table.setFocus()
-
-    def _ribbon_apply_data(self):
-        widget = self._current_document()
-        if hasattr(widget, "_apply_data_table"):
-            widget._apply_data_table()
-        elif hasattr(widget, "plot_data"):
-            widget.plot_data()
-        elif hasattr(widget, "plot_selected"):
-            widget.plot_selected()
-
-    def _ribbon_show_plot(self):
-        widget = self._current_document()
-        if hasattr(widget, "_activate_workspace_document"):
-            widget._activate_workspace_document("plot")
-        elif hasattr(widget, "plot_data"):
-            widget.plot_data()
-        elif hasattr(widget, "plot_selected"):
-            widget.plot_selected()
-
-    def _ribbon_axis_properties(self):
-        widget = self._current_document()
-        if hasattr(widget, "open_axis_properties"):
-            widget.open_axis_properties()
-        else:
-            self._ribbon_plot_properties()
-
-    def _ribbon_plot_properties(self):
-        widget = self._current_document()
-        if hasattr(widget, "open_plot_properties"):
-            widget.open_plot_properties()
-        elif hasattr(widget, "_open_workflow_dialog"):
-            widget._open_workflow_dialog("Style")
-        elif hasattr(widget, "_set_controls_visible"):
-            widget._set_controls_visible(True)
-        elif hasattr(widget, "controls_toggle"):
-            widget.controls_toggle.click()
-        elif hasattr(widget, "settings_toggle"):
-            widget.settings_toggle.click()
-
-    def _ribbon_fit_view(self):
-        widget = self._current_document()
-        toolbar = getattr(widget, "toolbar", None)
-        if toolbar is not None and hasattr(toolbar, "home"):
-            toolbar.home()
-
-    def _ribbon_workflow(self, name):
-        widget = self._current_document()
-        if hasattr(widget, "_open_workflow_dialog"):
-            widget._open_workflow_dialog(name)
-        elif name in {"Prepare", "Analyze"}:
-            self._ribbon_plot_properties()
-
-    def _ribbon_auto_peaks(self):
-        widget = self._current_document()
-        if hasattr(widget, "auto_find_peaks"):
-            widget.auto_find_peaks()
-
-    def _ribbon_toggle_project(self):
-        widget = self._current_document()
-        toggle = getattr(widget, "project_toggle", None)
-        if toggle is not None:
-            toggle.click()
-            return
-        toggle = getattr(widget, "data_toggle", None)
-        if toggle is not None:
-            toggle.click()
-
-    def _ribbon_tile_documents(self):
-        widget = self._current_document()
-        if hasattr(widget, "_tile_workspace_documents"):
-            widget._tile_workspace_documents()
-
-    def _ribbon_export(self):
-        widget = self._current_document()
-        if hasattr(widget, "export_data"):
-            widget.export_data()
-        elif hasattr(widget, "export_graph"):
-            widget.export_graph()
-
-    def _ribbon_save_figure(self):
-        widget = self._current_document()
-        if hasattr(widget, "export_figure"):
-            widget.export_figure()
-        elif hasattr(widget, "export_graph"):
-            widget.export_graph()
-
-    def _open_learning_center(self, topic=None):
-        dialog = LearningCenterDialog(self, initial_topic=topic)
-        dialog.exec()
-
-    def _ribbon_check_updates(self):
-        controller = getattr(self, "update_controller", None)
-        if controller is not None:
-            controller.check(silent=False)
-
-    def _ribbon_privacy(self):
-        if hasattr(self, "update_controller"):
-            self._show_privacy_preferences()
-
-    def _sync_ribbon_context(self, widget):
-        """Keep the shared ribbon useful without changing document behavior."""
-        is_home = widget is None or widget is self.home_page
-        is_import = isinstance(widget, InlineImportPage)
-        is_spectroscopy = isinstance(widget, PlotViewer)
-        has_plot = any(
-            hasattr(widget, name)
-            for name in ("plot_data", "plot_selected", "_activate_workspace_document")
-        ) if widget is not None else False
-
-        enabled = {
-            "Home": True,
-            "Data": not is_home,
-            "Plot": has_plot,
-            "Process": is_spectroscopy,
-            "Analyze": is_spectroscopy,
-            "Annotate": is_spectroscopy or hasattr(widget, "annotation_tool"),
-            "View": True,
-            "Export": not is_home and not is_import,
-            "Learn": True,
-            "Help": True,
-        }
-        for index in range(self.shell_ribbon.count()):
-            name = self.shell_ribbon.tabText(index)
-            self.shell_ribbon.setTabEnabled(index, enabled.get(name, True))
-
-        preferred = "Home" if is_home else "Data" if is_import else "Plot" if has_plot else "Home"
-        for index in range(self.shell_ribbon.count()):
-            if self.shell_ribbon.tabText(index) == preferred:
-                self.shell_ribbon.setCurrentIndex(index)
-                break
 
     def _build_home_page(self):
         page = QWidget()
@@ -1116,6 +850,9 @@ class SpectraSuiteWindow(QMainWindow):
         self.appearance_action = QAction("&Appearance…", self)
         self.appearance_action.triggered.connect(self._show_appearance)
 
+        self.learning_center_action = QAction("Learning Center…", self)
+        self.learning_center_action.triggered.connect(self.show_learning_center)
+
         self.edition_action = QAction("Community edition · Offline-ready", self)
         self.edition_action.setEnabled(False)
         self.email_updates_action = QAction("Get &update emails…", self)
@@ -1148,6 +885,7 @@ class SpectraSuiteWindow(QMainWindow):
                 self.account_options_action,
             ],
             "Help": [
+                self.learning_center_action, None,
                 self.check_update_action, self.automatic_update_action, None, about,
             ],
         }
@@ -1246,7 +984,27 @@ class SpectraSuiteWindow(QMainWindow):
         plotter.import_digitized(curve)
         return plotter
 
-    def launch_workspace(self, workspace):
+    def show_learning_center(self):
+        if self._learning_center is None:
+            self._learning_center = LearningCenterDialog(
+                self.resource_path, self.workspaces, self
+            )
+            self._learning_center.exampleRequested.connect(self._open_learning_example)
+        self._learning_center.show()
+        self._learning_center.raise_()
+        self._learning_center.activateWindow()
+
+    def _open_learning_example(self, workspace_key, filename):
+        workspace = next(item for item in self.workspaces if item.key == workspace_key)
+        path = self.resource_path(f"docs/learn/examples/{filename}")
+        if not path.is_file():
+            QMessageBox.warning(self._learning_center, "Example unavailable",
+                                f"The bundled dataset {filename} could not be found.")
+            return
+        self._learning_center.hide()
+        self.launch_workspace(workspace, example_path=path)
+
+    def launch_workspace(self, workspace, *, example_path=None):
         if workspace.coming_soon:
             return
         if workspace.key in SPECTROSCOPY:
@@ -1259,22 +1017,43 @@ class SpectraSuiteWindow(QMainWindow):
                 f"Import {SPECTROSCOPY[workspace.key]['label']}",
             )
             self.document_tabs.setCurrentIndex(index)
-            QTimer.singleShot(0, page.choose_files)
+            if example_path is None:
+                QTimer.singleShot(0, page.choose_files)
+            else:
+                page.add_paths([example_path])
             return
         if workspace.key == "general":
             from qt_general_plotter import GeneralPlotter
 
-            self._add_widget_document(GeneralPlotter(), workspace, "2D Plot")
+            plotter = GeneralPlotter()
+            self._add_widget_document(plotter, workspace, "2D Plot")
+            if example_path is not None:
+                plotter.load_paths([example_path])
+                if plotter.loaded_files:
+                    plotter.y_columns.item(1).setSelected(True)
+                    plotter.xlabel_edit.setText(plotter.x_column.currentText())
+                    plotter.ylabel_edit.setText(plotter.y_columns.item(1).text())
+                    plotter.plot_data()
             return
         if workspace.key == "fluid":
             from qt_fluid_plotter import FluidPlotter
 
-            self._add_widget_document(FluidPlotter(), workspace, "Fluid dynamics")
+            plotter = FluidPlotter()
+            self._add_widget_document(plotter, workspace, "Fluid dynamics")
+            if example_path is not None:
+                plotter.load_paths([example_path])
             return
         if workspace.key == "plot3d":
             from qt_3d_plotter import Plot3D
 
-            self._add_widget_document(Plot3D(), workspace, "3D Plot")
+            plotter = Plot3D()
+            self._add_widget_document(plotter, workspace, "3D Plot")
+            if example_path is not None:
+                plotter.load_paths([example_path])
+                if plotter.loaded_files:
+                    plotter.xlabel_edit.setText(plotter.x_column.currentText())
+                    plotter.ylabel_edit.setText(plotter.y_column.currentText())
+                    plotter.zlabel_edit.setText(plotter.z_column.currentText())
 
     def _cancel_import(self, page):
         index = self.document_tabs.indexOf(page)
@@ -1347,7 +1126,6 @@ class SpectraSuiteWindow(QMainWindow):
 
     def _document_activated(self, index):
         widget = self.document_tabs.widget(index)
-        self._sync_ribbon_context(widget)
         session_data = self._document_states.get(widget)
         if session_data is not None:
             state.__dict__ = session_data
@@ -1445,6 +1223,10 @@ class SpectraSuiteWindow(QMainWindow):
             return
         try:
             data = json.loads(Path(filename).read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("A session must contain a JSON object.")
+            if not all(isinstance(data.get(key), dict) for key in ("settings", "file_set", "global_set")):
+                raise ValueError("The session is missing valid settings, dataset settings or plot settings.")
             technique = data.get("technique") or self._infer_session_technique(data)
             workspace_key = {
                 "FTIR": "ir", "XRD": "xrd", "UVVIS": "uvvis", "RAMAN": "raman",
@@ -1458,6 +1240,15 @@ class SpectraSuiteWindow(QMainWindow):
                 (stem, np.asarray(x, dtype=float), np.asarray(y, dtype=float))
                 for stem, x, y in data["all_data"]
             ]
+            if not fresh.all_data:
+                raise ValueError("The session contains no datasets.")
+            for name, x, y in fresh.all_data:
+                if not isinstance(name, str) or not name:
+                    raise ValueError("Each session dataset needs a name.")
+                if x.ndim != 1 or x.shape != y.shape or not x.size:
+                    raise ValueError(f"Dataset {name!r} must have equally sized, non-empty X and Y columns.")
+                if not isinstance(data["file_set"].get(name), dict):
+                    raise ValueError(f"Dataset {name!r} is missing its saved settings.")
             fresh.master_folder = data.get("master_folder")
             fresh.file_set = data["file_set"]
             fresh.global_set = data["global_set"]

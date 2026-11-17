@@ -139,7 +139,26 @@ def text_frame(text: str) -> pd.DataFrame:
     try:
         delimiter = csv.Sniffer().sniff(sample, delimiters=",\t;").delimiter
     except csv.Error:
-        delimiter = None
+        # Instrument headers and incomplete rows can defeat Sniffer even when
+        # the numeric body uses a consistent separator.
+        counts = {}
+        for separator in (",", "\t", ";"):
+            count = 0
+            sample_rows = (line for line in nonempty if separator in line)
+            for row in csv.reader(sample_rows, delimiter=separator):
+                if len(row) < 2:
+                    continue
+                try:
+                    x, y = float(row[0]), float(row[1])
+                except ValueError:
+                    continue
+                count += int(np.isfinite(x) and np.isfinite(y))
+                if count == 40:
+                    break
+            counts[separator] = count
+        delimiter = max(counts, key=counts.get)
+        if counts[delimiter] < 2:
+            delimiter = None
     rows = []
     for line in nonempty:
         values = next(csv.reader([line], delimiter=delimiter)) if delimiter else line.split()
@@ -163,7 +182,10 @@ def discover_spectra(path, *, minimum_points: int = 3) -> list[SpectrumDataset]:
             _read_text_frame(source), source.stem, minimum_points=minimum_points
         )
     if not found:
-        raise ValueError(f"No numeric X/Y datasets were found in {source.name}.")
+        raise ValueError(
+            f"No numeric X/Y dataset with at least {minimum_points} finite pairs was found. "
+            "Check the X and Y columns, or export the data as a two-column CSV, TXT or Excel file."
+        )
     found = [SpectrumDataset(item.name, item.x, item.y, str(source), item.sheet) for item in found]
     # A single plain two-column file should keep the familiar filename label.
     if len(found) == 1:

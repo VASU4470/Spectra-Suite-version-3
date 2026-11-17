@@ -1,138 +1,122 @@
-"""Offline Learning Center for SpectraSuite.
+"""Offline manual, technique guides and worked examples for the 3.5 workspace."""
 
-The Learning Center explains the scientific workflow around the application's
-measurements and analyses.  It is educational documentation only; it does not
-modify scientific calculations or processing defaults.
-"""
+from html import escape
+import json
 
-from __future__ import annotations
-
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QUrl, Signal
 from PySide6.QtWidgets import (
-    QDialog,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QSplitter,
-    QTextBrowser,
-    QVBoxLayout,
-    QWidget,
+    QDialog, QLineEdit, QListWidget, QPushButton, QSplitter, QTabWidget,
+    QTextBrowser, QVBoxLayout, QWidget,
 )
 
-from qt_theme import LIGHT_STYLE, apply_theme, apply_window_icon
+from qt_theme import apply_theme, apply_window_icon
 
 
-TOPICS = [(
-    "User Manual",
-    "Offline learning resources unavailable",
-    "<h2>Documentation resources missing</h2><p>The installed application could not locate its bundled offline Learning Center content. Please reinstall the complete application package.</p>",
-)]
+class LearningPage(QWidget):
+    def __init__(self, entries, asset_url):
+        super().__init__()
+        self.entries = entries
+        self.visible_entries = []
+        layout = QVBoxLayout(self)
+        self.search = QLineEdit(placeholderText="Search this tab")
+        layout.addWidget(self.search)
+        splitter = QSplitter()
+        self.items = QListWidget()
+        self.content = QTextBrowser()
+        self.content.document().setBaseUrl(asset_url)
+        splitter.addWidget(self.items)
+        splitter.addWidget(self.content)
+        splitter.setSizes([250, 600])
+        layout.addWidget(splitter, 1)
+        self.items.currentRowChanged.connect(self.show_entry)
+        self.search.textChanged.connect(self.filter_entries)
+        self.filter_entries("")
 
+    def filter_entries(self, query):
+        self.items.clear()
+        self.visible_entries = [
+            entry for entry in self.entries
+            if query.strip().casefold() in f"{entry['title']} {entry['html']}".casefold()
+        ]
+        self.items.addItems([entry.get("navigation_title", entry["title"]) for entry in self.visible_entries])
+        self.items.setCurrentRow(0)
+        if not self.visible_entries:
+            self.content.setPlainText("No matching topics.")
 
-# Read bundled offline documentation by stable topic ID.
-import json
-import sys
-from pathlib import Path
-from PySide6.QtWidgets import QLineEdit
+    def show_entry(self, row):
+        if row >= 0:
+            entry = self.visible_entries[row]
+            body = entry["html"]
+            if "figure" in entry:
+                image = escape(entry["figure"])
+                caption = escape(entry["caption"])
+                body += f'<p><img src="figures/{image}" width="500" alt="{caption}"></p><p><i>{caption}</i></p>'
+            self.content.setHtml(body)
 
-def _learn_resource():
-    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-    return root / "docs" / "learn" / "topics.json"
-
-def load_topics():
-    path = _learn_resource()
-    if not path.is_file():
-        return TOPICS
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    items = payload["topics"]
-    ids = [item["id"] for item in items]
-    if len(ids) != len(set(ids)):
-        raise ValueError("Duplicate Learning Center topic IDs")
-    return [(item["category"], item["title"], item["html"], item["id"]) for item in items]
 
 class LearningCenterDialog(QDialog):
-    """Offline, searchable-by-navigation scientific help center."""
+    exampleRequested = Signal(str, str)
 
-    def __init__(self, parent=None, initial_topic=None):
+    def __init__(self, resource_path, workspaces, parent=None):
         super().__init__(parent)
         self.setWindowTitle("SpectraSuite Learning Center")
-        self.resize(1000, 720)
-        self.setMinimumSize(760, 520)
-        apply_theme(self, LIGHT_STYLE)
-        apply_window_icon(self, "APP")
-
-        root = QVBoxLayout(self)
-        heading = QLabel("Learn — science, instrumentation, processing and analysis")
-        heading.setStyleSheet("font-size: 18px; font-weight: 700;")
-        root.addWidget(heading)
-
-        self.search = QLineEdit()
-        self.search.setPlaceholderText('Search topics and scientific explanations (offline)')
-        root.addWidget(self.search)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        root.addWidget(splitter, 1)
-
-        self.topic_list = QListWidget()
-        self.topic_list.setMinimumWidth(250)
-        self.topic_list.setMaximumWidth(340)
-        splitter.addWidget(self.topic_list)
-
-        content_wrap = QWidget()
-        content_layout = QVBoxLayout(content_wrap)
-        content_layout.setContentsMargins(8, 0, 0, 0)
-        self.content = QTextBrowser()
-        self.content.setOpenExternalLinks(True)
-        content_layout.addWidget(self.content)
-        splitter.addWidget(content_wrap)
-        splitter.setSizes([280, 720])
-
-        last_category = None
-        target_row = 0
-        self._all_topics = load_topics()
-        for topic in self._all_topics:
-            category, title, html = topic[:3]
-            topic_id = topic[3] if len(topic) > 3 else title
-            if category != last_category:
-                header = QListWidgetItem(category)
-                header.setFlags(Qt.ItemFlag.NoItemFlags)
-                font = header.font()
-                font.setBold(True)
-                header.setFont(font)
-                self.topic_list.addItem(header)
-                last_category = category
-            item = QListWidgetItem(f"   {title}")
-            item.setData(Qt.ItemDataRole.UserRole, html)
-            item.setData(Qt.ItemDataRole.UserRole + 1, title)
-            item.setData(Qt.ItemDataRole.UserRole + 2, topic_id)
-            item.setData(Qt.ItemDataRole.UserRole + 3, category)
-            self.topic_list.addItem(item)
-            if initial_topic and (initial_topic == topic_id or initial_topic.lower() in title.lower()):
-                target_row = self.topic_list.count() - 1
-
-        self.search.textChanged.connect(self._filter_topics)
-        self.topic_list.currentItemChanged.connect(self._topic_changed)
-        self.topic_list.setCurrentRow(target_row if target_row else 1)
-
-    def _topic_changed(self, item, _previous=None):
-        if item is None:
+        self.resize(940, 650)
+        self.setMinimumSize(780, 480)
+        apply_theme(self)
+        apply_window_icon(self)
+        self.examples = []
+        layout = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+        try:
+            topics = json.loads(resource_path("docs/learn/topics.json").read_text(encoding="utf-8"))["topics"]
+            examples = json.loads(resource_path("docs/learn/examples.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, KeyError):
+            message = QTextBrowser()
+            message.setPlainText("The offline Learning Center resources could not be loaded. Reinstall the complete application package.")
+            layout.addWidget(message)
+            self.tabs.hide()
             return
-        html = item.data(Qt.ItemDataRole.UserRole)
-        if html:
-            self.content.setHtml(html)
+        asset_url = QUrl.fromLocalFile(str(resource_path("docs/learn")) + "/")
+        manual = [topic for topic in topics if topic["id"].startswith("manual.")]
+        guides = [topic for topic in topics if not topic["id"].startswith("manual.")]
+        self.tabs.addTab(LearningPage(manual, asset_url), "User Manual")
+        self.tabs.addTab(LearningPage(guides, asset_url), "Learning Center")
 
-    def _filter_topics(self, query):
-        query = query.strip().lower()
-        for row in range(self.topic_list.count()):
-            item = self.topic_list.item(row)
-            html = item.data(Qt.ItemDataRole.UserRole)
-            if html is None:
-                item.setHidden(bool(query))
-            else:
-                haystack = " ".join((item.text(), str(item.data(Qt.ItemDataRole.UserRole + 3) or ""), html))
-                item.setHidden(query not in haystack.lower())
-        if query:
-            for row in range(self.topic_list.count()):
-                item = self.topic_list.item(row)
-                if not item.isHidden() and item.data(Qt.ItemDataRole.UserRole):
-                    self.topic_list.setCurrentItem(item)
-                    break
+        for workspace in workspaces:
+            if workspace.coming_soon or workspace.key not in examples:
+                continue
+            name = workspace.title.replace("\n", " ")
+            status = " (Preview)" if workspace.experimental else ""
+            for entry in examples[workspace.key]:
+                navigation_title = name + status
+                if entry.get("kind") == "Measured":
+                    navigation_title += " (Measured)"
+                title = f"{navigation_title} · {entry['title']}"
+                fields = [("Units", "units"), ("Dataset provenance", "provenance")]
+                if "source" in entry:
+                    fields.extend([("Source", "source"), ("License", "license")])
+                fields.append(("Expected result", "expected"))
+                details = "".join(
+                    f"<p><b>{label}</b> {escape(entry[key])}</p>"
+                    for label, key in fields
+                )
+                walkthrough = "".join(f"<li>{escape(step)}</li>" for step in entry["steps"])
+                self.examples.append(dict(
+                    entry, workspace=workspace.key, title=title, navigation_title=navigation_title,
+                    html=f"<h2>{escape(title)}</h2>{details}<h3>Walkthrough</h3><ol>{walkthrough}</ol>",
+                ))
+
+        self.library = LearningPage(self.examples, asset_url)
+        self.open_button = QPushButton("Open Example")
+        self.library.layout().addWidget(self.open_button)
+        self.open_button.setEnabled(self.library.items.currentRow() >= 0)
+        self.library.items.currentRowChanged.connect(lambda row: self.open_button.setEnabled(row >= 0))
+        self.open_button.clicked.connect(self.open_example)
+        self.tabs.addTab(self.library, "Example Library")
+
+    def open_example(self):
+        row = self.library.items.currentRow()
+        if row >= 0:
+            entry = self.library.visible_entries[row]
+            self.exampleRequested.emit(entry["workspace"], entry["file"])

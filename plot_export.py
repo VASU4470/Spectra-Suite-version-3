@@ -14,6 +14,9 @@ import numpy as np
 from matplotlib.backends import backend_agg, backend_pdf, backend_svg
 
 
+DEFAULT_FIGURE_DPI = 300
+DEFAULT_TRIM_MARGINS = True
+
 SUPPORTED_FIGURE_FORMATS = (".png", ".jpg", ".svg", ".pdf", ".tiff")
 
 
@@ -66,8 +69,8 @@ def normalize_figure_path(filename, selected_filter="", default_suffix=".png"):
     return path.with_suffix(selected)
 
 
-def save_figure(figure, filename, *, selected_filter="", dpi=300,
-                size_inches=None, transparent=False, tight=True):
+def save_figure(figure, filename, *, selected_filter="", dpi=DEFAULT_FIGURE_DPI,
+                size_inches=None, transparent=False, tight=DEFAULT_TRIM_MARGINS):
     """Atomically export without changing the live canvas or losing an old file."""
     path = normalize_figure_path(filename, selected_filter)
     dpi = int(dpi)
